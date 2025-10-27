@@ -31,7 +31,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 
 ## 11-Stage Processing Pipeline
 
-1. **dependency_check** – Validate runtime dependencies and model availability
+1. **dependency_check** – Validate runtime dependencies and model availability (runs when `validate_dependencies` is enabled)
 2. **preprocess** – Audio normalization, denoising, auto-chunking for long files
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
 4. **diarize** – Speaker segmentation with adaptive VAD tuning
@@ -119,7 +119,7 @@ Output Files:
 
 ### Primary Outputs
 
-**`diarized_transcript_with_emotion.csv`** - 40-column master transcript
+**`diarized_transcript_with_emotion.csv`** - 39-column master transcript
 - **Temporal**: start, end, duration_s
 - **Speaker**: speaker_id, speaker_name
 - **Content**: text, asr_logprob_avg
@@ -149,7 +149,7 @@ Output Files:
 
 - **`segments.jsonl`** – Full segment payloads with audio features
 - **`speaker_registry.json`** – Persistent speaker embeddings for cross-file tracking
-- **`events_timeline.csv`** – Sound event timeline with confidence scores
+- **`events_timeline.csv`** – Sound event timeline with confidence scores (written when SED timeline mode runs)
 - **`timeline.csv`** – Simplified timeline for quick review
 - **`qc_report.json`** – Quality control metrics and processing diagnostics
 - **`summary.pdf`** – PDF version of HTML report (requires wkhtmltopdf)
@@ -176,7 +176,7 @@ Install ffmpeg on path
 ```powershell
 # Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd diaremot2-on
+cd redo
 
 # Run setup script
 .\setup.ps1
@@ -187,7 +187,7 @@ Install ffmpeg on path
 ```powershell
 # 1. Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd diaremot2-on
+cd redo
 
 # 2. Create virtual environment
 py -3.11 -m venv .venv
@@ -210,7 +210,7 @@ Install ffmpeg to path
 ```bash
 # Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd diaremot2-on
+cd redo
 
 # Make setup script executable and run
 chmod +x setup.sh
@@ -222,7 +222,7 @@ install ffmpeg to path
 ```bash
 # 1. Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd diaremot2-on
+cd redo
 
 # 2. Create virtual environment
 python3.11 -m venv .venv
@@ -543,6 +543,8 @@ $ECAPA_ONNX_PATH
 - D:/models (Windows) or /models (Linux)
 ```
 
+> _Note:_ If the canonical platform directory is not writable, the bootstrapper falls back to `<repo>/.cache/models` so the pipeline can run fully offline.
+
 **Example: Silero VAD Discovery**
 
 ```python
@@ -561,19 +563,19 @@ $SILERO_VAD_ONNX_PATH
 Override specific model paths to skip search:
 
 ```bash
+# Model root (affects all relative paths)
+export DIAREMOT_MODEL_DIR="$HOME/models"
+
 # Diarization models
-export SILERO_VAD_ONNX_PATH="D:/models/Diarization/silaro_vad/silero_vad.onnx"
-export ECAPA_ONNX_PATH="D:/models/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
+export SILERO_VAD_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/silaro_vad/silero_vad.onnx"
+export ECAPA_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
 
 # Affect models (full directory paths, not specific files)
-export DIAREMOT_SER_ONNX="D:/models/Affect/ser8/model.int8.onnx"
-export DIAREMOT_TEXT_EMO_MODEL_DIR="D:/models/text_emotions"
-export AFFECT_VAD_DIM_MODEL_DIR="D:/models/Affect/VAD_dim"
-export DIAREMOT_INTENT_MODEL_DIR="D:/models/intent"
-export DIAREMOT_PANNS_DIR="D:/models/Affect/sed_panns"
-
-# Model root (affects all relative paths)
-export DIAREMOT_MODEL_DIR="D:/models"
+export DIAREMOT_SER_ONNX="$DIAREMOT_MODEL_DIR/Affect/ser8/model.int8.onnx"
+export DIAREMOT_TEXT_EMO_MODEL_DIR="$DIAREMOT_MODEL_DIR/text_emotions"
+export AFFECT_VAD_DIM_MODEL_DIR="$DIAREMOT_MODEL_DIR/Affect/VAD_dim"
+export DIAREMOT_INTENT_MODEL_DIR="$DIAREMOT_MODEL_DIR/intent"
+export DIAREMOT_PANNS_DIR="$DIAREMOT_MODEL_DIR/Affect/sed_panns"
 ```
 
 ### CTranslate2 Models (Auto-downloaded)
@@ -651,7 +653,7 @@ python -m diaremot.cli smoke --outdir outputs/
 - `--clustering-backend` – Clustering method (ahc or spectral)
 
 **Features:**
-- `--disable-sed` / `--enable-sed` – Toggle sound event detection
+- `--disable-sed` – Skip sound event detection (enabled by default)
 - `--disable-affect` – Skip emotion/intent analysis
 - `--profile` – Preset configuration (default|fast|accurate|offline)
 
@@ -1037,7 +1039,7 @@ pytest tests/ -v
 ## Project Structure
 
 ```
-diaremot2-on/
+redo/
 ├── src/
 │   ├── audio_pipeline_core.py       # Legacy location (transitional)
 │   └── diaremot/                    # Main package
@@ -1136,7 +1138,7 @@ If you use DiaRemot in your research, please cite:
   author = {Timothy Leigh Troglin},
   year = {2024},
   version = {2.2.0},
-  url = {https://github.com/tltrogl/diaremot2-on}
+  url = {https://github.com/tltrogl/redo}
 }
 ```
 
@@ -1161,9 +1163,9 @@ Special thanks to the open-source ML community.
 
 ---
 
-**Last Updated:** 2025-01-15  
+**Last Updated:** 2025-03-08
 **Version:** 2.2.0  
 **Python:** 3.11-3.12  
 **License:** MIT
 
-[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/diaremot2-on&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/redo&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)

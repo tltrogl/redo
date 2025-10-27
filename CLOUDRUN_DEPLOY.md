@@ -13,7 +13,7 @@ Deploys your diaremot audio processing pipeline as a **live web service** on Goo
 
 ## ✅ Files Created
 
-All files are in: `D:\diaremot\diaremot2-on\`
+All files are in: `D:\diaremot\redo\`
 
 ```
 📄 deploy-cloudrun.ps1          ← RUN THIS (Windows)
@@ -45,7 +45,7 @@ gcloud auth login
 
 ```powershell
 # Windows PowerShell
-cd D:\diaremot\diaremot2-on
+cd D:\diaremot\redo
 .\deploy-cloudrun.ps1
 ```
 
@@ -53,7 +53,7 @@ cd D:\diaremot\diaremot2-on
 
 ```bash
 # Linux/Mac
-cd /path/to/diaremot2-on
+cd /path/to/redo
 ./deploy-cloudrun.sh
 ```
 

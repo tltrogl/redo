@@ -1,7 +1,7 @@
-# DiaRemot2 Data Flow Map
+# DiaRemot Data Flow Map
 
 **Version:** 2.2.0  
-**Updated:** 2025-01-15
+**Updated:** 2025-03-08
 
 ## Pipeline Overview
 
@@ -10,7 +10,7 @@ Input Audio File
       ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ Stage 1: dependency_check                                    │
-│ Validates runtime dependencies and model availability        │
+│ (Optional) Validates runtime dependencies and model access   │
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -72,6 +72,7 @@ Input Audio File
 │   - Text emotion: GoEmotions → 28-class distribution         │
 │   - Intent: BART-MNLI → zero-shot classification             │
 │   - Attach top-3 background sounds from SED                  │
+│   - Estimate SED-derived SNR (`snr_db_sed`)                   │
 │ • Merge all features into segments_final                     │
 │ Output: segments_final (39 columns per SEGMENT_COLUMNS)     │
 └─────────────────────────────────────────────────────────────┘
@@ -122,17 +123,16 @@ Input Audio File
 ## Detailed Stage Data Flow
 
 ### Stage 1: dependency_check
-**Input:** None  
+**Input:** None
 **Process:**
-- Check FFmpeg availability
-- Verify Python dependencies (librosa, torch, etc.)
-- Test model file accessibility
-- Report dependency health
+- Runs only when `validate_dependencies=True`.
+- Calls `dependency_health_summary()` to verify core Python dependencies and optional native bindings.
+- Emits warnings for missing or out-of-date packages so the orchestrator can surface them early.
 
 **Output:**
 ```python
 PipelineState:
-  # No state changes, only validates environment
+  dependency_summary: dict[str, dict[str, object]]  # populated when checks run
 ```
 
 ---
@@ -345,11 +345,13 @@ PipelineState:
    - **Background Context:**
      * Attach top-3 background sounds from SED
      * Compute noise tag
+     * Derive `snr_db_sed` from SED timeline overlap when available
 2. Assemble final segment structure with all 39 columns
 3. Compute derived fields:
    - affect_hint (e.g., "calm-positive", "agitated-negative")
    - voice_quality_hint (interpretation of Praat metrics)
    - low_confidence_ser (flag if SER score < 0.5)
+   - snr_db_sed (noise-adjusted SNR estimate)
 
 **Output:**
 ```python
@@ -663,6 +665,7 @@ Cache is invalidated when:
 - **VAD (ONNX):** Valence/Arousal/Dominance
 - **GoEmotions (ONNX):** 28-class text emotion
 - **BART-MNLI (ONNX):** Intent classification
+- **SED timeline fusion:** Top-3 events + SNR estimate (`snr_db_sed`)
 
 ### Background SED (Stage 3)
 - **PANNs CNN14 (ONNX):** 527-class sound events

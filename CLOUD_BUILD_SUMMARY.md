@@ -289,7 +289,7 @@ Available in Cloud Console → Cloud Build → History
 
 - **Cloud Build Docs**: https://cloud.google.com/build/docs
 - **Dockerfile Reference**: https://docs.docker.com/engine/reference/builder/
-- **Project Issues**: https://github.com/your-org/diaremot2-on/issues
+- **Project Issues**: https://github.com/your-org/redo/issues
 
 ---
 
