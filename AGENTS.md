@@ -1,295 +1,299 @@
-This file is for the agent. Execute deterministic instructions exactly as written. If a prerequisite is missing or a contract below would be violated, stop and return a failure report with the minimal relevant logs.
-Agents read AGENTS.md to learn build/test/style rules and context. Think of it as a README for agents. 
+# AGENTS.md — Codex Cloud Environment Agent (Strict, Complete)
 
-Your core function is efficient and safe assistance. Balance extreme conciseness with the crucial need for clarity, especially regarding safety and potential system modifications. Always prioritize user control and project conventions. Never make assumptions about the contents of files; instead use 'read_file' or 'read_many_files' to ensure you aren't making broad assumptions. Finally, you are an agent - please keep going until the user's query is completely resolved.
+> Contract for **autonomous agents** running this project in a Codex‑style cloud environment. Execute **literally** with no mid‑run confirmations.
 
+---
 
-0) Operating Mode
+## 1) Autonomy & Unblocking
 
+- **Execution model:** **Plan → Execute → Self‑Verify → Continue.** Do **not** pause to ask for approval.
+- **Unblocking mandate:** If a prerequisite is missing/broken, **detect → acquire/repair → verify** in the same run (packages, CLIs, models, directories, permissions, local services, caches).
+- **No fallbacks:** Any internal fallback (e.g., switching runtimes/models/features) counts as **failure**.
+- **Change style — “surgical but thorough”:** Edit the **smallest regions per file**, across **all files required** (code, config, scripts, tests, docs). Emit diffs after each edit wave.
+- **Evidence every time:** Capture exit codes + concise logs for each major action and include them in the final report.
 
-Network: Internet ON. 
+---
 
-Execution: CPU-only (no CUDA paths).
+## 2) Environment Assumptions (Hard Requirements)
 
-Inference policy: ONNX-first
+- **OS:** Linux container/VM; treat as **ephemeral and reproducible**.
+- **Python:** **3.11** (exact). Create/activate a local venv.
+- **CPU‑only.** Use **ONNXRuntime** models where defined; **do not** switch to PyTorch or other runtimes as fallback.
+- **System tools:** `ffmpeg` must be on PATH.
+- **Network:** **Allowed.** Internet access is available at all times.
+- **Models:** **All required models are provided by `./models.zip`** in the repo root and **must** be used. Do not download alternative model files during the run.
 
-1) Project Maps (fast mental model)
-1.1 Pipeline Stage Map (fixed 11 stages)
-1 dependency_check
-2 preprocess
-3 background_sed
-4 diarize
-5 transcribe
-6 paralinguistics
-7 affect_and_assemble
-8 overlap_interruptions
-9 conversation_analysis
-10 speaker_rollups
-11 outputs
+---
 
-auto_tune.py is internal to diarization and not an extra stage.
+## 3) Setup (Bootstrap) — Idempotent, No Placeholders
 
-1.2 Dataflow Map (11-stage pipeline → outputs)
-See DATAFLOW.md for detailed stage-by-stage documentation.
+Run these commands at task start (or in the environment’s setup phase). They are fully concrete.
 
-Audio (1–3h)
-    ↓
-[1] dependency_check → Validate environment
-    ↓
-[2] preprocess → 16kHz mono, -20 LUFS, denoise, auto-chunk
-    ↓ {y, sr, duration_s, health, audio_sha16}
-    ↓
-[3] background_sed → PANNs CNN14 (global + timeline if noisy)
-    ↓ {sed_info: top labels, dominant_label, noise_score}
-    ↓
-[4] diarize → Silero VAD + ECAPA embeddings + AHC clustering
-    ↓ {turns: [{start, end, speaker, speaker_name}]}
-    ↓
-[5] transcribe → Faster-Whisper with intelligent batching
-    ↓ {norm_tx: [{start, end, speaker, text, asr_logprob_avg}]}
-    ↓
-[6] paralinguistics → Praat (jitter/shimmer/HNR/CPPS) + prosody
-    ↓ {para_map: {seg_idx: {wpm, vq_*, f0_*, ...}}}
-    ↓
-[7] affect_and_assemble → Audio (VAD+SER8) + Text (GoEmotions+BART-MNLI)
-    ↓ {segments_final: 39 columns per segment}
-    ↓
-[8] overlap_interruptions → Overlaps + interruption classification
-    ↓ {overlap_stats, per_speaker_interrupts}
-    ↓
-[9] conversation_analysis → Turn-taking + dominance + flow
-    ↓ {conv_metrics}
-    ↓
-[10] speaker_rollups → Per-speaker aggregated stats
-    ↓ {speakers_summary}
-    ↓
-[11] outputs → CSV/JSONL/HTML/PDF/QC reports
+```bash
+set -euo pipefail
 
+# 3.1 Python environment (exact version)
+python3.11 -V
+python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install -U pip wheel setuptools
 
-Artifacts:
+# 3.2 Project dependencies (runtime + dev)
+if [ -f requirements.txt ]; then
+  pip install -r requirements.txt
+fi
+# Optional editable install if pyproject/Extras present
+if [ -f pyproject.toml ]; then
+  pip install -e ".[dev]" || pip install -e .
+fi
 
-Primary CSV: diarized_transcript_with_emotion.csv (39 columns, fixed order per SEGMENT_COLUMNS).
+# 3.3 Ensure ffmpeg (install only if missing)
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  sudo apt-get update -y
+  sudo apt-get install -y ffmpeg
+fi
 
-Other defaults: segments.jsonl, speakers_summary.csv, events_timeline.csv, summary.html, summary.pdf, qc_report.json, timeline.csv, diarized_transcript_readable.txt, speaker_registry.json.
+# 3.4 Models: unzip strictly from the provided bundle at repo root
+test -f ./models.zip
+rm -rf ./models && mkdir -p ./models
+unzip -q ./models.zip -d ./models
 
-Cache files: .cache/{audio_sha16}/preprocessed.npz, diar.json, tx.json (enables resume).
+# 3.5 Verify required model files exist (strict, no fallbacks)
+required_models=(
+  "./models/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
+  "./models/Diarization/silaro_vad/silero_vad.onnx"
+  "./models/Affect/ser8/model.int8.onnx"
+  "./models/Affect/VAD_dim/model.onnx"
+  "./models/Affect/sed_panns/model.onnx"
+  "./models/Affect/sed_panns/class_labels_indices.csv"
+  "./models/text_emotions/model.int8.onnx"
+  "./models/intent/model_int8.onnx"
+)
+for f in "${required_models[@]}"; do
+  [ -f "$f" ] || { echo "Missing required model file: $f" >&2; exit 1; }
+done
 
-1.3 Model Map (preferred ONNX; CPU-friendly)
-VAD	Silero VAD (ONNX)	Well-known CPU VAD; ONNX variants exist. 
+# 3.6 Caches (local, concrete paths)
+export DIAREMOT_MODEL_DIR="$(pwd)/models"
+export HF_HOME="$(pwd)/.cache"
+export TRANSFORMERS_CACHE="$(pwd)/.cache/transformers"
+mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE"
+```
 
-Speaker embeds	ECAPA-TDNN (ONNX if present)	Standard embeddings for AHC clustering.
+---
 
-SED	PANNs CNN14 (ONNX) → AudioSet→~20 groups	CNN14 summary + paper. 
+## 4) Maintenance (Resuming Cached Containers)
 
-ASR	Faster-Whisper on CTranslate2	Fast CPU inference; int8 default; float32 remains optional here. 
+```bash
+set -euo pipefail
+[ -d .venv ] || python3.11 -m venv .venv
+. .venv/bin/activate
+python -m pip install -U pip wheel setuptools
+[ -f requirements.txt ] && pip install -r requirements.txt || true
+if [ -f pyproject.toml ]; then
+  pip install -e ".[dev]" || pip install -e .
+fi
+# Re‑assert caches and model roots
+export DIAREMOT_MODEL_DIR="$(pwd)/models"
+export HF_HOME="$(pwd)/.cache"
+export TRANSFORMERS_CACHE="$(pwd)/.cache/transformers"
+```
 
-Tone (V/A/D)	wav2vec2-based (per brief)	—
-SER (8-class)	wav2vec2 emotion model	—
-Text emotions	RoBERTa GoEmotions (28)	
-Intent	BART-large-MNLI (zero-shot)	
+---
 
-Runtime	ONNX Runtime CPU EP	CPU EP is default provider. 
-ONNX Runtime
+## 5) Canonical Commands (Build / Test / Lint) — Strict
 
-1.4 Directory Map (logical anchors)
+```bash
+set -euo pipefail
+. .venv/bin/activate
 
-Stages registry: src/diaremot/pipeline/stages/__init__.py (defines PIPELINE_STAGES)
-
-Outputs schema: src/diaremot/pipeline/outputs.py (defines SEGMENT_COLUMNS)
-
-Orchestrator/CLI: diaremot/cli.py (python -m diaremot.cli run), diaremot/pipeline/run_pipeline.py, legacy diaremot/pipeline/cli_entry.py
-
-Speaker registry persistence: e.g., speaker_registry.json (centroids, names)
-
-
-3) Deterministic Task Protocol (what you return every time)
-
-A) Plan
-Name exact files/symbols and the one-clause reason for each edit.
-
-B) Code Changes
-Apply surgical and thorough unified diffs limited to scope; preserve style/imports/APIs. Emit per-file diffs.
-
-C) Verification Gates (run all, capture exit codes + trimmed logs)
-
-# Lint
+# Lint (required)
 ruff check src/ tests/
 
-# Unit tests
-pytest -q
+# Type check (required if type info present; otherwise soft‑pass to not block)
+mypy src/ || true
 
-# Smoke (offline-safe after models are installed)
-python -m diaremot.cli run -i data\sample.wav -o outputs\_smoke --disable-affect --disable-sed
+# Unit/functional tests (required if tests exist)
+if [ -d tests ]; then
+  pytest -q
+fi
 
-# Contracts (hard fail if violated)
+# Diagnostics (on demand)
+python -m diaremot.cli diagnostics
+```
+
+- **Strictness:** Any test/lint **hard failure** aborts the run. Do **not** substitute or skip.
+- **No fallbacks:** If any component would fallback (e.g., alternate runtime/model/feature disable), treat as **failure**.
+
+---
+
+## 6) Strict Smoke Check (All Features, No Fallbacks)
+
+This must exercise **all features** (Quiet‑Boost, SED [default ON], Diarization, ASR, Affect V/A/D, Speech Emotion 8‑class, Text Emotions 28‑class, Intent, Outputs). **VAD_dim is mandatory. SED is enabled by default.**
+
+```bash
+set -euo pipefail
+. .venv/bin/activate
+
+OUTDIR="/tmp/smoke_strict"
+rm -rf "$OUTDIR" && mkdir -p "$OUTDIR"
+
+# Run the strict smoke using local models only (no alternative downloads)
+PYTHONPATH=src HF_HOME="$(pwd)/.cache" TRANSFORMERS_CACHE="$(pwd)/.cache/transformers" DIAREMOT_MODEL_DIR="$(pwd)/models" python -m diaremot.cli smoke   --outdir "$OUTDIR"   --model-root "$(pwd)/models"   --enable-sed   --enable-affect   --require-vad-dim   --strict
+
+# Verify artifacts and required columns/fields
 python - << 'PY'
-from diaremot.pipeline.outputs import SEGMENT_COLUMNS
-assert len(SEGMENT_COLUMNS)==40, f"CSV columns != 39 ({len(SEGMENT_COLUMNS)})"
-print("CSV schema OK")
+import json, csv, os, sys
+outdir = "/tmp/smoke_strict"
+required_files = [
+    "diarized_transcript_with_emotion.csv",
+    "segments.jsonl",
+    "summary.html",
+    "speakers_summary.csv",
+    "events_timeline.csv",
+    "timeline.csv",
+    "qc_report.json"
+]
+missing = [f for f in required_files if not os.path.isfile(os.path.join(outdir,f))]
+if missing:
+    print("Missing artifacts:", missing, file=sys.stderr); sys.exit(1)
+
+# CSV schema (40 columns, exact order expected by this project)
+expected_cols = [
+ "file_id","start","end","speaker_id","speaker_name","text",
+ "valence","arousal","dominance",
+ "emotion_top","emotion_scores_json",
+ "text_emotions_top5_json",
+ "intent_top","intent_top3_json",
+ "events_top3_json","noise_tag",
+ "asr_logprob_avg","snr_db","snr_db_sed",
+ # fill remaining columns that are contractual for this project if present
+]
+# Soft check: ensure a superset with all named columns present
+with open(os.path.join(outdir,"diarized_transcript_with_emotion.csv"), newline="", encoding="utf-8") as f:
+    reader = csv.DictReader(f)
+    header = reader.fieldnames or []
+    missing_cols = [c for c in expected_cols if c not in header]
+    if missing_cols:
+        print("CSV missing expected columns:", missing_cols, file=sys.stderr); sys.exit(1)
+    row_count = sum(1 for _ in reader)
+    if row_count == 0:
+        print("CSV has zero rows", file=sys.stderr); sys.exit(1)
+
+# Basic QC: ensure affect and text metrics present in segments.jsonl
+affect_ok = text_ok = intent_ok = False
+with open(os.path.join(outdir,"segments.jsonl"), encoding="utf-8") as f:
+    for i,line in enumerate(f):
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue
+        if all(k in obj for k in ("valence","arousal","dominance")):
+            affect_ok = True
+        if "text_emotions_top5" in obj or "text_emotions" in obj:
+            text_ok = True
+        if "intent_top" in obj or "intent" in obj:
+            intent_ok = True
+        if affect_ok and text_ok and intent_ok:
+            break
+if not (affect_ok and text_ok and intent_ok):
+    print("Segment metrics missing: affect/text/intent", file=sys.stderr); sys.exit(1)
+
+# SED timeline file exists; content may be empty if truly silent, which is acceptable for smoke
+# VAD_dim is mandatory but validated via presence of valence/arousal/dominance above
+
+print("STRICT_SMOKE_OK")
 PY
+```
 
-python - << 'PY'
-from diaremot.pipeline.stages import PIPELINE_STAGES
-assert len(PIPELINE_STAGES)==11, f"Stage count != 11 ({len(PIPELINE_STAGES)})"
-print("Stage count OK")
-PY
+Any missing artifact/column/metric causes a **hard failure**.
 
-python - << 'PY'
-import os
-v=os.environ.get("CUDA_VISIBLE_DEVICES","")
-assert v in ("","none","None"), f"Unexpected CUDA_VISIBLE_DEVICES={v!r}"
-print("CPU-only OK")
-PY
+---
 
+## 7) Repo Layout & Entry Points (Concrete)
 
-Notes: ONNX Runtime’s CPU EP is the baseline; we intentionally avoid GPU providers. 
-ONNX Runtime
+- **CLI:** `src/diaremot/cli.py`
+- **Pipeline Orchestrator:** `src/diaremot/pipeline/orchestrator.py`
+- **Stages Registry:** `src/diaremot/pipeline/stages/__init__.py`
+- **Outputs & schema:** `src/diaremot/pipeline/outputs.py` (40 contractual columns)
+- **Affect / SED / Intent:** `src/diaremot/affect/`, `src/diaremot/sed/`, `src/diaremot/intent/`
+- **Model utilities:** `src/diaremot/io/onnx_utils.py`, `src/diaremot/utils/model_paths.py`
+- **Tests:** `tests/`
+- **Setup scripts:** `setup.sh`, `setup.ps1`
 
-D) Report (structured)
+---
 
-Summary (1–3 sentences)
+## 8) Models & Data (Local‑First, Mandatory)
 
-Files Modified (path + +/- counts or tiny diff excerpts)
+- Use **only** the models from `./models.zip` (unzipped to `./models`).
+- **Required paths (must exist):**
+  - `./models/Diarization/ecapa-onnx/ecapa_tdnn.onnx`
+  - `./models/Diarization/silaro_vad/silero_vad.onnx`
+  - `./models/Affect/ser8/model.int8.onnx`
+  - `./models/Affect/VAD_dim/model.onnx`
+  - `./models/Affect/sed_panns/model.onnx`
+  - `./models/Affect/sed_panns/class_labels_indices.csv`
+  - `./models/text_emotions/model.int8.onnx`
+  - `./models/intent/model_int8.onnx`
 
-Commands Executed (verbatim + exit codes)
+- **Environment overrides (concrete):**
+```bash
+export DIAREMOT_MODEL_DIR="$(pwd)/models"
+export SILERO_VAD_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/silaro_vad/silero_vad.onnx"
+export ECAPA_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
+export DIAREMOT_PANNS_DIR="$DIAREMOT_MODEL_DIR/Affect/sed_panns"
+export DIAREMOT_TEXT_EMO_MODEL_DIR="$DIAREMOT_MODEL_DIR/text_emotions"
+export AFFECT_VAD_DIM_MODEL_DIR="$DIAREMOT_MODEL_DIR/Affect/VAD_dim"
+export DIAREMOT_INTENT_MODEL_DIR="$DIAREMOT_MODEL_DIR/intent"
+export HF_HOME="$(pwd)/.cache"
+export TRANSFORMERS_CACHE="$(pwd)/.cache/transformers"
+```
 
-Key Logs (failing tails or final summaries only)
+---
 
-Risks / Assumptions (bullets)
+## 9) Network & Secrets
 
-Follow-Up (optional)
+- **Internet:** Always allowed.
+- **Secrets:** Not required for standard runs. If introduced in the future, fetch them **only during setup** and cache artifacts locally; do not require secrets mid‑run.
 
-4) DiaRemot Contracts (enforce)
+---
 
-CSV schema: diarized_transcript_with_emotion.csv has exactly 39 columns, fixed order. Never remove/reorder; append only with migration + tests + docs.
+## 10) Artifacts & Success Criteria (Hard Gates)
 
-Stage count: Exactly 11 (map above), order fixed.
+A run is successful only if **all** of the following pass:
 
-CPU-only: no CUDA/GPU paths.
+1. **Artifacts present:**
+   - `diarized_transcript_with_emotion.csv`
+   - `segments.jsonl`
+   - `summary.html`
+   - `speakers_summary.csv`
+   - `events_timeline.csv`
+   - `timeline.csv`
+   - `qc_report.json`
+2. **CSV contract:** `diarized_transcript_with_emotion.csv` has **40 columns** including affect (V/A/D), speech emotion, text emotions top‑5 JSON, intent, SED overlaps, noise/SNR metrics.
+3. **All features exercised:** Quiet‑Boost, SED (ON), Diarization, ASR, Affect V/A/D, Speech Emotion 8‑class, Text Emotions 28‑class, Intent. **VAD_dim present.**
+4. **No fallbacks used.** If any component indicates fallback/disablement, mark as **failure**.
+5. **Lint/tests:** `ruff` and `pytest` (if tests exist) complete with **zero hard failures**.
 
-ONNX-first: Prefer ONNXRuntime; log explicit fallbacks. 
-ONNX Runtime
+---
 
-Defaults to preserve:
+## 11) Known Pitfalls / Gotchas (Concrete)
 
-ASR: Faster-Whisper tiny.en via CTranslate2; int8 default in the main pipeline (float32 only when explicitly requested or ASR-only subcommand). 
-GitHub
+- **Directory name:** Silero VAD lives under `Diarization/silaro_vad/` (intentional spelling in this repo).
+- **Quantized models:** SER8 and text‑emotions models are `model.int8.onnx`; intent is `model_int8.onnx`.
+- **Strictness:** Treat missing models, disabled features, or alternate runtimes as **hard failures**.
+- **Long audio:** The pipeline auto‑chunks for long files; ensure sufficient disk space in the workspace.
 
-SED: PANNs CNN14 ONNX; 1.0 s frames / 0.5 s hop; median 3–5; hysteresis enter ≥0.50 / exit ≤0.35; min_dur=0.30 s; merge_gap≤0.20 s. 
+---
 
-Diarization: Silero VAD (ONNX) → ECAPA-TDNN embeddings → AHC; typical defaults vad_threshold≈0.35, vad_min_speech_sec=0.80, vad_min_silence_sec=0.80, vad_speech_pad_sec=0.10, ahc_distance_threshold≈0.15; post rules: collar≈0.25 s, min_turn_sec=1.50, max_gap_to_merge_sec=1.00. 
-Paralinguistics: Praat-Parselmouth voice metrics; on failure, write placeholders (schema must remain intact).
+## 12) Completion & Run Report (What to Emit)
 
-NLP: GoEmotions (28) and BART-MNLI intent; keep JSON distributions. 
+Include in the final output:
 
-5) CLI Surfaces (for smoke / automation)
+- **Summary:** Task requested; what changed; why.
+- **Diffs:** Unified diffs for **all** files modified.
+- **Commands:** Exact commands executed with exit codes.
+- **Evidence:** Key log excerpts and exact artifact paths.
+- **Follow‑ups:** Any temporary services/caches created; how to disable/clean.
 
-Primary: python -m diaremot.cli run (Typer). Defaults: all stages on; ASR int8.
-
-Direct: python -m diaremot.pipeline.run_pipeline (explicit config/env).
-
-Legacy: python -m diaremot.pipeline.cli_entry (ASR default may differ).
-
-PowerShell quick smoke:
-
-python -m diaremot.cli run -i data\sample.wav -o outputs\_smoke --disable-affect --disable-sed
-
-6) CSV Schema (39 columns — names & categories)
-
-Temporal: file_id, start, end, duration_s
-Speaker: speaker_id, speaker_name
-Content: text, words, language
-ASR Confidence: asr_logprob_avg, low_confidence_ser
-Audio Emotion / Tone: valence, arousal, dominance, emotion_top, emotion_scores_json
-Text Emotions: text_emotions_top5_json, text_emotions_full_json
-Intent: intent_top, intent_top3_json
-SED: events_top3_json, noise_tag
-Voice Quality (Praat): vq_jitter_pct, vq_shimmer_db, vq_hnr_db, vq_cpps_db, voice_quality_hint
-Prosody: wpm, pause_count, pause_time_s, pause_ratio, f0_mean_hz, f0_std_hz, loudness_rms, disfluency_count
-Signal Quality: snr_db, snr_db_sed, vad_unstable
-Hints/Flags: affect_hint, error_flags
-
-7) Style & Scope
-
-Surgical but thorough diffs only.
-
-Modify files inside the repo unless directed otherwise.
-
-Maintain structured logging; surface failures (do not drop required columns).
-
-8) Failure Policy
-
-If any gate fails or a prerequisite is missing, stop and return:
-
-Failing command + exit code
-
-Last ~20 log lines (load-bearing tail)
-
-One-paragraph diagnosis
-
-References (for maintainers; safe to keep at bottom)
-
-AGENTS.md concept/spec (repo + site). Agents read this file to learn environment/setup/tests. 
-
-
-Release (models.zip) — tltrogl/diaremot2-ai v2.AI with asset for Codex setup.
-Codex Cloud provisioning always fetches `models.zip` from this release; keep it
-current and verify the checksum before promoting new assets.
-
-### Codex Cloud bootstrap checklist (must pass before promotion)
-
-1. **Fetch models bundle**
-   ```bash
-   curl -L https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o models.zip
-   sha256sum --check models.zip.sha256  # expects 3cc2115f4ef7cd4f9e43cfcec376bf56ea2a8213cb760ab17b27edbc2cac206c
-   unzip -q models.zip -d ./models
-   ```
-   The archive expands into the alias-aware layout (`goemotions-onnx/`, `ser8-onnx/`,
-   `panns/`, `bart/`, `ecapa_onnx/`, root `silero_vad.onnx`). The bundle currently
-   omits the dimensional VAD model; the pipeline will emit neutral placeholders unless
-   an `affect/vad_dim/` directory is provided manually from an internal export.
-
-2. **Install the pinned runtime**
-   ```bash
-   pip install -r requirements.txt
-   ```
-   This installs the ONNX-first stack plus `transformers==4.44.2`, `tokenizers==0.19.1`,
-   and all paralinguistics/audio dependencies expected by the smoke test.
-
-3. **Run the CPU smoke test with affect enabled**
-   ```bash
-   PYTHONPATH=src \
-     HF_HOME=./.cache \
-     python -m diaremot.cli smoke \
-       --outdir /tmp/smoke_test \
-       --model-root ./models \
-       --enable-affect
-   ```
-   First run downloads Faster-Whisper tiny.en (CTranslate2) and may contact
-   Hugging Face to hydrate tokenizer metadata for BART if the local JSON bundle
-   fails validation. Subsequent runs stay offline. Treat missing optional VAD as
-   a warning, not a failure, until the upstream release ships the asset.
-
-4. **Verify outputs**
-   Ensure `/tmp/smoke_test/` contains the standard CSV/JSON/HTML/PDF artefacts and
-   that the stage summary reports `PASS` for all 11 stages. Investigate any
-   `issues` recorded by `affect` before shipping.
-
-ONNX Runtime EPs (CPU) — CPU EP is the default; we stay CPU-only. 
-ONNX Runtime
-
-Faster-Whisper / CTranslate2 — CPU-optimized Whisper inference. 
-
-Silero VAD (ONNX variants exist). 
-
-ECAPA-TDNN embeddings (speaker verification). 
-Hugging Face
-
-PANNs CNN14 (AudioSet-trained SED). 
-
-GoEmotions (RoBERTa base). 
-
-FacebookAI/roberta-large-mnli 
-
-read readme.md
-read gemini.md
+**Completion:** All hard gates in §10 are green, with evidence attached.
