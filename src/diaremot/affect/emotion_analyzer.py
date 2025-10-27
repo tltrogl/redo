@@ -49,7 +49,7 @@ def _topk_distribution(
     items = [
         (str(label), float(score))
         for label, score in scores.items()
-        if isinstance(score, (int, float)) and math.isfinite(float(score))
+        if isinstance(score, int | float) and math.isfinite(float(score))
     ]
     items.sort(key=lambda item: item[1], reverse=True)
     limited = items[: max(0, min(k, len(items)))]
@@ -230,6 +230,38 @@ _COMPONENT_ALIASES: dict[tuple[str, ...], tuple[tuple[str, ...], ...]] = {
 }
 
 
+def _dedupe_paths(paths: Iterable[Path]) -> list[Path]:
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for path in paths:
+        key = os.fspath(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
+def _descend_casefold(base: Path, parts: Sequence[str]) -> list[Path]:
+    nodes: list[Path] = [base]
+    for part in parts:
+        next_nodes: list[Path] = []
+        folded = part.casefold()
+        for node in nodes:
+            next_nodes.append(node / part)
+            if not node.exists():
+                continue
+            try:
+                children = list(node.iterdir())
+            except OSError:
+                continue
+            for child in children:
+                if child.name.casefold() == folded:
+                    next_nodes.append(child)
+        nodes = _dedupe_paths(next_nodes)
+    return nodes
+
+
 def _resolve_component_dir(
     cli_value: str | None, env_key: str, *default_subpath: str
 ) -> Path:
@@ -241,10 +273,10 @@ def _resolve_component_dir(
         candidates.append(Path(env_value).expanduser())
     model_root = _resolve_model_dir()
     if default_subpath:
-        candidates.append(model_root.joinpath(*default_subpath))
+        candidates.extend(_descend_casefold(model_root, tuple(default_subpath)))
         alias_paths = _COMPONENT_ALIASES.get(tuple(default_subpath), ())
         for alias in alias_paths:
-            candidates.append(model_root.joinpath(*alias))
+            candidates.extend(_descend_casefold(model_root, alias))
     else:
         candidates.append(model_root)
 
