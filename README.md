@@ -24,6 +24,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - **MODEL_MAP.md** - Complete model inventory and search paths
 - **GEMINI.md** - Project context for AI assistants (Gemini, Claude, etc.)
 - **AGENTS.md** - Setup guide for autonomous agents
+- **docs/CODEX_ENV_SETUP.md** - Codex worker environment bootstrap checklist
 - **CLOUD_BUILD_GUIDE.md** - Cloud deployment instructions
 
 ---
@@ -49,6 +50,13 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - The public orchestrator (`src/diaremot/pipeline/orchestrator.py`) now composes these mixins,
   surfaces structured `StageExecutionError` instances from `src/diaremot/pipeline/errors.py`, and
   improves failure diagnostics without altering the 11-stage contract.
+- The pipeline runtime scaffolding mirrors the paralinguistics package and now lives under
+  `src/diaremot/pipeline/runtime/`, providing a dataclass-driven environment bootstrap,
+  immutable `PipelineSession` container, and `StageExecutor` to run stage plans declaratively.
+- Speaker diarization has been modularised into `src/diaremot/pipeline/diarization/`, splitting
+  Silero VAD loaders, ECAPA embedding inference, clustering helpers, registry persistence, and
+  turn post-processing into focused modules while keeping the legacy import surface via
+  `speaker_diarization.py`.
 - Component bootstrap logic in `ComponentFactoryMixin` raises these structured errors as soon as a
   dependency is missing, keeping cache and checkpoint handling consistent with pre-refactor runs.
 - The paralinguistics stack is now a proper package under `src/diaremot/affect/paralinguistics/`,
@@ -230,6 +238,41 @@ pip install -e .
 python -m diaremot.cli diagnostics
 ```
 
+### Reference Environment Setup (Linux CLI Example)
+
+> Need the full Codex worker recipe? See
+> [docs/CODEX_ENV_SETUP.md](docs/CODEX_ENV_SETUP.md) for the step-by-step
+> bootstrap guide that mirrors the Codex automation environment.
+
+The following sequence reproduces the environment used for the latest
+end-to-end smoketest, including system packages, Python dependencies, and
+model assets:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y ffmpeg libsm6 libxext6
+
+python3.11 -m venv .venv
+source .venv/bin/activate
+
+pip install -r requirements.txt
+
+curl -L https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o models.zip
+sha256sum --check models.zip.sha256
+unzip -q models.zip -d ./models
+
+PYTHONPATH=src \
+  HF_HOME=./.cache \
+  python -m diaremot.cli smoke \
+    --outdir /tmp/smoke_test \
+    --model-root ./models \
+    --enable-affect
+```
+
+The affect loader now normalises case differences when resolving the
+`models/` subdirectories, so manual symlinks (for example `GoEmotions-onnx →
+goemotions-onnx`) are no longer required after extracting the bundle.
+
 ### Development Setup
 
 ```bash
@@ -331,6 +374,10 @@ models/
 ├── faster-whisper-tiny.en/  # Auto-downloaded on first transcription run
 └── silero_vad.onnx      # Root-level Silero VAD file
 ```
+
+> Model discovery now performs case-insensitive lookups for the directories
+> above, so either `goemotions-onnx/` or `GoEmotions-ONNX/` satisfy the
+> requirements without additional filesystem tweaks.
 
 > **Note:** The v2.AI release does **not** include the dimensional VAD model
 > (`affect/vad_dim/`). Runs will emit neutral valence/arousal/dominance scores
@@ -1009,7 +1056,13 @@ diaremot2-on/
 │       │   │   └── __init__.py      # PIPELINE_STAGES registry
 │       │   ├── audio_pipeline_core.py
 │       │   ├── orchestrator.py
-│       │   ├── speaker_diarization.py
+│       │   ├── diarization/         # Modular diarization runtime (Silero/ECAPA/AHC)
+│       │   │   ├── pipeline.py      # SpeakerDiarizer implementation
+│       │   │   ├── vad.py           # Silero VAD loaders (ONNX/Torch)
+│       │   │   ├── embeddings.py    # ECAPA ONNX embedding encoder
+│       │   │   ├── registry.py      # Speaker registry persistence helpers
+│       │   │   └── ...              # config, clustering, utils, etc.
+│       │   ├── speaker_diarization.py  # Back-compat shim re-exporting diarization package
 │       │   ├── transcription_module.py
 │       │   ├── outputs.py           # CSV schema (40 columns)
 │       │   ├── config.py

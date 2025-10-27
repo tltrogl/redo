@@ -233,7 +233,10 @@ src/diaremot/
 │   ├── outputs.py                      # SEGMENT_COLUMNS (40 cols)
 │   ├── config.py                       # PipelineConfig schema
 │   ├── audio_pipeline_core.py          # Main pipeline API
-│   └── speaker_diarization.py          # Diarization logic
+│   ├── diarization/                    # Modular diarization runtime
+│   │   ├── pipeline.py                 # Silero/ECAPA diarizer
+│   │   └── ...                         # vad.py, embeddings.py, registry.py, etc.
+│   └── speaker_diarization.py          # Compatibility shim exporting diarization package
 │
 ├── affect/
 │   ├── emotion_analyzer.py             # Multi-modal affect

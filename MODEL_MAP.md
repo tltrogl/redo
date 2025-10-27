@@ -41,7 +41,7 @@
 
 **Code Reference:**
 ```python
-# speaker_diarization.py line ~105
+# pipeline/diarization/vad.py
 candidate_paths = list(iter_model_subpaths("silero_vad.onnx"))
 candidate_paths.extend(list(iter_model_subpaths(Path("silero") / "vad.onnx")))
 ```
@@ -65,7 +65,7 @@ candidate_paths.extend(list(iter_model_subpaths(Path("silero") / "vad.onnx")))
 
 **Code Reference:**
 ```python
-# speaker_diarization.py line ~325
+# pipeline/diarization/embeddings.py
 candidate_paths = list(iter_model_subpaths(Path("ecapa_onnx") / "ecapa_tdnn.onnx"))
 candidate_paths.extend(
     list(iter_model_subpaths(Path("Diarization") / "ecapa-onnx" / "ecapa_tdnn.onnx"))
