@@ -164,9 +164,10 @@ Output Files:
 ### Quick Start (Windows)
 
 **Option 1: Automated Setup (Recommended)**
+Install ffmpeg on path
 ```powershell
 # Clone repository
-git clone <repository-url>
+git clone https://github.com/tltrogl/redo.git
 cd diaremot2-on
 
 # Run setup script
@@ -174,9 +175,10 @@ cd diaremot2-on
 ```
 
 **Option 2: Manual Setup**
+Install ffmpeg on path
 ```powershell
 # 1. Clone repository
-git clone <repository-url>
+git clone https://github.com/tltrogl/redo.git
 cd diaremot2-on
 
 # 2. Create virtual environment
@@ -196,9 +198,10 @@ python -m diaremot.cli diagnostics
 ### Quick Start (Linux/macOS)
 
 **Option 1: Automated Setup (Recommended)**
+Install ffmpeg to path
 ```bash
 # Clone repository
-git clone <repository-url>
+git clone https://github.com/tltrogl/redo.git
 cd diaremot2-on
 
 # Make setup script executable and run
@@ -207,9 +210,10 @@ chmod +x setup.sh
 ```
 
 **Option 2: Manual Setup**
+install ffmpeg to path
 ```bash
 # 1. Clone repository
-git clone <repository-url>
+git clone https://github.com/tltrogl/redo.git
 cd diaremot2-on
 
 # 2. Create virtual environment
