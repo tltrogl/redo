@@ -147,8 +147,24 @@ class SpeakerDiarizer:
         except Exception as exc:
             logger.error("Clustering failed: %s", exc)
             labels = np.zeros(len(embeddings), dtype=int)
-        for window, label in zip(windows, labels, strict=False):
-            window["speaker"] = f"Speaker_{label + 1}"
+        label_idx = 0
+        num_labels = len(labels)
+        for window in windows:
+            if window.get("embedding") is None:
+                continue
+            if label_idx >= num_labels:
+                logger.warning(
+                    "Cluster labels shorter than embedding windows; stopping assignment"
+                )
+                break
+            label = labels[label_idx]
+            window["speaker"] = f"Speaker_{int(label) + 1}"
+            label_idx += 1
+        if label_idx < num_labels:
+            logger.warning(
+                "Cluster labels longer than embedding windows; %d unused labels",
+                num_labels - label_idx,
+            )
         turns = self._build_continuous_segments(windows, speech_regions)
         turns = self._merge_short_gaps(turns)
         turns = self._enforce_min_turn_duration(turns)
