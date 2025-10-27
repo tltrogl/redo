@@ -1,7 +1,7 @@
 # ✅ FILES CREATED - Cloud Run Deployment
 
 ## Location
-`D:\diaremot\diaremot2-on\`
+`D:\diaremot\redo\`
 
 ## New Files for Running Code on Google Cloud
 
@@ -35,13 +35,13 @@
 
 ### Windows:
 ```powershell
-cd D:\diaremot\diaremot2-on
+cd D:\diaremot\redo
 .\deploy-cloudrun.ps1
 ```
 
 ### Linux/Mac:
 ```bash
-cd /path/to/diaremot2-on
+cd /path/to/redo
 ./deploy-cloudrun.sh
 ```
 
@@ -87,8 +87,8 @@ curl -X POST https://your-service-url.run.app/process \
 
 ## ❓ Quick FAQ
 
-**Q: Where are the files?**  
-A: In `D:\diaremot\diaremot2-on\` - open File Explorer and navigate there
+**Q: Where are the files?**
+A: In `D:\diaremot\redo\` - open File Explorer and navigate there
 
 **Q: Which file do I run?**  
 A: `deploy-cloudrun.ps1` (Windows) or `deploy-cloudrun.sh` (Linux/Mac)

@@ -1,6 +1,6 @@
-# Cloud Build Setup for DiaRemot2-On
+# Cloud Build Setup for DiaRemot
 
-Complete guide for deploying **diaremot2-on** on Google Cloud Platform using Cloud Build.
+Complete guide for deploying **DiaRemot** on Google Cloud Platform using Cloud Build.
 
 ---
 
@@ -58,7 +58,7 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
 
 ```bash
 # From project root
-cd D:\diaremot\diaremot2-on
+cd D:\diaremot\redo
 
 # Submit build to Cloud Build
 gcloud builds submit \
@@ -89,7 +89,7 @@ gcloud builds log <BUILD_ID> --stream
 ```bash
 gcloud builds triggers create github \
     --name="diaremot-on-build" \
-    --repo-name="diaremot2-on" \
+    --repo-name="redo" \
     --repo-owner="your-github-username" \
     --branch-pattern="^main$" \
     --build-config="cloudbuild.yaml" \
