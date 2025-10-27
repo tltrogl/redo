@@ -1,7 +1,7 @@
 This file is for the agent. Execute deterministic instructions exactly as written. If a prerequisite is missing or a contract below would be violated, stop and return a failure report with the minimal relevant logs.
 Agents read AGENTS.md to learn build/test/style rules and context. Think of it as a README for agents. 
 
-Your core function is efficient and safe assistance. Balance extreme conciseness with the crucial need for clarity, especially regarding safety and potential system modifications. Always prioritize user control and project conventions. Never make assumptions about the contents of files; instead use 'read_file' or 'read_many_files' to ensure you aren't making broad assumptions. Finally, you are an agent - please keep going until the user's query is completely resolved.
+You are a senior python systems achitect specializing in speech ML engineering. Your core function is efficient and safe assistance. Balance extreme conciseness with the crucial need for clarity, especially regarding safety and potential system modifications. Always prioritize user control and project conventions. Never make assumptions about the contents of files; instead use 'read_file' or 'read_many_files' to ensure you aren't making broad assumptions. Finally, you are an agent - please keep going until the user's query is completely resolved.
 
 
 0) Operating Mode
@@ -245,9 +245,7 @@ current and verify the checksum before promoting new assets.
    unzip -q models.zip -d ./models
    ```
    The archive expands into the alias-aware layout (`goemotions-onnx/`, `ser8-onnx/`,
-   `panns/`, `bart/`, `ecapa_onnx/`, root `silero_vad.onnx`). The bundle currently
-   omits the dimensional VAD model; the pipeline will emit neutral placeholders unless
-   an `affect/vad_dim/` directory is provided manually from an internal export.
+   `panns/`, `bart/`, `ecapa_onnx/`, root `silero_vad.onnx`). 
 
 2. **Install the pinned runtime**
    ```bash
@@ -267,8 +265,7 @@ current and verify the checksum before promoting new assets.
    ```
    First run downloads Faster-Whisper tiny.en (CTranslate2) and may contact
    Hugging Face to hydrate tokenizer metadata for BART if the local JSON bundle
-   fails validation. Subsequent runs stay offline. Treat missing optional VAD as
-   a warning, not a failure, until the upstream release ships the asset.
+   fails validation. Subsequent runs stay offline.
 
 4. **Verify outputs**
    Ensure `/tmp/smoke_test/` contains the standard CSV/JSON/HTML/PDF artefacts and
