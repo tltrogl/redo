@@ -1,9 +1,16 @@
 # DiaRemot Setup Script for Windows
 # This script sets up the Python environment and installs all dependencies
 
+param(
+    [switch]$Force,
+    [switch]$RuntimeOnly,
+    [switch]$SkipDiagnostics
+)
+
 $ErrorActionPreference = "Stop"
 
 $PYTHON_VERSION = "3.11"
+$ALT_PYTHON_VERSION = "3.12"
 $VENV_DIR = ".venv"
 $PROJECT_ROOT = $PSScriptRoot
 
@@ -13,27 +20,70 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
 # Function to write colored output
-function Write-Success {
-    param([string]$Message)
-    Write-Host $Message -ForegroundColor Green
+function Write-Success { param([string]$Message) Write-Host $Message -ForegroundColor Green }
+function Write-Info    { param([string]$Message) Write-Host $Message -ForegroundColor Cyan }
+function Write-Warning-Custom { param([string]$Message) Write-Host $Message -ForegroundColor Yellow }
+function Write-Error-Custom   { param([string]$Message) Write-Host $Message -ForegroundColor Red }
+
+function Confirm-Action {
+    param(
+        [string]$Message,
+        [ValidateSet('Yes','No')]
+        [string]$Default = 'No'
+    )
+
+    $promptSuffix = if ($Default -eq 'Yes') { '(Y/n)' } else { '(y/N)' }
+
+    if ($Force.IsPresent) {
+        Write-Warning-Custom "$Message $promptSuffix -- proceeding automatically due to -Force."
+        return $true
+    }
+
+    if (-not $script:IsInteractive) {
+        Write-Warning-Custom "$Message $promptSuffix (no interactive input detected; defaulting to $Default)."
+        return ($Default -eq 'Yes')
+    }
+
+    $response = Read-Host "$Message $promptSuffix"
+    if ([string]::IsNullOrWhiteSpace($response)) {
+        $response = $Default.Substring(0, 1)
+    }
+
+    return $response -match '^[Yy]'
 }
 
-function Write-Warning-Custom {
-    param([string]$Message)
-    Write-Host $Message -ForegroundColor Yellow
+$script:IsInteractive = $true
+try {
+    if ([Console]::IsInputRedirected -or [Console]::IsOutputRedirected -or [Console]::IsErrorRedirected) {
+        $script:IsInteractive = $false
+    }
+}
+catch {
+    if ($Host.Name -ne 'ConsoleHost') {
+        $script:IsInteractive = $false
+    }
 }
 
-function Write-Error-Custom {
-    param([string]$Message)
-    Write-Host $Message -ForegroundColor Red
+if ($Force.IsPresent) {
+    Write-Warning-Custom "-Force specified; all prompts will be auto-confirmed."
+}
+elseif (-not $script:IsInteractive) {
+    Write-Warning-Custom "No interactive console detected; default responses will be used. Re-run with -Force to auto-confirm prompts."
+}
+
+if ($RuntimeOnly.IsPresent) {
+    Write-Info "Runtime-only mode enabled: developer extras will be skipped."
+}
+if ($SkipDiagnostics.IsPresent) {
+    Write-Info "Diagnostics will be skipped per -SkipDiagnostics."
 }
 
 # Check for Python
-Write-Host "Checking for Python ${PYTHON_VERSION}..."
+Write-Host "Checking for Python ${PYTHON_VERSION}/${ALT_PYTHON_VERSION}..."
 $pythonCmd = $null
 
 # Try different Python commands
-$pythonCommands = @("py -$PYTHON_VERSION", "py -3.11", "py -3.12", "python3.11", "python3.12", "python")
+$pythonCommands = @("py -$PYTHON_VERSION", "py -$ALT_PYTHON_VERSION", "python$PYTHON_VERSION", "python$ALT_PYTHON_VERSION", "python3", "python")
 
 foreach ($cmd in $pythonCommands) {
     try {
@@ -73,8 +123,7 @@ catch {
     Write-Host "  2. Or use: winget install ffmpeg"
     Write-Host "  3. Or use: choco install ffmpeg"
     Write-Host ""
-    $continue = Read-Host "Continue anyway? (y/N)"
-    if ($continue -ne "y" -and $continue -ne "Y") {
+    if (-not (Confirm-Action "Continue anyway?" "No")) {
         exit 1
     }
 }
@@ -83,8 +132,7 @@ Write-Host ""
 # Create virtual environment
 if (Test-Path $VENV_DIR) {
     Write-Warning-Custom "Virtual environment already exists at $VENV_DIR"
-    $recreate = Read-Host "Remove and recreate? (y/N)"
-    if ($recreate -eq "y" -or $recreate -eq "Y") {
+    if (Confirm-Action "Remove and recreate?" "No") {
         Write-Host "Removing existing virtual environment..."
         Remove-Item -Recurse -Force $VENV_DIR
     }
@@ -121,8 +169,8 @@ Write-Host ""
 
 # Install project dependencies
 Write-Host "Installing project dependencies..."
-if (Test-Path "requirements.txt") {
-    pip install -r requirements.txt
+if (Test-Path (Join-Path $PROJECT_ROOT "requirements.txt")) {
+    python -m pip install -r (Join-Path $PROJECT_ROOT "requirements.txt") | Out-Null
     Write-Success "Dependencies installed"
 }
 else {
@@ -131,28 +179,43 @@ else {
 }
 Write-Host ""
 
-# Install PyTorch CPU (if not already installed)
-Write-Host "Checking PyTorch installation..."
-$torchInstalled = python -c "import torch; print('ok')" 2>&1
-if ($torchInstalled -match "ok") {
-    Write-Success "PyTorch already installed"
-}
-else {
-    Write-Host "Installing PyTorch CPU..."
-    pip install --index-url https://download.pytorch.org/whl/cpu torch
-    Write-Success "PyTorch CPU installed"
-}
-Write-Host ""
-
 # Install package in editable mode
 Write-Host "Installing diaremot package in editable mode..."
-pip install -e .
+function Install-Editable {
+    param(
+        [switch]$RuntimeOnly
+    )
+
+    if ($RuntimeOnly) {
+        python -m pip install -e $PROJECT_ROOT | Out-Null
+        return
+    }
+
+    try {
+        python -m pip install -e "$PROJECT_ROOT[dev]" | Out-Null
+    }
+    catch {
+        Write-Warning-Custom "Editable install with dev extras failed; falling back to runtime-only install."
+        python -m pip install -e $PROJECT_ROOT | Out-Null
+    }
+}
+
+Install-Editable -RuntimeOnly:$RuntimeOnly
 Write-Success "Package installed"
 Write-Host ""
 
 # Create necessary directories
 Write-Host "Creating necessary directories..."
-$directories = @(".cache\hf", ".cache\torch", ".cache\transformers", "checkpoints", "outputs", "logs", "data")
+$directories = @(
+    ".cache\hf",
+    ".cache\hub",
+    ".cache\torch",
+    ".cache\transformers",
+    "checkpoints",
+    "outputs",
+    "logs",
+    "data"
+)
 foreach ($dir in $directories) {
     if (-not (Test-Path $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
@@ -193,9 +256,20 @@ else {
 Write-Host ""
 
 # Run diagnostics
-Write-Host "Running diagnostics..."
-python -m diaremot.cli diagnostics
-Write-Host ""
+if ($SkipDiagnostics.IsPresent) {
+    Write-Info "Skipping diagnostics per -SkipDiagnostics."
+}
+else {
+    Write-Host "Running diagnostics..."
+    try {
+        python -m diaremot.cli diagnostics
+        Write-Success "Diagnostics completed"
+    }
+    catch {
+        Write-Warning-Custom "Diagnostics exited with $($_.Exception.Message). Review the output above for details."
+    }
+    Write-Host ""
+}
 
 # Setup complete
 Write-Host "========================================" -ForegroundColor Cyan

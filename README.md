@@ -178,8 +178,11 @@ Install ffmpeg on path
 git clone https://github.com/tltrogl/redo.git
 cd redo
 
-# Run setup script
+# Run setup script (add -Force to auto-confirm prompts in CI)
 .\setup.ps1
+# .\setup.ps1 -Force            # auto-confirm prompts
+# .\setup.ps1 -RuntimeOnly      # skip dev extras (runtime deps only)
+# .\setup.ps1 -SkipDiagnostics  # omit diagnostics command
 ```
 
 **Option 2: Manual Setup**
@@ -196,8 +199,9 @@ py -3.11 -m venv .venv
 # 3. Install dependencies
 python -m pip install -U pip wheel setuptools
 pip install -r requirements.txt
-# Optional (development): keep editable install for local code changes
-pip install -e .
+# Optional (development): install editable package with tooling extras
+pip install -e ".[dev]"
+# If extras fail (for example on minimal CI images), fall back to: pip install -e .
 
 # 5. Verify installation
 python -m diaremot.cli diagnostics
@@ -215,7 +219,16 @@ cd redo
 # Make setup script executable and run
 chmod +x setup.sh
 ./setup.sh
+# ./setup.sh --yes              # auto-confirm prompts
+# ./setup.sh --runtime-only     # skip dev extras
+# ./setup.sh --skip-diagnostics # omit diagnostics command
 ```
+
+Both setup scripts detect when no interactive TTY is available and fall back to the safe default (for example, aborting instead of
+continuing without FFmpeg or leaving an existing virtual environment intact). Pass `--yes` on Linux/macOS or `-Force` on Windows
+to auto-accept prompts in automation; the scripts emit a warning when proceeding automatically. Development dependencies are
+installed by default—use `--runtime-only` / `-RuntimeOnly` to limit the install to runtime packages, or `--skip-diagnostics`
+/ `-SkipDiagnostics` to bypass the optional health check when operating in constrained environments.
 
 **Option 2: Manual Setup**
 install ffmpeg to path
@@ -231,8 +244,9 @@ source .venv/bin/activate
 # 3. Install dependencies
 pip install -U pip wheel setuptools
 pip install -r requirements.txt
-# Optional (development): keep editable install for local code changes
-pip install -e .
+# Optional (development): install editable package with tooling extras
+pip install -e ".[dev]"
+# If extras fail (for example on minimal CI images), fall back to: pip install -e .
 
 # 4. Verify installation
 python -m diaremot.cli diagnostics
