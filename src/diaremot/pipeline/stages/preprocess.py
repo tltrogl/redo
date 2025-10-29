@@ -56,7 +56,7 @@ def run_preprocess(
                     # Reconstruct health if present
                     if "health" in cached:
                         health_dict = cached["health"].item()
-                        from ...pipeline.audio_preprocessing import AudioHealth
+                        from ...pipeline.preprocess import AudioHealth
                         state.health = AudioHealth(**health_dict)
                     else:
                         state.health = None

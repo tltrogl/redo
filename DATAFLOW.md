@@ -138,6 +138,7 @@ PipelineState:
 ---
 
 ### Stage 2: preprocess
+_Implementation note_: modular helpers live in `src/diaremot/pipeline/preprocess/` and feed the `AudioPreprocessor`.
 **Input:** `input_audio_path` (string)  
 **Process:**
 1. Load audio file using librosa
