@@ -35,6 +35,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
 4. **diarize** – Speaker segmentation with adaptive VAD tuning and silhouette/dominance-based single-speaker collapse
 5. **transcribe** – Speech-to-text with intelligent batching
+   - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
 6. **paralinguistics** – Voice quality and prosody extraction
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
 8. **overlap_interruptions** – Turn-taking and interruption pattern analysis
@@ -54,6 +55,9 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - The paralinguistics stack is now a proper package under `src/diaremot/affect/paralinguistics/`,
   splitting configuration, audio/voice quality primitives, aggregate analytics, benchmarking, and
   the CLI into focused modules while preserving the legacy `extract` API for pipeline callers.
+- Transcription has been modularised under `src/diaremot/pipeline/transcription/`, with
+  `transcription_module.py` acting as a lightweight `Transcriber` façade that delegates backend
+  detection, batching heuristics, and transcript redistribution to dedicated modules.
 
 ### Data Flow Diagram
 
@@ -1016,7 +1020,12 @@ redo/
 │       │   ├── audio_pipeline_core.py
 │       │   ├── orchestrator.py
 │       │   ├── speaker_diarization.py
-│       │   ├── transcription_module.py
+│       │   ├── transcription/
+│       │   │   ├── backends.py       # Backend detection & environment guards
+│       │   │   ├── models.py         # Data classes & utilities
+│       │   │   ├── postprocess.py    # Transcript redistribution helpers
+│       │   │   └── scheduler.py      # Async engine & batching heuristics
+│       │   ├── transcription_module.py  # Transcriber façade delegating to package
 │       │   ├── outputs.py           # CSV schema (39 columns)
 │       │   ├── config.py
 │       │   ├── runtime_env.py

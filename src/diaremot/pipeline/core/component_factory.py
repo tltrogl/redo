@@ -16,7 +16,7 @@ from ..errors import coerce_stage_error
 from ..runtime_env import DEFAULT_WHISPER_MODEL, WINDOWS_MODELS_ROOT
 from ...summaries.html_summary_generator import HTMLSummaryGenerator
 from ...summaries.pdf_summary_generator import PDFSummaryGenerator
-from ..transcription_module import AudioTranscriber
+from ..transcription_module import Transcriber
 
 # Local imports that are heavy should live inside functions to keep module load
 # time minimal.  The mixin therefore only references lightweight shims here and
@@ -144,7 +144,7 @@ class ComponentFactoryMixin:
 
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
             os.environ["TORCH_DEVICE"] = "cpu"
-            self.tx = AudioTranscriber(**transcriber_config)
+            self.tx = Transcriber(**transcriber_config)
             self.auto_tuner = AutoTuner()
 
             def _normalize_model_dir(value: Any) -> str | None:
@@ -263,7 +263,7 @@ class ComponentFactoryMixin:
                 self.diar = None
             try:
                 if getattr(self, "tx", None) is None:
-                    self.tx = AudioTranscriber()
+                    self.tx = Transcriber()
             except Exception:
                 self.tx = None
             try:

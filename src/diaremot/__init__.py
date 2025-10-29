@@ -140,21 +140,21 @@ def get_diarizer(config: dict[str, Any] | None = None):
 
 
 def get_transcriber(config: dict[str, Any] | None = None):
-    """Get AudioTranscriber with CPU optimization"""
+    """Get Transcriber façade with CPU-friendly defaults."""
     if "transcriber" not in _cached_modules:
         try:
             from .pipeline.transcription_module import (
-                AudioTranscriber,
+                Transcriber,
                 create_transcriber,
             )
 
-            _cached_modules["transcriber"] = (AudioTranscriber, create_transcriber)
-            _get_or_create_logger().info("AudioTranscriber loaded successfully")
+            _cached_modules["transcriber"] = (Transcriber, create_transcriber)
+            _get_or_create_logger().info("Transcriber loaded successfully")
         except ImportError as e:
             _get_or_create_logger().error(f"Failed to load transcription: {e}")
             raise
 
-    AudioTranscriber, create_transcriber = _cached_modules["transcriber"]
+    Transcriber, create_transcriber = _cached_modules["transcriber"]
 
     # Force CPU-only configuration
     cpu_config = {"device": "cpu", "compute_type": "int8", **(config or {})}
