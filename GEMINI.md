@@ -233,7 +233,10 @@ src/diaremot/
 │   ├── outputs.py                      # SEGMENT_COLUMNS (40 cols)
 │   ├── config.py                       # PipelineConfig schema
 │   ├── audio_pipeline_core.py          # Main pipeline API
-│   └── speaker_diarization.py          # Diarization logic
+│   ├── diarization/                    # Modular diarization runtime
+│   │   ├── pipeline.py                 # Silero/ECAPA diarizer
+│   │   └── ...                         # vad.py, embeddings.py, registry.py, etc.
+│   └── speaker_diarization.py          # Compatibility shim exporting diarization package
 │
 ├── affect/
 │   ├── emotion_analyzer.py             # Multi-modal affect
@@ -257,7 +260,7 @@ D:/models/
 ├── Diarization/
 │   ├── ecapa-onnx/
 │   │   └── ecapa_tdnn.onnx             # ~7MB | Speaker embeddings
-│   └── silaro_vad/
+│   └── silero_vad/
 │       └── silero_vad.onnx             # ~3MB | Voice activity detection
 │
 ├── Affect/
@@ -452,7 +455,7 @@ python -c "
 from pathlib import Path
 import os
 models = ['Diarization/ecapa-onnx/ecapa_tdnn.onnx', 
-          'Diarization/silaro_vad/silero_vad.onnx',
+          'Diarization/silero_vad/silero_vad.onnx',
           'Affect/ser8/model.int8.onnx']
 model_dir = Path(os.getenv('DIAREMOT_MODEL_DIR', 'D:/models'))
 missing = [m for m in models if not (model_dir / m).exists()]

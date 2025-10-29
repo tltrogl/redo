@@ -1,7 +1,7 @@
-# DiaRemot2 Data Flow Map
+# DiaRemot Data Flow Map
 
 **Version:** 2.2.0  
-**Updated:** 2025-01-15
+**Updated:** 2025-03-08
 
 ## Pipeline Overview
 
@@ -10,7 +10,7 @@ Input Audio File
       ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ Stage 1: dependency_check                                    │
-│ Validates runtime dependencies and model availability        │
+│ (Optional) Validates runtime dependencies and model access   │
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -49,6 +49,7 @@ Input Audio File
 │ • Batch turns into optimal ASR windows                       │
 │ • Run Faster-Whisper on each batch                           │
 │ • Extract text, timestamps, confidence scores                │
+│ • `Transcriber` façade coordinates backend loading and batch scheduling │
 │ Output: norm_tx [{start, end, speaker_id, speaker_name,     │
 │         text, asr_logprob_avg, snr_db}]                      │
 └─────────────────────────────────────────────────────────────┘
@@ -72,6 +73,7 @@ Input Audio File
 │   - Text emotion: GoEmotions → 28-class distribution         │
 │   - Intent: BART-MNLI → zero-shot classification             │
 │   - Attach top-3 background sounds from SED                  │
+│   - Estimate SED-derived SNR (`snr_db_sed`)                   │
 │ • Merge all features into segments_final                     │
 │ Output: segments_final (39 columns per SEGMENT_COLUMNS)     │
 └─────────────────────────────────────────────────────────────┘
@@ -122,17 +124,16 @@ Input Audio File
 ## Detailed Stage Data Flow
 
 ### Stage 1: dependency_check
-**Input:** None  
+**Input:** None
 **Process:**
-- Check FFmpeg availability
-- Verify Python dependencies (librosa, torch, etc.)
-- Test model file accessibility
-- Report dependency health
+- Runs only when `validate_dependencies=True`.
+- Calls `dependency_health_summary()` to verify core Python dependencies and optional native bindings.
+- Emits warnings for missing or out-of-date packages so the orchestrator can surface them early.
 
 **Output:**
 ```python
 PipelineState:
-  # No state changes, only validates environment
+  dependency_summary: dict[str, dict[str, object]]  # populated when checks run
 ```
 
 ---
@@ -253,9 +254,10 @@ PipelineState:
 **Process:**
 1. Convert turns to ASR segments with speaker info
 2. Batch short segments (<8s) into groups (target: 60s, max: 300s)
+   - Managed by `create_batch_groups` in `pipeline/transcription/scheduler.py`
 3. For each batch/segment:
    - Extract audio chunk
-   - Run Faster-Whisper ASR
+   - Run Faster-Whisper ASR via the scheduler's async workers
    - Extract text, word timestamps, confidence (log prob)
 4. Normalize output format
 5. Save to cache (tx.json)
@@ -355,6 +357,7 @@ PipelineState:
    - affect_hint (e.g., "calm-positive", "agitated-negative")
    - voice_quality_hint (interpretation of Praat metrics)
    - low_confidence_ser (flag if SER score < 0.5)
+   - snr_db_sed (noise-adjusted SNR estimate)
 
 **Output:**
 ```python
@@ -659,6 +662,7 @@ Cache is invalidated when:
 
 ### Transcription (Stage 5)
 - **CTranslate2 + Faster-Whisper:** ASR inference
+- **Transcription package:** `pipeline/transcription/` provides backend guards, scheduler, and post-processing
 
 ### Paralinguistics (Stage 6)
 - **Praat-Parselmouth:** Voice quality metrics
@@ -668,6 +672,7 @@ Cache is invalidated when:
 - **VAD (ONNX):** Valence/Arousal/Dominance
 - **GoEmotions (ONNX):** 28-class text emotion
 - **BART-MNLI (ONNX):** Intent classification
+- **SED timeline fusion:** Top-3 events + SNR estimate (`snr_db_sed`)
 
 ### Background SED (Stage 3)
 - **PANNs CNN14 (ONNX):** 527-class sound events

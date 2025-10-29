@@ -1,336 +1,112 @@
 # DiaRemot Model Map - Complete Reference
 
-**Date:** 2025-01-15  
+**Date:** 2025-03-08  
 **Version:** 2.2.0
 
-> **See Also:** [DATAFLOW.md](DATAFLOW.md) - Detailed pipeline stage-by-stage data flow documentation
+> **See Also:** [DATAFLOW.md](DATAFLOW.md) – Stage-by-stage pipeline data flow documentation
+
+---
+
+## How DiaRemot locates models
+
+- The pipeline promotes a primary model root from `DIAREMOT_MODEL_DIR`. When it is unset the bootstrapper prefers `/srv/models` on Linux or `D:/models` on Windows and gracefully falls back to `<repo>/.cache/models` if those locations are not writable.【F:src/diaremot/pipeline/runtime/environment.py†L34-L126】
+- Every stage iterates across the ordered roots exposed by `iter_model_roots`: the promoted root, the canonical platform root, `<repo>/models`, the user's `~/models`, and the project cache directory.【F:src/diaremot/utils/model_paths.py†L18-L55】
+- Component loaders probe a small list of case-insensitive relative paths under each root. The first on-disk match wins. Environment variables override specific assets when present.
 
 ---
 
 ## Complete Model Inventory
 
-| # | Component | HuggingFace Model | Actual File Path | Size | Quantization | Task |
-|---|-----------|-------------------|------------------|------|--------------|------|
-| 1 | Silero VAD | snakers4/silero-vad (TorchHub) | `Diarization/silaro_vad/silero_vad.onnx` | 3MB | N/A | Voice Activity Detection |
-| 2 | ECAPA Speaker Embeddings | speechbrain/spkrec-ecapa-voxceleb | `Diarization/ecapa-onnx/ecapa_tdnn.onnx` | 7MB | N/A | Speaker embeddings (192-dim) |
-| 3 | Speech Emotion Recognition | ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition | `Affect/ser8/model.int8.onnx` | 50MB | INT8 | 8-class emotion (audio) |
-| 4 | Valence/Arousal/Dominance | audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim | `Affect/VAD_dim/model.onnx` | 500MB | Float32 | Dimensional emotion |
-| 5 | Text Emotions | **SamLowe/roberta-base-go_emotions** | `text_emotions/model.int8.onnx` | 130MB | INT8 | 28-class GoEmotions |
-| 6 | Intent Classification | **facebook/bart-large-mnli** | `intent/model_int8.onnx` | 600MB | INT8 | Zero-shot NLI |
-| 7 | Sound Event Detection | qiuqiangkong/panns_cnn14 | `Affect/sed_panns/model.onnx` | 80MB | Float32 | 527 AudioSet classes |
-| 8 | ASR (Whisper) | Systran/faster-whisper-tiny.en | `(auto-download)` | 40MB | CTranslate2 | Speech-to-text |
+| # | Component | Default relative path | Key files | Quantisation | Primary source |
+|---|-----------|----------------------|-----------|--------------|----------------|
+| 1 | Silero VAD | `silero_vad.onnx` (root; alias `Diarization/silero_vad/`) | `silero_vad.onnx` | Float32 | TorchHub `snakers4/silero-vad` (ONNX export) |
+| 2 | ECAPA Speaker Embeddings | `Diarization/ecapa-onnx/ecapa_tdnn.onnx` | `ecapa_tdnn.onnx` | Float32 | `speechbrain/spkrec-ecapa-voxceleb` |
+| 3 | Speech Emotion (SER8) | `Affect/ser8/` | `model.int8.onnx` (+ tokenizer files) | INT8 | `ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition` |
+| 4 | Valence/Arousal/Dominance | `Affect/VAD_dim/` | `model.onnx` (+ tokenizer files) | Float32 | `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim` |
+| 5 | Text Emotions (GoEmotions) | `text_emotions/` | `model.int8.onnx` (+ tokenizer files) | INT8 | `SamLowe/roberta-base-go_emotions` |
+| 6 | Intent Classification | `intent/` or `bart/` | `model_int8.onnx` (optional) + `config.json` + tokenizer | INT8 / Torch | `facebook/bart-large-mnli` |
+| 7 | Sound Event Detection (PANNs) | `Affect/sed_panns/` | `model.onnx`, `class_labels_indices.csv` | Float32 | `qiuqiangkong/panns_cnn14` |
+| 8 | ASR (Faster-Whisper) | Auto-downloaded to cache | `model.bin`, `tokenizer.json`, `vocabulary.txt` | CTranslate2 | `Systran/faster-whisper-*` |
+
+Each relative path above is resolved against every candidate model root until a match is found.
 
 ---
 
-## Model Details by Component
+## Component Details
 
 ### 1. Silero VAD (Voice Activity Detection)
 
-**Purpose:** Detects speech vs non-speech regions in audio
-
-| Property | Value |
-|----------|-------|
-| **HuggingFace/Source** | `snakers4/silero-vad` (TorchHub) |
-| **File Path** | `D:/models/Diarization/silaro_vad/silero_vad.onnx` |
-| **Search Paths** | `silero_vad.onnx`, `silero/vad.onnx` |
-| **Size** | ~3MB |
-| **Input** | 16kHz mono audio (512 sample chunks) |
-| **Output** | Speech probability per chunk [0.0-1.0] |
-| **Env Override** | `SILERO_VAD_ONNX_PATH` |
-| **PyTorch Fallback** | TorchHub: `snakers4/silero-vad` |
-
-**Code Reference:**
-```python
-# speaker_diarization.py line ~105
-candidate_paths = list(iter_model_subpaths("silero_vad.onnx"))
-candidate_paths.extend(list(iter_model_subpaths(Path("silero") / "vad.onnx")))
-```
-
----
+- **Purpose:** Segment audio into speech / non-speech regions.
+- **Search order:** `silero_vad.onnx`, `silero/vad.onnx` under each model root (case-insensitive directories included).【F:src/diaremot/pipeline/diarization/vad.py†L41-L111】
+- **Environment override:** `SILERO_VAD_ONNX_PATH` (file path).
+- **Fallback:** If no ONNX file is found and networking is available, the loader falls back to the TorchHub package; otherwise an energy-based VAD is used.【F:src/diaremot/pipeline/diarization/vad.py†L18-L191】
 
 ### 2. ECAPA-TDNN Speaker Embeddings
 
-**Purpose:** Extract speaker embeddings for diarization clustering
-
-| Property | Value |
-|----------|-------|
-| **HuggingFace/Source** | speechbrain/spkrec-ecapa-voxceleb |
-| **File Path** | `D:/models/Diarization/ecapa-onnx/ecapa_tdnn.onnx` |
-| **Search Paths** | `ecapa_onnx/ecapa_tdnn.onnx`<br>`Diarization/ecapa-onnx/ecapa_tdnn.onnx`<br>`ecapa_tdnn.onnx` |
-| **Size** | ~7MB |
-| **Input** | Log-mel spectrograms (80 mels) |
-| **Output** | 192-dimensional speaker embedding |
-| **Env Override** | `ECAPA_ONNX_PATH` |
-| **PyTorch Fallback** | None (ONNX required) |
-
-**Code Reference:**
-```python
-# speaker_diarization.py line ~325
-candidate_paths = list(iter_model_subpaths(Path("ecapa_onnx") / "ecapa_tdnn.onnx"))
-candidate_paths.extend(
-    list(iter_model_subpaths(Path("Diarization") / "ecapa-onnx" / "ecapa_tdnn.onnx"))
-)
-```
-
----
+- **Purpose:** Generate 192-D speaker embeddings for clustering.
+- **Search order:** `ecapa_onnx/ecapa_tdnn.onnx`, `Diarization/ecapa-onnx/ecapa_tdnn.onnx`, then `ecapa_tdnn.onnx` at the root.【F:src/diaremot/pipeline/diarization/embeddings.py†L19-L41】
+- **Environment override:** `ECAPA_ONNX_PATH` (file path).
+- **Fallback:** None – the ONNX export is required.
 
 ### 3. Speech Emotion Recognition (SER8)
 
-**Purpose:** Classify audio into 8 emotion categories
+- **Purpose:** Predict eight categorical emotions from audio segments.
+- **Search order:** `model.int8.onnx`, `ser8.int8.onnx`, `model.onnx`, `ser_8class.onnx` within the resolved directory.【F:src/diaremot/affect/emotion_analyzer.py†L184-L260】
+- **Environment override:** `DIAREMOT_SER_ONNX` (file path).
+- **Required artefacts:** `model.int8.onnx`, `config.json`, `preprocessor_config.json`, `tokenizer_config.json`, `vocab.json`, `special_tokens_map.json`.
+- **Fallback:** None – quantised ONNX is expected.
 
-| Property | Value |
-|----------|-------|
-| **HuggingFace Model** | ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition |
-| **File Path** | `D:/models/Affect/ser8/model.int8.onnx` |
-| **Search Order** | 1. `ser8.int8.onnx`<br>2. `model.onnx`<br>3. `ser_8class.onnx` |
-| **Size** | ~50MB (quantized) |
-| **Quantization** | INT8 ONLY (no float32 version exists) |
-| **Classes** | neutral, calm, happy, sad, angry, fearful, disgust, surprised |
-| **Input** | 16kHz mono audio (waveform or mel-spectrogram) |
-| **Output** | 8-class probability distribution |
-| **Default Dir** | `Affect/ser8/` |
-| **Env Override** | `DIAREMOT_SER_ONNX` |
-| **PyTorch Fallback** | None |
+### 4. Valence / Arousal / Dominance (Dimensional Affect)
 
-**Required Files:**
-- `model.int8.onnx` (ONNX model)
-- `config.json` (model config)
-- `preprocessor_config.json` (audio preprocessing)
-- `tokenizer_config.json`, `vocab.json`, `special_tokens_map.json`
-
-**Code Reference:**
-```python
-# emotion_analyzer.py line ~198
-self.path_ser8_onnx = str(
-    _select_first_existing(
-        self.ser_model_dir,
-        ("ser8.int8.onnx", "model.onnx", "ser_8class.onnx"),
-    )
-)
-```
-
----
-
-### 4. Valence/Arousal/Dominance (VAD)
-
-**Purpose:** Predict continuous emotion dimensions
-
-| Property | Value |
-|----------|-------|
-| **HuggingFace Model** | audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim |
-| **File Path** | `D:/models/Affect/VAD_dim/model.onnx` |
-| **Search Order** | 1. `model.onnx`<br>2. `vad_model.onnx` |
-| **Size** | ~500MB |
-| **Quantization** | Float32 |
-| **Output** | Valence [-1,+1], Arousal [-1,+1], Dominance [-1,+1] |
-| **Input** | 16kHz mono audio |
-| **Default Dir** | `Affect/VAD_dim/` |
-| **Env Override** | `AFFECT_VAD_DIM_MODEL_DIR` |
-
-**Required Files:**
-- `model.onnx`
-- `config.json`, `added_tokens.json`
-- `preprocessor_config.json`
-- `tokenizer_config.json`, `vocab.json`, `special_tokens_map.json`
-
-**Code Reference:**
-```python
-# emotion_analyzer.py line ~202
-self.path_vad_onnx = str(
-    _select_first_existing(
-        self.vad_model_dir,
-        ("model.onnx", "vad_model.onnx"),
-    )
-)
-```
-
----
+- **Purpose:** Estimate continuous V/A/D scores for speech turns.
+- **Search order:** `model.onnx`, then `vad_model.onnx` in the directory resolved for `Affect/VAD_dim/` (case-insensitive aliases allowed).【F:src/diaremot/affect/emotion_analyzer.py†L186-L213】
+- **Environment override:** `AFFECT_VAD_DIM_MODEL_DIR` (directory).
+- **Required artefacts:** `model.onnx`, `config.json`, `preprocessor_config.json`, `tokenizer_config.json`, `vocab.json`, `special_tokens_map.json`, `added_tokens.json`.
+- **Fallback:** If missing, the pipeline emits neutral V/A/D values and records a warning.【F:src/diaremot/affect/emotion_analyzer.py†L1066-L1107】
 
 ### 5. Text Emotions (GoEmotions)
 
-**Purpose:** Classify text into 28 emotion categories
+- **Purpose:** Classify transcript text into 28 GoEmotions categories.
+- **Search order:** `model.int8.onnx`, `model.onnx`, `roberta-base-go_emotions.onnx` within the `text_emotions/` directory (case-insensitive aliases `goemotions-onnx/`, etc.).【F:src/diaremot/affect/emotion_analyzer.py†L178-L205】
+- **Environment override:** `DIAREMOT_TEXT_EMO_MODEL_DIR` (directory).
+- **Fallback:** When ONNX assets are missing and downloads are allowed, a Transformers pipeline is loaded from the Hugging Face Hub.【F:src/diaremot/affect/emotion_analyzer.py†L482-L564】
 
-| Property | Value |
-|----------|-------|
-| **HuggingFace Model** | **SamLowe/roberta-base-go_emotions** |
-| **Base Architecture** | RoBERTa-base |
-| **File Path** | `D:/models/text_emotions/model.int8.onnx` |
-| **Search Order** | 1. `model.onnx`<br>2. `roberta-base-go_emotions.onnx` |
-| **Size** | ~130MB (quantized) |
-| **Quantization** | INT8 ONLY (no float32 version exists) |
-| **Classes** | 28 emotions (admiration, amusement, anger, annoyance, approval, caring, confusion, curiosity, desire, disappointment, disapproval, disgust, embarrassment, excitement, fear, gratitude, grief, joy, love, nervousness, optimism, pride, realization, relief, remorse, sadness, surprise, neutral) |
-| **Input** | Text (max 128 tokens) |
-| **Output** | 28-class probability distribution |
-| **Default Dir** | `text_emotions/` |
-| **Env Override** | `DIAREMOT_TEXT_EMO_MODEL_DIR` |
-| **PyTorch Fallback** | `SamLowe/roberta-base-go_emotions` (via transformers) |
+### 6. Intent Classification (Zero-shot NLI)
 
-**Required Files:**
-- `model.int8.onnx`
-- `config.json`, `merges.txt`
-- `tokenizer.json`, `tokenizer_config.json`, `vocab.json`
-- `special_tokens_map.json`
+- **Purpose:** Infer utterance intent using zero-shot natural language inference.
+- **Directory requirements:** `config.json` with a `model_type`, tokenizer assets (`tokenizer.json` or `vocab.json` + `merges.txt`), and optionally `model_int8.onnx` / `model.onnx`. Directories named `intent/`, `bart/`, or `bart-large-mnli/` under any model root are discovered automatically.【F:src/diaremot/affect/emotion_analyzer.py†L229-L405】
+- **Environment override:** `DIAREMOT_INTENT_MODEL_DIR` (directory).
+- **Fallback:** If no ONNX export is available the loader uses the Transformers pipeline (which requires allowing downloads).【F:src/diaremot/affect/emotion_analyzer.py†L1111-L1296】
 
-**Code Reference:**
-```python
-# emotion_analyzer.py line ~148
-# GoEmotions 28 labels (SamLowe/roberta-base-go_emotions)
+### 7. Sound Event Detection (PANNs)
 
-# emotion_analyzer.py line ~393
-candidates.append(("SamLowe/roberta-base-go_emotions", {}))
+- **Purpose:** Tag global ambient sounds and optionally produce a per-frame timeline.
+- **Default directory:** `Affect/sed_panns/` (aliases `panns/` or `panns_cnn14/`).【F:src/diaremot/affect/sed_panns.py†L18-L66】
+- **Required artefacts:** `model.onnx` plus the class label CSV shipped with the ONNX export.
+- **Environment override:** `DIAREMOT_PANNS_DIR` (directory).
+- **Fallback:** When ONNX is missing but the optional `panns_inference` package is available, the pipeline falls back to the PyTorch implementation.【F:src/diaremot/affect/sed_panns.py†L86-L167】
 
-# emotion_analyzer.py line ~494
-self.pipe = pipeline(
-    task="text-classification",
-    model="SamLowe/roberta-base-go_emotions",
-    top_k=None,
-    truncation=True,
-)
-```
+### 8. Automatic Speech Recognition (Faster-Whisper)
+
+- **Purpose:** Transcribe diarised speech segments.
+- **Default model:** `faster-whisper-tiny.en` stored in the CTranslate2 format.
+- **Discovery:** The runtime searches `tiny.en/`, `faster-whisper/tiny.en/`, `ct2/tiny.en/` under each model root, then falls back to `~/whisper_models/tiny.en`. If nothing is present, CTranslate2 assets are downloaded into `HF_HOME`/`huggingface_hub` on demand.【F:src/diaremot/pipeline/runtime/environment.py†L12-L118】
+- **Override:** Set `WHISPER_MODEL_PATH` (directory) or pass `--whisper-model` / `--model-root` via the CLI.
 
 ---
 
-### 6. Intent Classification (Zero-Shot NLI)
+## Environment Variable Summary
 
-**Purpose:** Classify utterance intent using zero-shot classification
-
-| Property | Value |
-|----------|-------|
-| **HuggingFace Model** | **facebook/bart-large-mnli** |
-| **Base Architecture** | BART-large fine-tuned on MNLI |
-| **File Path** | `D:/models/intent/model_int8.onnx` |
-| **Search Order** | 1. `model_uint8.onnx` (DOCUMENTED but doesn't exist)<br>2. `model_int8.onnx` (ACTUAL)<br>3. `model.onnx`<br>4. Any `.onnx` file |
-| **Size** | ~600MB |
-| **Quantization** | INT8 (named `_int8` not `_uint8`) |
-| **Method** | Natural Language Inference (entailment detection) |
-| **Default Classes** | status_update, question, request, command, small_talk, opinion, complaint, agreement, disagreement, appreciation |
-| **Input** | Text pairs (premise, hypothesis) |
-| **Output** | Entailment/contradiction/neutral logits |
-| **Default Dirs** | `intent/`, `bart/`, `bart-large-mnli/`, `facebook/bart-large-mnli/` |
-| **Env Override** | `DIAREMOT_INTENT_MODEL_DIR` |
-| **PyTorch Fallback** | `facebook/bart-large-mnli` (via transformers zero-shot pipeline) |
-
-**Required Files:**
-- `model_int8.onnx` (NOT `model_uint8.onnx`!)
-- `config.json` (must contain `model_type`)
-- `tokenizer.json` OR (`vocab.json` + `merges.txt`)
-- `tokenizer_config.json`, `special_tokens_map.json`
-
-**CRITICAL BUG:** Code searches for `model_uint8.onnx` first but actual file is `model_int8.onnx`
-
-**Code Reference:**
-```python
-# emotion_analyzer.py line ~148
-DEFAULT_INTENT_MODEL = "facebook/bart-large-mnli"
-
-# emotion_analyzer.py line ~719
-def _select_onnx_model(self, model_dir: Path) -> Path | None:
-    for name in ("model_uint8.onnx", "model.onnx"):  # <-- BUG: searches uint8 first
-        candidate = model_dir / name
-        if candidate.exists():
-            return candidate
-```
-
----
-
-### 7. Sound Event Detection (PANNs CNN14)
-
-**Purpose:** Detect ambient sounds and background events
-
-| Property | Value |
-|----------|-------|
-| **HuggingFace Model** | qiuqiangkong/panns_cnn14 |
-| **File Path** | `D:/models/Affect/sed_panns/model.onnx` (primary)<br>`D:/models/sed_panns/model.onnx` (legacy) |
-| **Search Dirs** | `sed_panns/`, `panns/`, `panns_cnn14/` |
-| **Search Pairs** | 1. `cnn14.onnx` + `labels.csv`<br>2. `panns_cnn14.onnx` + `audioset_labels.csv`<br>3. `model.onnx` + `class_labels_indices.csv` |
-| **Size** | ~80MB |
-| **Quantization** | Float32 |
-| **Classes** | 527 AudioSet classes |
-| **Input** | 32kHz mono audio |
-| **Output** | 527-class probability distribution |
-| **Env Override** | `DIAREMOT_PANNS_DIR` |
-| **PyTorch Fallback** | `panns_inference` library |
-
-**Required Files:**
-- `model.onnx` (CNN14 ONNX export)
-- `class_labels_indices.csv` (527 AudioSet labels)
-
-**Code Reference:**
-```python
-# sed_panns.py line ~43
-_PANNS_SUBDIR_CANDIDATES = ("sed_panns", "panns", "panns_cnn14")
-
-# sed_panns.py line ~77
-_ONNX_FILENAME_CANDIDATES: tuple[tuple[str, str], ...] = (
-    ("cnn14.onnx", "labels.csv"),
-    ("panns_cnn14.onnx", "audioset_labels.csv"),
-    ("model.onnx", "class_labels_indices.csv"),
-)
-```
-
----
-
-### 8. ASR - Faster-Whisper (CTranslate2)
-
-**Purpose:** Speech-to-text transcription
-
-| Property | Value |
-|----------|-------|
-| **HuggingFace Model** | Systran/faster-whisper-{MODEL} |
-| **Default Model** | `faster-whisper-tiny.en` |
-| **Location** | Auto-download to `$HF_HOME/hub/models--Systran--faster-whisper-*/` |
-| **Size** | ~40MB (tiny.en, int8) |
-| **Format** | CTranslate2 (optimized Whisper) |
-| **Compute Types** | `float32`, `int8`, `int8_float16` |
-| **Available Models** | tiny.en, base.en, small.en, medium.en, large-v2 |
-| **Input** | 16kHz mono audio |
-| **Output** | Timestamped transcription with confidence scores |
-
-**Model Files (per model):**
-- `config.json` (CTranslate2 config)
-- `model.bin` (CTranslate2 model weights)
-- `tokenizer.json` (Whisper tokenizer)
-- `vocabulary.txt` (token vocabulary)
-
----
-
-## Environment Variables Summary
-
-| Variable | Purpose | Default Search |
-|----------|---------|----------------|
-| `DIAREMOT_MODEL_DIR` | Root model directory | `D:/models` (Win), `/srv/models` (Linux) |
-| `SILERO_VAD_ONNX_PATH` | Override Silero VAD location | Multiple subdirs |
-| `ECAPA_ONNX_PATH` | Override ECAPA location | `Diarization/ecapa-onnx/` |
-| `DIAREMOT_SER_ONNX` | Override SER8 location | `Affect/ser8/` |
-| `DIAREMOT_TEXT_EMO_MODEL_DIR` | Text emotions directory | `text_emotions/` |
-| `AFFECT_VAD_DIM_MODEL_DIR` | VAD directory | `Affect/VAD_dim/` |
-| `DIAREMOT_INTENT_MODEL_DIR` | Intent model directory | `intent/`, `bart/`, etc. |
-| `DIAREMOT_PANNS_DIR` | PANNs directory | `sed_panns/`, `Affect/sed_panns/` |
-
----
-
-## Search Priority System
-
-For **each model**, DiaRemot searches in this order:
-
-```
-1. Explicit environment variable (if set)
-   ↓
-2. $DIAREMOT_MODEL_DIR + relative paths
-   ↓
-3. ./models + relative paths (current directory)
-   ↓
-4. ~/models + relative paths (user home)
-   ↓
-5. OS-specific defaults:
-   Windows:  D:/models, D:/diaremot/diaremot2-1/models
-   Linux:    /models, /opt/diaremot/models
-
-First existing file WINS.
-```
-
-- **Local-first by default.** All pipeline stages now honour this search order before attempting any network downloads. The Typer CLI exposes a `--remote-first` flag (and the config key `local_first=False`) for the rare cases where you want the downloader to prefer fresh snapshots.
-- Override the primary model directory per run with the CLI's `--model-root /path/to/models` option (or set `DIAREMOT_MODEL_DIR`) when you need to test alternative bundles.
+| Variable | Scope | Expected value |
+|----------|-------|----------------|
+| `DIAREMOT_MODEL_DIR` | Global | Primary model root directory |
+| `SILERO_VAD_ONNX_PATH` | Silero VAD | Path to `silero_vad.onnx` |
+| `ECAPA_ONNX_PATH` | ECAPA embeddings | Path to `ecapa_tdnn.onnx` |
+| `DIAREMOT_SER_ONNX` | SER8 | Path to `model.int8.onnx` |
+| `DIAREMOT_TEXT_EMO_MODEL_DIR` | Text emotions | Directory containing GoEmotions ONNX + tokenizer |
+| `AFFECT_VAD_DIM_MODEL_DIR` | V/A/D | Directory containing `model.onnx` + tokenizer |
+| `DIAREMOT_INTENT_MODEL_DIR` | Intent | Directory containing BART-MNLI assets |
+| `DIAREMOT_PANNS_DIR` | PANNs SED | Directory containing PANNs ONNX + labels |
 
 ---
 
@@ -341,7 +117,7 @@ from pathlib import Path
 import os
 
 models_to_check = {
-    "Silero VAD": "Diarization/silaro_vad/silero_vad.onnx",
+    "Silero VAD": ("silero_vad.onnx", "Diarization/silero_vad/silero_vad.onnx"),
     "ECAPA Embeddings": "Diarization/ecapa-onnx/ecapa_tdnn.onnx",
     "SER8 (Speech Emotion)": "Affect/ser8/model.int8.onnx",
     "VAD Emotion": "Affect/VAD_dim/model.onnx",
@@ -350,50 +126,38 @@ models_to_check = {
     "PANNs SED": "Affect/sed_panns/model.onnx",
 }
 
-model_dir = Path(os.getenv('DIAREMOT_MODEL_DIR', 'D:/models'))
-
-print(f"Checking models in: {model_dir}\n")
+model_root = Path(os.getenv("DIAREMOT_MODEL_DIR", Path.cwd() / "models")).expanduser()
+print(f"Checking models in: {model_root}\n")
 
 for name, rel_path in models_to_check.items():
-    full_path = model_dir / rel_path
-    status = "✓ FOUND" if full_path.exists() else "✗ MISSING"
-    size = f"{full_path.stat().st_size / 1024 / 1024:.1f}MB" if full_path.exists() else "N/A"
-    print(f"{status:10} {name:30} {size:>8}  {rel_path}")
+    if isinstance(rel_path, (list, tuple)):
+        candidates = [Path(p) for p in rel_path]
+    else:
+        candidates = [Path(rel_path)]
+    found_path = None
+    for candidate in candidates:
+        full = model_root / candidate
+        if full.exists():
+            found_path = full
+            break
+    if found_path is None:
+        found_path = model_root / candidates[0]
+    status = "✓ FOUND" if found_path.exists() else "✗ MISSING"
+    size = f"{found_path.stat().st_size / 1024 / 1024:.1f}MB" if found_path.exists() else "N/A"
+    rel_display = " | ".join(str(p) for p in candidates)
+    print(f"{status:10} {name:30} {size:>8}  {rel_display}")
 ```
 
 ---
 
 ## Key Takeaways
 
-### ✅ What's Correct
-
-1. **All models in subdirectories** - No root-level ONNX files
-2. **Quantized models preferred** - INT8 used for SER8, text emotions, intent
-3. **Priority search system** - Environment vars > model dir > local > defaults
-4. **Fallback system** - PyTorch auto-download when ONNX unavailable
-
-### ❌ Common Mistakes in Documentation
-
-1. **Intent model name**: It's `model_int8.onnx` NOT `model_uint8.onnx`
-2. **Text emotions model**: SamLowe/roberta-base-go_emotions NOT facebook/bart-large-mnli
-3. **Intent model**: facebook/bart-large-mnli (not used for text emotions)
-4. **Root-level models**: Don't document `D:/models/silero_vad.onnx` - it's in a subdirectory
-5. **Float32 versions**: SER8 and text emotions only have INT8 versions
-
-### 🐛 Code Bugs
-
-**Intent model search bug** (emotion_analyzer.py:719):
-```python
-# BUG: Searches for model_uint8.onnx but actual file is model_int8.onnx
-for name in ("model_uint8.onnx", "model.onnx"):
-```
-
-**Should be:**
-```python
-for name in ("model_int8.onnx", "model.onnx"):
-```
+1. Use `DIAREMOT_MODEL_DIR` to switch between model bundles; the runtime searches sensible fallbacks automatically.【F:src/diaremot/pipeline/runtime/environment.py†L34-L118】【F:src/diaremot/utils/model_paths.py†L18-L55】
+2. ONNX assets for SER8, GoEmotions, and BART-MNLI are quantised (`model.int8.onnx`). Keep the accompanying tokenizer metadata in the same directory for each component.【F:src/diaremot/affect/emotion_analyzer.py†L178-L260】
+3. Faster-Whisper assets are managed by Hugging Face caches; only set `WHISPER_MODEL_PATH` when using a custom CTranslate2 export.【F:src/diaremot/pipeline/runtime/environment.py†L92-L118】
+4. When a model is missing, stages either fall back to slower PyTorch implementations (Silero VAD, PANNs, intent/text emotions) or emit neutral defaults with warnings so the pipeline can still complete.【F:src/diaremot/pipeline/diarization/vad.py†L18-L191】【F:src/diaremot/affect/emotion_analyzer.py†L482-L1107】【F:src/diaremot/affect/sed_panns.py†L86-L212】
 
 ---
 
-**Last Updated:** 2025-01-15  
-**Author:** Based on code analysis of diaremot2-on v2.2.0
+**Last Updated:** 2025-03-08  
+**Author:** DiaRemot v2.2.0 code audit

@@ -83,7 +83,6 @@ src/diaremot/pipeline/runtime/session.py
 src/diaremot/pipeline/runtime_env.py
 src/diaremot/pipeline/speaker_diarization.py
 src/diaremot/pipeline/speaker_diarization_batched.py
->>>>>>> theirs
 src/diaremot/pipeline/stages/__init__.py
 src/diaremot/pipeline/stages/affect.py
 src/diaremot/pipeline/stages/asr.py
@@ -110,6 +109,8 @@ src/diaremot/tools/deps_check.py
 src/diaremot/utils/__init__.py
 src/diaremot/utils/hash.py
 src/diaremot/utils/model_paths.py
+src/diaremot2_on/__init__.py
+src/diaremot2_on/diarization.py
 tests/test_diarization.py
 tests/test_outputs_transcript.py
 tests/test_paralinguistics.py

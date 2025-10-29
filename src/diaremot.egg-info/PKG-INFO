@@ -149,7 +149,7 @@ Output Files:
 
 ### Primary Outputs
 
-**`diarized_transcript_with_emotion.csv`** - 40-column master transcript
+**`diarized_transcript_with_emotion.csv`** - 39-column master transcript
 - **Temporal**: start, end, duration_s
 - **Speaker**: speaker_id, speaker_name
 - **Content**: text, asr_logprob_avg
@@ -202,20 +202,22 @@ Output Files:
 ### Quick Start (Windows)
 
 **Option 1: Automated Setup (Recommended)**
+Install ffmpeg on path
 ```powershell
 # Clone repository
-git clone <repository-url>
-cd diaremot2-on
+git clone https://github.com/tltrogl/redo.git
+cd redo
 
 # Run setup script
 .\setup.ps1
 ```
 
 **Option 2: Manual Setup**
+Install ffmpeg on path
 ```powershell
 # 1. Clone repository
-git clone <repository-url>
-cd diaremot2-on
+git clone https://github.com/tltrogl/redo.git
+cd redo
 
 # 2. Create virtual environment
 py -3.11 -m venv .venv
@@ -234,10 +236,11 @@ python -m diaremot.cli diagnostics
 ### Quick Start (Linux/macOS)
 
 **Option 1: Automated Setup (Recommended)**
+Install ffmpeg to path
 ```bash
 # Clone repository
-git clone <repository-url>
-cd diaremot2-on
+git clone https://github.com/tltrogl/redo.git
+cd redo
 
 # Make setup script executable and run
 chmod +x setup.sh
@@ -245,10 +248,11 @@ chmod +x setup.sh
 ```
 
 **Option 2: Manual Setup**
+install ffmpeg to path
 ```bash
 # 1. Clone repository
-git clone <repository-url>
-cd diaremot2-on
+git clone https://github.com/tltrogl/redo.git
+cd redo
 
 # 2. Create virtual environment
 python3.11 -m venv .venv
@@ -589,7 +593,7 @@ When ONNX models are unavailable, system auto-downloads from:
 ### Basic Commands
 
 ```bash
-# Standard processing (float32 ASR)
+# Standard processing (int8 ASR default)
 python -m diaremot.cli run --input audio.wav --outdir outputs/
 
 # Fast mode (int8 quantization)
@@ -629,7 +633,7 @@ python -m diaremot.cli smoke --outdir outputs/
 - `--outdir, -o` – Output directory
 
 **Performance:**
-- `--asr-compute-type` – `float32` (default) | `int8` | `int8_float16`
+- `--asr-compute-type` – `int8` (default) | `float32` | `int8_float16`
 - `--asr-cpu-threads` – Thread count for CPU operations (default: 1)
 
 **VAD/Diarization:**
@@ -1030,7 +1034,7 @@ pytest tests/ -v
 ## Project Structure
 
 ```
-diaremot2-on/
+redo/
 ├── src/
 │   ├── audio_pipeline_core.py       # Legacy location (transitional)
 │   └── diaremot/                    # Main package
@@ -1123,7 +1127,7 @@ If you use DiaRemot in your research, please cite:
   author = {Timothy Leigh Troglin},
   year = {2024},
   version = {2.2.0},
-  url = {https://github.com/tltrogl/diaremot2-on}
+  url = {https://github.com/tltrogl/redo}
 }
 ```
 
@@ -1153,4 +1157,4 @@ Special thanks to the open-source ML community.
 **Python:** 3.11-3.12  
 **License:** MIT
 
-[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/diaremot2-on&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/redo&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)

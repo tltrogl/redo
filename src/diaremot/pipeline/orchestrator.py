@@ -11,6 +11,7 @@ from typing import Any
 from . import speaker_diarization as _speaker_diarization
 from .config import (
     DEFAULT_PIPELINE_CONFIG,
+    PipelineConfig,
     build_pipeline_config,
 )
 from .config import (
@@ -23,17 +24,17 @@ from .core.affect_mixin import AffectMixin
 from .core.component_factory import ComponentFactoryMixin
 from .core.output_mixin import OutputMixin
 from .core.paralinguistics_mixin import ParalinguisticsMixin
-from .errors import StageExecutionError, coerce_stage_error
-from .logging_utils import CoreLogger, RunStats, StageGuard, _fmt_hms_ms
+from .errors import StageExecutionError
+from .logging_utils import CoreLogger, RunStats, _fmt_hms_ms
 from .pipeline_checkpoint_system import PipelineCheckpointManager, ProcessingStage
-from .runtime_env import configure_local_cache_env
+from .runtime import PipelineSession, StageExecutor, bootstrap_environment
 from .stages import PIPELINE_STAGES, PipelineState
 
-# Backwards-compatible aliases for test hooks and StageGuard shims
+# Backwards-compatible aliases for test hooks
 DiarizationConfig = _speaker_diarization.DiarizationConfig
 SpeakerDiarizer = _speaker_diarization.SpeakerDiarizer
 
-configure_local_cache_env()
+_PIPELINE_ENV = bootstrap_environment()
 CACHE_VERSION = "v3"  # Incremented to handle new checkpoint logic
 
 
@@ -144,8 +145,12 @@ class AudioAnalysisPipelineV2(
 
         # Persist config for later checks
         self.cfg = dict(cfg)
+        self.pipeline_config = PipelineConfig.model_validate(self.cfg)
         self.cache_version = CACHE_VERSION
         self.paralinguistics_module = None
+
+        # Align environment caches with requested cache root
+        self.environment = bootstrap_environment(preferred_cache=self.cache_root)
 
         # Quiet mode env + logging
         self.quiet = bool(cfg.get("quiet", False))
@@ -198,27 +203,14 @@ class AudioAnalysisPipelineV2(
         state = PipelineState(input_audio_path=input_audio_path, out_dir=outp)
 
         try:
-            for stage in PIPELINE_STAGES:
-                with StageGuard(self.corelog, self.stats, stage.name) as guard:
-                    try:
-                        stage.runner(self, state, guard)
-                    except StageExecutionError:
-                        raise
-                    except Exception as exc:
-                        context = {
-                            "stage": stage.name,
-                            "file_id": self.stats.file_id,
-                            "has_audio": state.y is not None,
-                            "has_turns": bool(getattr(state, "turns", None)),
-                            "has_transcript": bool(getattr(state, "norm_tx", None)),
-                            "audio_sha16": getattr(state, "audio_sha16", None),
-                        }
-                        raise coerce_stage_error(
-                            stage.name,
-                            f"Stage '{stage.name}' execution failed",
-                            context=context,
-                            cause=exc,
-                        ) from exc
+            session = PipelineSession.create(
+                self,
+                state,
+                input_audio_path=input_audio_path,
+                output_dir=outp,
+                stage_definitions=PIPELINE_STAGES,
+            )
+            StageExecutor(pipeline=self, session=session).run_all()
         except StageExecutionError as exc:
             self.corelog.error(f"Pipeline failed: {exc}")
             raise
