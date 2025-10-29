@@ -24,15 +24,14 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - **MODEL_MAP.md** - Complete model inventory and search paths
 - **GEMINI.md** - Project context for AI assistants (Gemini, Claude, etc.)
 - **AGENTS.md** - Setup guide for autonomous agents
-- **docs/CODEX_ENV_SETUP.md** - Codex worker environment bootstrap checklist
 - **CLOUD_BUILD_GUIDE.md** - Cloud deployment instructions
 
 ---
 
 ## 11-Stage Processing Pipeline
 
-1. **dependency_check** – Validate runtime dependencies and model availability (runs when `validate_dependencies` is enabled)
-2. **preprocess** – Audio normalization, denoising, auto-chunking for long files
+1. **dependency_check** – Validate runtime dependencies and model availability
+2. **preprocess** – Audio resampling and loudness alignment with optional denoising plus auto-chunking for long files
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
 4. **diarize** – Speaker segmentation with adaptive VAD tuning
 5. **transcribe** – Speech-to-text with intelligent batching
@@ -50,13 +49,6 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - The public orchestrator (`src/diaremot/pipeline/orchestrator.py`) now composes these mixins,
   surfaces structured `StageExecutionError` instances from `src/diaremot/pipeline/errors.py`, and
   improves failure diagnostics without altering the 11-stage contract.
-- The pipeline runtime scaffolding mirrors the paralinguistics package and now lives under
-  `src/diaremot/pipeline/runtime/`, providing a dataclass-driven environment bootstrap,
-  immutable `PipelineSession` container, and `StageExecutor` to run stage plans declaratively.
-- Speaker diarization has been modularised into `src/diaremot/pipeline/diarization/`, splitting
-  Silero VAD loaders, ECAPA embedding inference, clustering helpers, registry persistence, and
-  turn post-processing into focused modules while keeping the legacy import surface via
-  `speaker_diarization.py`.
 - Component bootstrap logic in `ComponentFactoryMixin` raises these structured errors as soon as a
   dependency is missing, keeping cache and checkpoint handling consistent with pre-refactor runs.
 - The paralinguistics stack is now a proper package under `src/diaremot/affect/paralinguistics/`,
@@ -70,7 +62,7 @@ Audio File (WAV/MP3/M4A)
     ↓
 [1] dependency_check → Validate environment
     ↓
-[2] preprocess → 16kHz mono, -20 LUFS, denoise, auto-chunk
+[2] preprocess → 16kHz mono, -20 LUFS target (denoise optional), auto-chunk
     ↓ {y, sr, duration_s, health, audio_sha16}
     ↓
 [3] background_sed → PANNs CNN14 (global + timeline if noisy)
@@ -131,7 +123,7 @@ Output Files:
 
 **`diarized_transcript_readable.txt`** - Plain-text transcript with diarized turns, human-friendly timestamps, VAD stability, top sound events, dominant intent, and affect snapshot (valence/arousal/dominance + emotion hint).
 
-**`summary.html`** - Interactive HTML report
+**`summary.html`** - Interactive HTML report (generated when HTML dependencies are available)
 - Quick Take overview
 - Speaker snapshots with analytics
 - Timeline with clickable timestamps
@@ -149,10 +141,10 @@ Output Files:
 
 - **`segments.jsonl`** – Full segment payloads with audio features
 - **`speaker_registry.json`** – Persistent speaker embeddings for cross-file tracking
-- **`events_timeline.csv`** – Sound event timeline with confidence scores (written when SED timeline mode runs)
+- **`events_timeline.csv`** – Sound event timeline with confidence scores (present when SED timeline runs)
 - **`timeline.csv`** – Simplified timeline for quick review
 - **`qc_report.json`** – Quality control metrics and processing diagnostics
-- **`summary.pdf`** – PDF version of HTML report (requires wkhtmltopdf)
+- **`summary.pdf`** – PDF version of HTML report (requires wkhtmltopdf and succeeds only when the dependency is installed)
 
 ---
 
@@ -176,7 +168,7 @@ Install ffmpeg on path
 ```powershell
 # Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd redo
+cd diaremot2-on
 
 # Run setup script
 .\setup.ps1
@@ -187,7 +179,7 @@ Install ffmpeg on path
 ```powershell
 # 1. Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd redo
+cd diaremot2-on
 
 # 2. Create virtual environment
 py -3.11 -m venv .venv
@@ -210,7 +202,7 @@ Install ffmpeg to path
 ```bash
 # Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd redo
+cd diaremot2-on
 
 # Make setup script executable and run
 chmod +x setup.sh
@@ -222,7 +214,7 @@ install ffmpeg to path
 ```bash
 # 1. Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd redo
+cd diaremot2-on
 
 # 2. Create virtual environment
 python3.11 -m venv .venv
@@ -237,41 +229,6 @@ pip install -e .
 # 4. Verify installation
 python -m diaremot.cli diagnostics
 ```
-
-### Reference Environment Setup (Linux CLI Example)
-
-> Need the full Codex worker recipe? See
-> [docs/CODEX_ENV_SETUP.md](docs/CODEX_ENV_SETUP.md) for the step-by-step
-> bootstrap guide that mirrors the Codex automation environment.
-
-The following sequence reproduces the environment used for the latest
-end-to-end smoketest, including system packages, Python dependencies, and
-model assets:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y ffmpeg libsm6 libxext6
-
-python3.11 -m venv .venv
-source .venv/bin/activate
-
-pip install -r requirements.txt
-
-curl -L https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o models.zip
-sha256sum --check models.zip.sha256
-unzip -q models.zip -d ./models
-
-PYTHONPATH=src \
-  HF_HOME=./.cache \
-  python -m diaremot.cli smoke \
-    --outdir /tmp/smoke_test \
-    --model-root ./models \
-    --enable-affect
-```
-
-The affect loader now normalises case differences when resolving the
-`models/` subdirectories, so manual symlinks (for example `GoEmotions-onnx →
-goemotions-onnx`) are no longer required after extracting the bundle.
 
 ### Development Setup
 
@@ -322,6 +279,8 @@ export TOKENIZERS_PARALLELISM=false
  - Need to target a different model directory for a particular invocation? Supply `--model-root D:/alt-models` (or set `DIAREMOT_MODEL_DIR`) and the pipeline will rebuild its search paths dynamically.
 - Programmatic integrations can control this via `build_pipeline_config({... 'local_first': False ...})` when a remote-first run is desired.
 
+**IMPORTANT:** `local_first` controls search PRIORITY only. Downloaded models (especially faster-whisper) ALWAYS cache to `$HF_HOME/.cache/` - there is no way to disable caching. This is CTranslate2/HuggingFace default behavior.
+
 ### Model Search Paths
 
 DiaRemot uses a priority-based model discovery system. For each model, the system searches these locations in order:
@@ -348,14 +307,14 @@ DiaRemot uses a priority-based model discovery system. For each model, the syste
 
 - Download the curated model pack published at
   [tltrogl/diaremot2-ai · v2.AI](https://github.com/tltrogl/diaremot2-ai/releases/tag/v2.AI).
-- Codex Cloud workers automatically pull `models.zip` from this release; mirror
-  the same archive locally for parity with production.
+- Codex Cloud workers automatically pull the archive (`models.zip`) into an assets cache; mirror the same archive locally for parity with production.
 - Verify the checksum before extracting so you know the asset matches CI:
 
 ```bash
-curl -L https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o models.zip
-sha256sum models.zip  # Expect 3cc2115f4ef7cd4f9e43cfcec376bf56ea2a8213cb760ab17b27edbc2cac206c
-unzip -q models.zip -d ./models
+mkdir -p ./assets
+curl -L https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o ./assets/models.zip
+sha256sum ./assets/models.zip  # Expect eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f
+unzip -q ./assets/models.zip -d ./models
 ```
 
 `models.zip.sha256` in the repository mirrors the expected hash for quick
@@ -375,10 +334,6 @@ models/
 └── silero_vad.onnx      # Root-level Silero VAD file
 ```
 
-> Model discovery now performs case-insensitive lookups for the directories
-> above, so either `goemotions-onnx/` or `GoEmotions-ONNX/` satisfy the
-> requirements without additional filesystem tweaks.
-
 > **Note:** The v2.AI release does **not** include the dimensional VAD model
 > (`affect/vad_dim/`). Runs will emit neutral valence/arousal/dominance scores
 > until the directory is populated manually (internal export or Hugging Face
@@ -386,7 +341,7 @@ models/
 
 ### Smoke test (Codex Cloud parity)
 
-After installing dependencies and extracting `models.zip`, validate the runtime
+After installing dependencies and extracting the model archive, validate the runtime
 with the full CPU pipeline:
 
 ```bash
@@ -421,7 +376,7 @@ D:/models/                                      # Windows default
 │   │                                          #         OR ecapa_tdnn.onnx (root fallback)
 │   │                                          # Env:    ECAPA_ONNX_PATH
 │   │
-│   └── silaro_vad/
+│   └── silero_vad/                             # NOTE: Directory name is 'silero' not 'silaro'
 │       └── silero_vad.onnx                    # ~3MB   | Silero VAD
 │                                              # Search: silero_vad.onnx (multiple locations)
 │                                              #         OR silero/vad.onnx
@@ -543,8 +498,6 @@ $ECAPA_ONNX_PATH
 - D:/models (Windows) or /models (Linux)
 ```
 
-> _Note:_ If the canonical platform directory is not writable, the bootstrapper falls back to `<repo>/.cache/models` so the pipeline can run fully offline.
-
 **Example: Silero VAD Discovery**
 
 ```python
@@ -563,19 +516,19 @@ $SILERO_VAD_ONNX_PATH
 Override specific model paths to skip search:
 
 ```bash
-# Model root (affects all relative paths)
-export DIAREMOT_MODEL_DIR="$HOME/models"
-
 # Diarization models
-export SILERO_VAD_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/silaro_vad/silero_vad.onnx"
-export ECAPA_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
+export SILERO_VAD_ONNX_PATH="D:/models/Diarization/silaro_vad/silero_vad.onnx"
+export ECAPA_ONNX_PATH="D:/models/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
 
 # Affect models (full directory paths, not specific files)
-export DIAREMOT_SER_ONNX="$DIAREMOT_MODEL_DIR/Affect/ser8/model.int8.onnx"
-export DIAREMOT_TEXT_EMO_MODEL_DIR="$DIAREMOT_MODEL_DIR/text_emotions"
-export AFFECT_VAD_DIM_MODEL_DIR="$DIAREMOT_MODEL_DIR/Affect/VAD_dim"
-export DIAREMOT_INTENT_MODEL_DIR="$DIAREMOT_MODEL_DIR/intent"
-export DIAREMOT_PANNS_DIR="$DIAREMOT_MODEL_DIR/Affect/sed_panns"
+export DIAREMOT_SER_ONNX="D:/models/Affect/ser8/model.int8.onnx"
+export DIAREMOT_TEXT_EMO_MODEL_DIR="D:/models/text_emotions"
+export AFFECT_VAD_DIM_MODEL_DIR="D:/models/Affect/VAD_dim"
+export DIAREMOT_INTENT_MODEL_DIR="D:/models/intent"
+export DIAREMOT_PANNS_DIR="D:/models/Affect/sed_panns"
+
+# Model root (affects all relative paths)
+export DIAREMOT_MODEL_DIR="D:/models"
 ```
 
 ### CTranslate2 Models (Auto-downloaded)
@@ -653,7 +606,7 @@ python -m diaremot.cli smoke --outdir outputs/
 - `--clustering-backend` – Clustering method (ahc or spectral)
 
 **Features:**
-- `--disable-sed` – Skip sound event detection (enabled by default)
+- `--disable-sed` / `--enable-sed` – Toggle sound event detection
 - `--disable-affect` – Skip emotion/intent analysis
 - `--profile` – Preset configuration (default|fast|accurate|offline)
 
@@ -782,7 +735,7 @@ Transcription module employs sophisticated batching:
 
 ## CSV Schema Reference
 
-The primary output `diarized_transcript_with_emotion.csv` contains **40 columns** (in this exact order):
+The primary output `diarized_transcript_with_emotion.csv` contains **39 columns** (in this exact order):
 
 ### Column Order (CRITICAL - DO NOT MODIFY)
 ```python
@@ -1039,7 +992,7 @@ pytest tests/ -v
 ## Project Structure
 
 ```
-redo/
+diaremot2-on/
 ├── src/
 │   ├── audio_pipeline_core.py       # Legacy location (transitional)
 │   └── diaremot/                    # Main package
@@ -1058,15 +1011,9 @@ redo/
 │       │   │   └── __init__.py      # PIPELINE_STAGES registry
 │       │   ├── audio_pipeline_core.py
 │       │   ├── orchestrator.py
-│       │   ├── diarization/         # Modular diarization runtime (Silero/ECAPA/AHC)
-│       │   │   ├── pipeline.py      # SpeakerDiarizer implementation
-│       │   │   ├── vad.py           # Silero VAD loaders (ONNX/Torch)
-│       │   │   ├── embeddings.py    # ECAPA ONNX embedding encoder
-│       │   │   ├── registry.py      # Speaker registry persistence helpers
-│       │   │   └── ...              # config, clustering, utils, etc.
-│       │   ├── speaker_diarization.py  # Back-compat shim re-exporting diarization package
+│       │   ├── speaker_diarization.py
 │       │   ├── transcription_module.py
-│       │   ├── outputs.py           # CSV schema (40 columns)
+│       │   ├── outputs.py           # CSV schema (39 columns)
 │       │   ├── config.py
 │       │   ├── runtime_env.py
 │       │   ├── pipeline_checkpoint_system.py
@@ -1138,7 +1085,7 @@ If you use DiaRemot in your research, please cite:
   author = {Timothy Leigh Troglin},
   year = {2024},
   version = {2.2.0},
-  url = {https://github.com/tltrogl/redo}
+  url = {https://github.com/tltrogl/diaremot2-on}
 }
 ```
 
@@ -1163,9 +1110,9 @@ Special thanks to the open-source ML community.
 
 ---
 
-**Last Updated:** 2025-03-08
+**Last Updated:** 2025-01-15  
 **Version:** 2.2.0  
 **Python:** 3.11-3.12  
 **License:** MIT
 
-[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/redo&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/diaremot2-on&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)
