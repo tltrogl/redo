@@ -206,14 +206,23 @@ def merge_chunked_audio(chunks: list[tuple[np.ndarray, ChunkInfo]], target_sr: i
 
     chunks.sort(key=lambda x: x[1].start_time)
     merged_parts: list[np.ndarray] = []
+    total_chunks = len(chunks)
 
-    for i, (chunk_audio, chunk_info) in enumerate(chunks):
-        if i == 0:
-            merged_parts.append(chunk_audio)
-            continue
-        overlap_samples = int(chunk_info.overlap_start * target_sr)
-        if overlap_samples < len(chunk_audio):
-            chunk_audio = chunk_audio[overlap_samples:]
+    for index, (chunk_audio, chunk_info) in enumerate(chunks):
+        start_trim = int(round(chunk_info.overlap_start * target_sr))
+        end_trim = int(round(chunk_info.overlap_end * target_sr)) if index < total_chunks - 1 else 0
+
+        if start_trim > 0:
+            start_trim = min(start_trim, len(chunk_audio))
+            chunk_audio = chunk_audio[start_trim:]
+
+        if end_trim > 0:
+            end_trim = min(end_trim, len(chunk_audio))
+            if end_trim == len(chunk_audio):
+                chunk_audio = chunk_audio[:0]
+            else:
+                chunk_audio = chunk_audio[:-end_trim]
+
         merged_parts.append(chunk_audio)
 
     merged = np.concatenate(merged_parts, axis=0)
