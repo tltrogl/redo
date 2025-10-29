@@ -269,7 +269,7 @@ Any missing artifact, schema mismatch, or fallback indicator causes a **hard fai
 - Use **only** the models from `./assets/models.zip` (unzipped to `./models`).
 - **Required paths (must exist):**
   - `./models/Diarization/ecapa-onnx/ecapa_tdnn.onnx`
-  - `./models/Diarization/silaro_vad/silero_vad.onnx`
+  - `./models/Diarization/silero_vad/silero_vad.onnx`
   - `./models/Affect/ser8/model.int8.onnx`
   - `./models/Affect/VAD_dim/model.onnx`
   - `./models/Affect/sed_panns/model.onnx`
@@ -280,7 +280,7 @@ Any missing artifact, schema mismatch, or fallback indicator causes a **hard fai
 - **Environment overrides (concrete):**
 ```bash
 export DIAREMOT_MODEL_DIR="$(pwd)/models"
-export SILERO_VAD_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/silaro_vad/silero_vad.onnx"
+export SILERO_VAD_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/silero_vad/silero_vad.onnx"
 export ECAPA_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
 export DIAREMOT_PANNS_DIR="$DIAREMOT_MODEL_DIR/Affect/sed_panns"
 export DIAREMOT_TEXT_EMO_MODEL_DIR="$DIAREMOT_MODEL_DIR/text_emotions"

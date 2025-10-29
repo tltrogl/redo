@@ -19,7 +19,7 @@
 
 | # | Component | Default relative path | Key files | Quantisation | Primary source |
 |---|-----------|----------------------|-----------|--------------|----------------|
-| 1 | Silero VAD | `Diarization/silaro_vad/silero_vad.onnx` | `silero_vad.onnx` | Float32 | TorchHub `snakers4/silero-vad` (ONNX export) |
+| 1 | Silero VAD | `silero_vad.onnx` (root; alias `Diarization/silero_vad/`) | `silero_vad.onnx` | Float32 | TorchHub `snakers4/silero-vad` (ONNX export) |
 | 2 | ECAPA Speaker Embeddings | `Diarization/ecapa-onnx/ecapa_tdnn.onnx` | `ecapa_tdnn.onnx` | Float32 | `speechbrain/spkrec-ecapa-voxceleb` |
 | 3 | Speech Emotion (SER8) | `Affect/ser8/` | `model.int8.onnx` (+ tokenizer files) | INT8 | `ehcalabres/wav2vec2-lg-xlsr-en-speech-emotion-recognition` |
 | 4 | Valence/Arousal/Dominance | `Affect/VAD_dim/` | `model.onnx` (+ tokenizer files) | Float32 | `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim` |
@@ -117,7 +117,7 @@ from pathlib import Path
 import os
 
 models_to_check = {
-    "Silero VAD": "Diarization/silaro_vad/silero_vad.onnx",
+    "Silero VAD": ("silero_vad.onnx", "Diarization/silero_vad/silero_vad.onnx"),
     "ECAPA Embeddings": "Diarization/ecapa-onnx/ecapa_tdnn.onnx",
     "SER8 (Speech Emotion)": "Affect/ser8/model.int8.onnx",
     "VAD Emotion": "Affect/VAD_dim/model.onnx",
@@ -130,10 +130,22 @@ model_root = Path(os.getenv("DIAREMOT_MODEL_DIR", Path.cwd() / "models")).expand
 print(f"Checking models in: {model_root}\n")
 
 for name, rel_path in models_to_check.items():
-    full_path = model_root / rel_path
-    status = "✓ FOUND" if full_path.exists() else "✗ MISSING"
-    size = f"{full_path.stat().st_size / 1024 / 1024:.1f}MB" if full_path.exists() else "N/A"
-    print(f"{status:10} {name:30} {size:>8}  {rel_path}")
+    if isinstance(rel_path, (list, tuple)):
+        candidates = [Path(p) for p in rel_path]
+    else:
+        candidates = [Path(rel_path)]
+    found_path = None
+    for candidate in candidates:
+        full = model_root / candidate
+        if full.exists():
+            found_path = full
+            break
+    if found_path is None:
+        found_path = model_root / candidates[0]
+    status = "✓ FOUND" if found_path.exists() else "✗ MISSING"
+    size = f"{found_path.stat().st_size / 1024 / 1024:.1f}MB" if found_path.exists() else "N/A"
+    rel_display = " | ".join(str(p) for p in candidates)
+    print(f"{status:10} {name:30} {size:>8}  {rel_display}")
 ```
 
 ---

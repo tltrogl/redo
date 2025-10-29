@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import scipy.signal
 
-from ..io.onnx_utils import create_onnx_session
+from ...io.onnx_utils import create_onnx_session
 from .logger import logger
 from .paths import MODEL_ROOTS, iter_model_subpaths
 from .utils import (
