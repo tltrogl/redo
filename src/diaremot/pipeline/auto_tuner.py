@@ -10,7 +10,7 @@ from typing import Any
 import numpy as np
 
 try:  # Parselmouth is optional during unit tests
-    from .audio_preprocessing import AudioHealth
+    from .preprocess import AudioHealth
 except Exception:  # pragma: no cover - defensive import fallback
     AudioHealth = Any  # type: ignore
 

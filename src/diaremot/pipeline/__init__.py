@@ -8,6 +8,7 @@ from types import ModuleType
 _SUBMODULES: dict[str, str] = {
     "audio_pipeline_core": "diaremot.pipeline.audio_pipeline_core",
     "audio_preprocessing": "diaremot.pipeline.audio_preprocessing",
+    "preprocess": "diaremot.pipeline.preprocess",
     "cli_entry": "diaremot.pipeline.cli_entry",
     "cpu_optimized_diarizer": "diaremot.pipeline.cpu_optimized_diarizer",
     "config": "diaremot.pipeline.config",
