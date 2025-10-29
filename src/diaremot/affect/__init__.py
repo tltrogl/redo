@@ -6,6 +6,7 @@ from importlib import import_module
 from types import ModuleType
 
 _SUBMODULES: dict[str, str] = {
+    "analyzers": "diaremot.affect.analyzers",
     "emotion_analysis": "diaremot.affect.emotion_analysis",
     "emotion_analyzer": "diaremot.affect.emotion_analyzer",
     "intent_defaults": "diaremot.affect.intent_defaults",

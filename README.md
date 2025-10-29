@@ -1023,7 +1023,8 @@ redo/
 │       │   ├── pipeline_checkpoint_system.py
 │       │   └── ...
 │       ├── affect/
-│       │   ├── emotion_analyzer.py
+│       │   ├── analyzers/            # Text/Speech/VAD/Intent analyzers
+│       │   ├── emotion_analyzer.py   # Thin orchestrator over analyzers
 │       │   ├── emotion_analysis.py
 │       │   ├── paralinguistics.py
 │       │   ├── ser_onnx.py
