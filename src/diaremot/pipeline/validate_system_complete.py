@@ -64,11 +64,11 @@ def test_transcription_directly():
     print("=" * 50)
 
     try:
-        from diaremot.pipeline.transcription_module import AudioTranscriber
+        from diaremot.pipeline.transcription_module import Transcriber
 
         # Initialize with CPU-only settings
         print("Initializing transcriber...")
-        transcriber = AudioTranscriber(**SMOKE_TEST_TRANSCRIBE_KWARGS)
+        transcriber = Transcriber(**SMOKE_TEST_TRANSCRIBE_KWARGS)
         print("✓ Transcriber initialized")
 
         # Validate backend

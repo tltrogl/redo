@@ -49,6 +49,7 @@ Input Audio File
 │ • Batch turns into optimal ASR windows                       │
 │ • Run Faster-Whisper on each batch                           │
 │ • Extract text, timestamps, confidence scores                │
+│ • `Transcriber` façade coordinates backend loading and batch scheduling │
 │ Output: norm_tx [{start, end, speaker_id, speaker_name,     │
 │         text, asr_logprob_avg, snr_db}]                      │
 └─────────────────────────────────────────────────────────────┘
@@ -253,9 +254,10 @@ PipelineState:
 **Process:**
 1. Convert turns to ASR segments with speaker info
 2. Batch short segments (<8s) into groups (target: 60s, max: 300s)
+   - Managed by `create_batch_groups` in `pipeline/transcription/scheduler.py`
 3. For each batch/segment:
    - Extract audio chunk
-   - Run Faster-Whisper ASR
+   - Run Faster-Whisper ASR via the scheduler's async workers
    - Extract text, word timestamps, confidence (log prob)
 4. Normalize output format
 5. Save to cache (tx.json)
@@ -660,6 +662,7 @@ Cache is invalidated when:
 
 ### Transcription (Stage 5)
 - **CTranslate2 + Faster-Whisper:** ASR inference
+- **Transcription package:** `pipeline/transcription/` provides backend guards, scheduler, and post-processing
 
 ### Paralinguistics (Stage 6)
 - **Praat-Parselmouth:** Voice quality metrics
