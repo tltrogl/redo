@@ -41,6 +41,9 @@ class DiarizationConfig:
     single_speaker_dominance: float = 0.88
     single_speaker_centroid_threshold: float = 0.20
     single_speaker_min_turns: int = 3
+    single_speaker_silhouette_threshold: float = 0.25
+    single_speaker_force_dominance: float = 0.70
+    single_speaker_force_max_clusters: int = 4
 
 
 @dataclass
