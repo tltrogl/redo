@@ -346,6 +346,9 @@ PipelineState:
      * Attach top-3 background sounds from SED
      * Compute noise tag
      * Derive `snr_db_sed` from SED timeline overlap when available
+   - Implementation note: `EmotionAnalyzer` now delegates to modular analyzers under
+     `diaremot.affect.analyzers` (`text`, `speech`, `vad`, `intent`) so each component can
+     be unit-tested and swapped independently.
 2. Assemble final segment structure with all 39 columns
 3. Compute derived fields:
    - affect_hint (e.g., "calm-positive", "agitated-negative")
