@@ -33,7 +33,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 1. **dependency_check** – Validate runtime dependencies and model availability
 2. **preprocess** – Audio resampling and loudness alignment with optional denoising plus auto-chunking for long files
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
-4. **diarize** – Speaker segmentation with adaptive VAD tuning
+4. **diarize** – Speaker segmentation with adaptive VAD tuning and silhouette/dominance-based single-speaker collapse
 5. **transcribe** – Speech-to-text with intelligent batching
 6. **paralinguistics** – Voice quality and prosody extraction
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
@@ -68,7 +68,7 @@ Audio File (WAV/MP3/M4A)
 [3] background_sed → PANNs CNN14 (global + timeline if noisy)
     ↓ {sed_info: top labels, dominant_label, noise_score, timeline?}
     ↓
-[4] diarize → Silero VAD + ECAPA embeddings + AHC clustering
+[4] diarize → Silero VAD + ECAPA embeddings + AHC clustering (single-speaker silhouette guard)
     ↓ {turns: [{start, end, speaker, speaker_name}], vad_unstable}
     ↓
 [5] transcribe → Faster-Whisper with intelligent batching
@@ -168,7 +168,7 @@ Install ffmpeg on path
 ```powershell
 # Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd diaremot2-on
+cd redo
 
 # Run setup script
 .\setup.ps1
@@ -179,7 +179,7 @@ Install ffmpeg on path
 ```powershell
 # 1. Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd diaremot2-on
+cd redo
 
 # 2. Create virtual environment
 py -3.11 -m venv .venv
@@ -202,7 +202,7 @@ Install ffmpeg to path
 ```bash
 # Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd diaremot2-on
+cd redo
 
 # Make setup script executable and run
 chmod +x setup.sh
@@ -214,7 +214,7 @@ install ffmpeg to path
 ```bash
 # 1. Clone repository
 git clone https://github.com/tltrogl/redo.git
-cd diaremot2-on
+cd redo
 
 # 2. Create virtual environment
 python3.11 -m venv .venv
@@ -362,7 +362,7 @@ section in the final JSON for optional warnings (e.g., missing VAD_dim).
 
 **ACTUAL MODEL DIRECTORY STRUCTURE** (v2.2.0):
 
-The structure below shows what the code actually searches for and expects. **All models must be in subdirectories** - there are no root-level ONNX files.
+The structure below shows what the code actually searches for and expects. Most models live in dedicated subdirectories; Silero VAD may also appear at the model root as `silero_vad.onnx`.
 
 ```
 D:/models/                                      # Windows default
@@ -467,11 +467,11 @@ D:/models/                                      # Windows default
 - ✅ **Quantized models only** for SER8, text emotions, and intent (no float32 versions)
 - ✅ **model.int8.onnx** is used for SER8 and text emotions (NOT `model.onnx`)
 - ✅ **model_int8.onnx** is used for intent (NOT `model_uint8.onnx`)
-- ✅ All models are in **subdirectories** - no root-level ONNX files
+- ✅ ONNX assets live in dedicated folders, except Silero VAD which can sit at the model root as `silero_vad.onnx`
 - ✅ Tokenizer files (config.json, vocab.json, etc.) must be colocated with ONNX files
 
 **What's Missing from Common Docs:**
-- ❌ No `D:/models/silero_vad.onnx` (it's in `Diarization/silaro_vad/`)
+- ✅ Silero VAD ships as `silero_vad.onnx` at the model root; the loader also scans `Diarization/silero_vad/` for backwards compatibility
 - ❌ No `D:/models/ecapa_tdnn.onnx` (it's in `Diarization/ecapa-onnx/`)
 - ❌ No float32 SER8 (`Affect/ser8/model.onnx` doesn't exist, only `.int8`)
 - ❌ No float32 text emotions (`text_emotions/model.onnx` doesn't exist, only `.int8`)
@@ -517,7 +517,7 @@ Override specific model paths to skip search:
 
 ```bash
 # Diarization models
-export SILERO_VAD_ONNX_PATH="D:/models/Diarization/silaro_vad/silero_vad.onnx"
+export SILERO_VAD_ONNX_PATH="D:/models/Diarization/silero_vad/silero_vad.onnx"
 export ECAPA_ONNX_PATH="D:/models/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
 
 # Affect models (full directory paths, not specific files)
@@ -852,7 +852,7 @@ python -c "
 from pathlib import Path
 import os
 models = [
-    'Diarization/silaro_vad/silero_vad.onnx',
+    'Diarization/silero_vad/silero_vad.onnx',
     'Diarization/ecapa-onnx/ecapa_tdnn.onnx',
     'Affect/ser8/model.int8.onnx',
     'Affect/VAD_dim/model.onnx',
@@ -996,7 +996,7 @@ pytest tests/ -v
 ## Project Structure
 
 ```
-diaremot2-on/
+redo/
 ├── src/
 │   ├── audio_pipeline_core.py       # Legacy location (transitional)
 │   └── diaremot/                    # Main package
@@ -1089,7 +1089,7 @@ If you use DiaRemot in your research, please cite:
   author = {Timothy Leigh Troglin},
   year = {2024},
   version = {2.2.0},
-  url = {https://github.com/tltrogl/diaremot2-on}
+  url = {https://github.com/tltrogl/redo}
 }
 ```
 
@@ -1119,4 +1119,4 @@ Special thanks to the open-source ML community.
 **Python:** 3.11-3.12  
 **License:** MIT
 
-[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/diaremot2-on&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)
+[![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/redo&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)

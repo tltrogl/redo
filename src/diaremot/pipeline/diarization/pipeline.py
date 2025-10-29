@@ -154,6 +154,27 @@ class SpeakerDiarizer:
         turns = self._enforce_min_turn_duration(turns)
         turns = self._merge_similar_speakers(turns)
         if self.config.single_speaker_collapse:
+            forced, canonical, stats = self._maybe_force_single_speaker(turns)
+            if forced and canonical:
+                details = []
+                if stats:
+                    if "silhouette" in stats:
+                        details.append(f"silhouette={stats['silhouette']:.3f}")
+                    if "dominance" in stats:
+                        details.append(f"dominance={stats['dominance']:.2f}")
+                    if "clusters" in stats:
+                        details.append(f"clusters={int(stats['clusters'])}")
+                suffix = f" ({', '.join(details)})" if details else ""
+                logger.info(
+                    "Forcing diarization clusters into single speaker '%s'%s",
+                    canonical,
+                    suffix,
+                )
+                for turn in turns:
+                    turn.speaker = canonical
+                    turn.speaker_name = canonical
+                turns = self._merge_short_gaps(turns)
+        if self.config.single_speaker_collapse:
             collapsed, canonical, reason = collapse_single_speaker_turns(
                 turns,
                 dominance_threshold=self.config.single_speaker_dominance,
@@ -361,6 +382,76 @@ class SpeakerDiarizer:
             else:
                 merged.append(seg)
         return merged
+
+    def _maybe_force_single_speaker(
+        self, turns: list[DiarizedTurn]
+    ) -> tuple[bool, str | None, dict[str, float] | None]:
+        if not turns:
+            return False, None, None
+        speakers = [t.speaker for t in turns if t.speaker]
+        unique_speakers = {spk for spk in speakers if spk}
+        if len(unique_speakers) <= 1:
+            return False, None, None
+        max_clusters = int(getattr(self.config, "single_speaker_force_max_clusters", 0) or 0)
+        if max_clusters > 0 and len(unique_speakers) > max_clusters:
+            return False, None, None
+        durations: dict[str, float] = {}
+        total_duration = 0.0
+        for turn in turns:
+            if not turn.speaker:
+                continue
+            duration = max(float(turn.end) - float(turn.start), 0.0)
+            if duration <= 0:
+                continue
+            durations[turn.speaker] = durations.get(turn.speaker, 0.0) + duration
+            total_duration += duration
+        if total_duration <= 0.0 or not durations:
+            return False, None, None
+        dominant_speaker, dominant_duration = max(durations.items(), key=lambda item: item[1])
+        dominance_ratio = dominant_duration / total_duration
+        dominance_floor = float(getattr(self.config, "single_speaker_force_dominance", 0.0) or 0.0)
+        if dominance_floor > 0.0 and dominance_ratio < dominance_floor:
+            return False, None, None
+        embeddings: list[np.ndarray] = []
+        labels: list[str] = []
+        for turn in turns:
+            if turn.embedding is None or not turn.speaker:
+                continue
+            vec = np.asarray(turn.embedding, dtype=np.float32)
+            norm = float(np.linalg.norm(vec))
+            if norm <= 0.0:
+                continue
+            embeddings.append(vec / norm)
+            labels.append(turn.speaker)
+        if len(embeddings) < 2 or len(set(labels)) <= 1:
+            return False, None, None
+        try:
+            from sklearn.metrics import silhouette_score
+
+            arr = np.stack(embeddings, axis=0)
+            label_map = {spk: idx for idx, spk in enumerate(sorted(set(labels)))}
+            label_indices = np.asarray([label_map[label] for label in labels], dtype=np.int32)
+            score = float(silhouette_score(arr, label_indices, metric="cosine"))
+        except Exception as exc:  # pragma: no cover - diagnostic guardrail
+            try:
+                logger.debug(
+                    "Silhouette score unavailable for single-speaker heuristic: %s",
+                    exc,
+                )
+            except Exception:
+                pass
+            return False, None, None
+        threshold = float(getattr(self.config, "single_speaker_silhouette_threshold", 0.0) or 0.0)
+        if threshold <= 0.0:
+            return False, None, None
+        if score <= threshold:
+            stats = {
+                "silhouette": score,
+                "dominance": dominance_ratio,
+                "clusters": float(len(unique_speakers)),
+            }
+            return True, dominant_speaker, stats
+        return False, None, None
 
     def _merge_similar_speakers(self, turns: list[DiarizedTurn]) -> list[DiarizedTurn]:
         if not turns:

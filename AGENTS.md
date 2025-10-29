@@ -97,10 +97,19 @@ python -m pip install -U pip wheel setuptools
 if [ -f pyproject.toml ]; then
   pip install -e ".[dev]" || pip install -e .
 fi
-# Re‑assert caches and model roots
+# Reassert caches and reuse the unpacked model bundle when available
 export DIAREMOT_MODEL_DIR="$(pwd)/models"
+if [ ! -f "$DIAREMOT_MODEL_DIR/Diarization/ecapa-onnx/ecapa_tdnn.onnx" ]; then
+  mkdir -p assets "$DIAREMOT_MODEL_DIR"
+  if [ ! -f assets/models.zip ]; then
+    curl -sSLf https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o assets/models.zip
+  fi
+  sha256sum assets/models.zip | grep -qi "eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f"
+  unzip -qn assets/models.zip -d "$DIAREMOT_MODEL_DIR"
+fi
 export HF_HOME="$(pwd)/.cache"
 export TRANSFORMERS_CACHE="$(pwd)/.cache/transformers"
+mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE"
 ```
 
 ---
@@ -269,7 +278,7 @@ Any missing artifact, schema mismatch, or fallback indicator causes a **hard fai
 - Use **only** the models from `./assets/models.zip` (unzipped to `./models`).
 - **Required paths (must exist):**
   - `./models/Diarization/ecapa-onnx/ecapa_tdnn.onnx`
-  - `./models/Diarization/silaro_vad/silero_vad.onnx`
+  - `./models/Diarization/silero_vad/silero_vad.onnx`
   - `./models/Affect/ser8/model.int8.onnx`
   - `./models/Affect/VAD_dim/model.onnx`
   - `./models/Affect/sed_panns/model.onnx`
@@ -280,7 +289,7 @@ Any missing artifact, schema mismatch, or fallback indicator causes a **hard fai
 - **Environment overrides (concrete):**
 ```bash
 export DIAREMOT_MODEL_DIR="$(pwd)/models"
-export SILERO_VAD_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/silaro_vad/silero_vad.onnx"
+export SILERO_VAD_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/silero_vad/silero_vad.onnx"
 export ECAPA_ONNX_PATH="$DIAREMOT_MODEL_DIR/Diarization/ecapa-onnx/ecapa_tdnn.onnx"
 export DIAREMOT_PANNS_DIR="$DIAREMOT_MODEL_DIR/Affect/sed_panns"
 export DIAREMOT_TEXT_EMO_MODEL_DIR="$DIAREMOT_MODEL_DIR/text_emotions"

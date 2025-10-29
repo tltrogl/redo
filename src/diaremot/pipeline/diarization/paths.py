@@ -3,9 +3,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from ..runtime_env import DEFAULT_MODELS_ROOT, iter_model_roots
+from ...utils.model_paths import collect_model_roots
 
-MODEL_ROOTS = tuple(iter_model_roots()) or (DEFAULT_MODELS_ROOT,)
+_DISCOVERED_ROOTS = tuple(collect_model_roots())
+
+if _DISCOVERED_ROOTS:
+    MODEL_ROOTS = _DISCOVERED_ROOTS
+else:
+    MODEL_ROOTS = (Path.cwd() / "models",)
 
 
 def iter_model_subpaths(*relative_paths: Path | str) -> Iterator[Path]:

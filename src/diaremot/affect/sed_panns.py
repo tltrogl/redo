@@ -26,7 +26,7 @@ MODEL_ROOTS = tuple(iter_model_roots())
 if not MODEL_ROOTS:
     MODEL_ROOTS = (DEFAULT_MODELS_ROOT,)
 
-_PANNS_SUBDIR_CANDIDATES = ("sed_panns", "panns", "panns_cnn14")
+_PANNS_SUBDIR_CANDIDATES = ("Affect/sed_panns", "sed_panns", "panns", "panns_cnn14")
 DEFAULT_PANNS_MODEL_DIR = None
 for _root in MODEL_ROOTS:
     for subdir in _PANNS_SUBDIR_CANDIDATES:

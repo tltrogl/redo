@@ -6,7 +6,7 @@ from pathlib import Path
 import librosa
 import numpy as np
 
-from ..io.onnx_utils import create_onnx_session
+from ...io.onnx_utils import create_onnx_session
 from .logger import logger
 from .paths import iter_model_subpaths
 
@@ -94,7 +94,6 @@ class ECAPAEncoder:
                     mel = np.pad(mel, ((0, pad_width), (0, 0)), mode="edge")
                 padded.append(mel)
             inputs = np.stack(padded, axis=0).astype(np.float32)
-            inputs = np.transpose(inputs, (0, 2, 1))
             ort_inputs = {self.input_name: inputs}
             outputs = self.session.run([self.output_name], ort_inputs)
             embeddings = []
