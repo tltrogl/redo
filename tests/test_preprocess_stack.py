@@ -10,8 +10,8 @@ from diaremot.pipeline.preprocess.chain import build_health
 
 def test_merge_chunked_audio_trims_overlap() -> None:
     sr = 16000
-    chunk_a = np.ones(sr, dtype=np.float32)
-    chunk_b = np.full(sr, 2.0, dtype=np.float32)
+    chunk_a = np.ones(sr + int(0.25 * sr), dtype=np.float32)
+    chunk_b = np.full(sr + int(0.25 * sr), 2.0, dtype=np.float32)
 
     info_a = ChunkInfo(
         chunk_id=0,
@@ -33,9 +33,9 @@ def test_merge_chunked_audio_trims_overlap() -> None:
     )
 
     merged = merge_chunked_audio([(chunk_a, info_a), (chunk_b, info_b)], sr)
-    expected = sr + sr - int(info_b.overlap_start * sr)
+    expected = sr * 2
     assert len(merged) == expected
-    assert np.allclose(merged[: sr], chunk_a)
+    assert np.allclose(merged[: sr], chunk_a[: sr])
     assert np.allclose(merged[sr:], chunk_b[int(info_b.overlap_start * sr) :])
 
 
