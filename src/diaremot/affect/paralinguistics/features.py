@@ -163,50 +163,58 @@ def compute_segment_features_v2(
     if cfg.voice_quality_enabled and duration >= cfg.vq_min_duration_sec:
         try:
             snr_db, is_reliable, quality_status = advanced_audio_quality_assessment(segment_audio, sr)
-            if is_reliable and snr_db >= cfg.vq_min_snr_db:
-                if cfg.vq_use_parselmouth and PARSELMOUTH_AVAILABLE:
-                    voice_quality = compute_voice_quality_parselmouth(segment_audio, sr, cfg)
-                    method = "parselmouth"
-                else:
-                    voice_quality = compute_voice_quality_fallback(segment_audio, sr, cfg)
-                    method = "fallback"
 
-                vq_jitter_pct = voice_quality.get("jitter_pct", 0.0)
-                vq_shimmer_db = voice_quality.get("shimmer_db", 0.0)
-                vq_hnr_db = voice_quality.get("hnr_db", 0.0)
-                vq_cpps_db = voice_quality.get("cpps_db", 0.0)
-                vq_voiced_ratio = voice_quality.get("voiced_ratio", 0.0)
-                vq_spectral_slope_db = voice_quality.get("spectral_slope_db", 0.0)
+            parselmouth_metrics: dict[str, float] | None = None
+            parselmouth_error: str | None = None
+            if cfg.vq_use_parselmouth and PARSELMOUTH_AVAILABLE:
+                try:
+                    parselmouth_metrics = compute_voice_quality_parselmouth(segment_audio, sr, cfg)
+                except Exception as exc:  # pragma: no cover - defensive logging
+                    parselmouth_error = str(exc)
+                    parselmouth_metrics = None
 
-                vq_reliable = bool(is_reliable and snr_db >= cfg.vq_min_snr_db and vq_voiced_ratio >= 0.5)
-                vq_note = f"{quality_status}_voiced_{vq_voiced_ratio:.2f}"
-                flags["voice_quality"] = {
-                    "method": method,
-                    "snr_db": snr_db,
-                    "quality_status": quality_status,
-                }
+            if parselmouth_metrics is not None:
+                voice_quality = parselmouth_metrics
+                method = "parselmouth"
+            elif cfg.vq_fallback_enabled:
+                voice_quality = compute_voice_quality_fallback(segment_audio, sr, cfg)
+                method = "fallback"
             else:
-                if cfg.vq_fallback_enabled:
-                    voice_quality = compute_voice_quality_fallback(segment_audio, sr, cfg)
-                    vq_jitter_pct = voice_quality.get("jitter_pct", 0.0)
-                    vq_shimmer_db = voice_quality.get("shimmer_db", 0.0)
-                    vq_hnr_db = voice_quality.get("hnr_db", 0.0)
-                    vq_cpps_db = voice_quality.get("cpps_db", 0.0)
-                    vq_voiced_ratio = voice_quality.get("voiced_ratio", 0.0)
-                    vq_spectral_slope_db = voice_quality.get("spectral_slope_db", 0.0)
-                    vq_reliable = False
-                    vq_note = f"unreliable_{quality_status}_snr_{snr_db:.1f}dB"
+                voice_quality = {
+                    "jitter_pct": 0.0,
+                    "shimmer_db": 0.0,
+                    "hnr_db": 0.0,
+                    "cpps_db": 0.0,
+                    "voiced_ratio": 0.0,
+                    "spectral_slope_db": 0.0,
+                }
+                method = "disabled"
+
+            vq_jitter_pct = voice_quality.get("jitter_pct", 0.0)
+            vq_shimmer_db = voice_quality.get("shimmer_db", 0.0)
+            vq_hnr_db = voice_quality.get("hnr_db", 0.0)
+            vq_cpps_db = voice_quality.get("cpps_db", 0.0)
+            vq_voiced_ratio = voice_quality.get("voiced_ratio", 0.0)
+            vq_spectral_slope_db = voice_quality.get("spectral_slope_db", 0.0)
+
+            vq_reliable = bool(is_reliable and snr_db >= cfg.vq_min_snr_db and vq_voiced_ratio >= 0.5)
+            if vq_reliable:
+                vq_note = f"{quality_status}_voiced_{vq_voiced_ratio:.2f}"
+            else:
+                if parselmouth_metrics is not None:
+                    vq_note = f"low_quality_{quality_status}_snr_{snr_db:.1f}dB"
+                elif method == "fallback":
+                    vq_note = f"fallback_{quality_status}_snr_{snr_db:.1f}dB"
                 else:
-                    vq_jitter_pct = vq_shimmer_db = vq_hnr_db = vq_cpps_db = 0.0
-                    vq_voiced_ratio = vq_spectral_slope_db = 0.0
-                    vq_reliable = False
                     vq_note = "disabled_fallback"
 
-                flags["voice_quality"] = {
-                    "method": "unreliable",
-                    "snr_db": snr_db,
-                    "quality_status": quality_status,
-                }
+            flags["voice_quality"] = {
+                "method": method,
+                "snr_db": snr_db,
+                "quality_status": quality_status,
+            }
+            if parselmouth_error is not None:
+                flags["voice_quality_error"] = parselmouth_error
         except Exception as exc:
             flags["voice_quality_error"] = str(exc)
             vq_jitter_pct = vq_shimmer_db = vq_hnr_db = vq_cpps_db = 0.0

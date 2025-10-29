@@ -675,6 +675,10 @@ print(f"Output directory: {result['out_dir']}")
 > Optional signal libraries are discovered lazily via `importlib.util.find_spec` so
 > the paralinguistics stage can warn and fall back gracefully if librosa, scipy, or
 > Parselmouth are missing at runtime.
+> When Parselmouth is installed we now always execute the Praat pipeline for every
+> segment that passes the minimum duration gate, even if audio quality heuristics
+> mark it as low SNR or clipped. Those segments are emitted with explicit
+> `low_quality_*` notes rather than silently reverting to the NumPy fallback.
 > The pipeline explicitly imports `importlib.util` to keep this probe available even
 > in embedded Python builds where attribute access on `importlib` may be limited.
 
