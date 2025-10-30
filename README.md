@@ -355,7 +355,7 @@ with the full CPU pipeline:
 ```bash
 PYTHONPATH=src \
   HF_HOME=./.cache \
-  python -m diaremot.cli smoke \
+  diaremot smoke \
     --outdir /tmp/smoke_test \
     --model-root ./models \
     --enable-affect
@@ -563,37 +563,32 @@ When ONNX models are unavailable, system auto-downloads from:
 ### Basic Commands
 
 ```bash
-# Standard processing (int8 ASR default)
-python -m diaremot.cli run --input audio.wav --outdir outputs/
+# Standard processing (int8 ASR default; defaults to audio/<file> → audio/outs)
+diaremot run sample1.mp3
 
 # Fast mode (int8 quantization)
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
-    --asr-compute-type int8
+diaremot run sample1.mp3 --asr-compute-type int8
 
 # Override VAD tuning
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
+diaremot run sample1.mp3 \
     --vad-threshold 0.30 \
     --vad-min-speech-sec 0.80 \
     --ahc-distance-threshold 0.12
 
 # Use preset profile
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
-    --profile fast
+diaremot run sample1.mp3 --profile fast
 
 # Disable optional stages
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
-    --disable-sed \
-    --disable-affect
+diaremot run sample1.mp3 --disable-sed --disable-affect
 
 # Resume from checkpoint
-python -m diaremot.cli resume --input audio.wav --outdir outputs/
+diaremot resume --input audio/sample1.mp3 --outdir audio/outs
 
 # Clear cache before run
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
-    --clear-cache
+diaremot run sample1.mp3 --clear-cache
 
 # Run smoke test
-python -m diaremot.cli smoke --outdir outputs/
+diaremot smoke --outdir outputs/
 ```
 
 ### Key CLI Flags
@@ -626,16 +621,16 @@ python -m diaremot.cli smoke --outdir outputs/
 
 ```bash
 # Default: Balanced speed/quality
-python -m diaremot.cli run -i audio.wav -o out/ --profile default
+diaremot run -i audio.wav -o out/ --profile default
 
 # Fast: Optimized for speed (int8, minimal features)
-python -m diaremot.cli run -i audio.wav -o out/ --profile fast
+diaremot run -i audio.wav -o out/ --profile fast
 
 # Accurate: Maximum quality (float32, all features)
-python -m diaremot.cli run -i audio.wav -o out/ --profile accurate
+diaremot run -i audio.wav -o out/ --profile accurate
 
 # Offline: No model downloads, use local only
-python -m diaremot.cli run -i audio.wav -o out/ --profile offline
+diaremot run -i audio.wav -o out/ --profile offline
 ```
 
 ### Programmatic API
@@ -804,7 +799,7 @@ SEGMENT_COLUMNS = [
 
 ```bash
 # Quick validation with generated audio
-python -m diaremot.cli smoke --outdir /tmp/smoke_test
+diaremot smoke --outdir /tmp/smoke_test
 
 # Verify outputs
 ls /tmp/smoke_test/diarized_transcript_with_emotion.csv
@@ -877,33 +872,33 @@ print('✓ All models present' if not missing else f'Missing models: {missing}')
 **Poor diarization results**
 ```bash
 # Try adjusting VAD threshold
-python -m diaremot.cli run -i audio.wav -o out/ --vad-threshold 0.25
+diaremot run -i audio.wav -o out/ --vad-threshold 0.25
 
 # Increase AHC distance threshold for fewer speakers
-python -m diaremot.cli run -i audio.wav -o out/ --ahc-distance-threshold 0.20
+diaremot run -i audio.wav -o out/ --ahc-distance-threshold 0.20
 
 # Add more speech padding
-python -m diaremot.cli run -i audio.wav -o out/ --vad-speech-pad-sec 0.30
+diaremot run -i audio.wav -o out/ --vad-speech-pad-sec 0.30
 ```
 
 **Slow processing**
 ```bash
 # Use int8 quantization
-python -m diaremot.cli run -i audio.wav -o out/ --asr-compute-type int8
+diaremot run -i audio.wav -o out/ --asr-compute-type int8
 
 # Disable optional stages
-python -m diaremot.cli run -i audio.wav -o out/ \
+diaremot run -i audio.wav -o out/ \
     --disable-sed --disable-affect
 
 # Use fast profile
-python -m diaremot.cli run -i audio.wav -o out/ --profile fast
+diaremot run -i audio.wav -o out/ --profile fast
 ```
 
 **Memory issues with long files**
 ```bash
 # Auto-chunking activates at 30 minutes
 # Force smaller chunks:
-python -m diaremot.cli run -i long_audio.wav -o out/ \
+diaremot run -i long_audio.wav -o out/ \
     --chunk-threshold-minutes 15.0 \
     --chunk-size-minutes 10.0 \
     --chunk-overlap-seconds 20.0
@@ -932,7 +927,7 @@ rm -rf .cache/hf/
 rm -rf .cache/torch/
 
 # Use CLI flag
-python -m diaremot.cli run -i audio.wav -o out/ --clear-cache
+diaremot run -i audio.wav -o out/ --clear-cache
 ```
 
 ---

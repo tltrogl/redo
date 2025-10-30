@@ -92,7 +92,7 @@ async def process_audio(
             config = {
                 "asr_backend": "faster",
                 "compute_type": "int8",  # Fast mode
-                "disable_sed": False,
+                "enable_sed": True,
                 "disable_affect": False,
             }
             

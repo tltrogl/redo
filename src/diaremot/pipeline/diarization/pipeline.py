@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import math
 import os
-from typing import Any
+import threading
+import time
+from contextlib import contextmanager
+from typing import Any, Callable
 
 import numpy as np
 import scipy.signal
@@ -15,6 +18,66 @@ from .registry import SpeakerRegistry
 from .segments import collapse_single_speaker_turns
 from .utils import energy_vad_fallback
 from .vad import SileroVAD
+
+_MIN_PROGRESS_INTERVAL = 5.0
+
+
+@contextmanager
+def _periodic_progress_logger(
+    name: str,
+    *,
+    start: float,
+    interval: float,
+    total: int | None = None,
+) -> None:
+    """Emit heartbeat logs for long-running clustering steps."""
+    safe_interval = max(_MIN_PROGRESS_INTERVAL, float(interval))
+    stop_event = threading.Event()
+
+    def _tick() -> None:
+        while not stop_event.wait(safe_interval):
+            elapsed = time.perf_counter() - start
+            if total is not None:
+                logger.info(
+                    "%s still running (elapsed %.1fs; embeddings=%d)",
+                    name,
+                    elapsed,
+                    total,
+                )
+            else:
+                logger.info("%s still running (elapsed %.1fs)", name, elapsed)
+
+    worker = threading.Thread(target=_tick, name=f"{name}-progress", daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        worker.join(timeout=safe_interval)
+
+
+def _run_with_progress(
+    name: str,
+    func: Callable[[], Any],
+    *,
+    total: int | None,
+    interval: float | None,
+) -> tuple[Any, float]:
+    """Execute a callable while emitting periodic progress logs."""
+    start = time.perf_counter()
+    should_log = interval is not None and float(interval) > 0.0
+    if should_log:
+        with _periodic_progress_logger(
+            name,
+            start=start,
+            interval=float(interval),
+            total=total,
+        ):
+            result = func()
+    else:
+        result = func()
+    elapsed = time.perf_counter() - start
+    return result, elapsed
 
 
 class SpeakerDiarizer:
@@ -98,6 +161,10 @@ class SpeakerDiarizer:
             return []
         try:
             X = np.vstack(embeddings)
+            n_embeddings = int(X.shape[0])
+            progress_interval = float(
+                getattr(self.config, "clustering_progress_interval_sec", 0.0) or 0.0
+            )
             backend = (self.config.clustering_backend or "ahc").strip().lower()
             labels = None
             if backend == "spectral" and SpectralClusterer is not None:
@@ -117,12 +184,22 @@ class SpeakerDiarizer:
                         p_percentile=0.90,
                         gaussian_blur_sigma=1.0,
                     )
-                    labels = spec.fit_predict(X)
+
+                    def _spectral_fit() -> np.ndarray:
+                        return spec.fit_predict(X)
+
+                    labels, spectral_elapsed = _run_with_progress(
+                        "[diarize] spectral clustering",
+                        _spectral_fit,
+                        total=n_embeddings,
+                        interval=progress_interval,
+                    )
                     logger.info(
-                        "Spectral clustering assigned %d clusters (min=%s max=%s)",
+                        "Spectral clustering assigned %d clusters (min=%s max=%s) in %.1fs",
                         int(len(set(labels))),
                         str(min_c),
                         str(max_c),
+                        spectral_elapsed,
                     )
                 except Exception as exc:
                     logger.info("Spectral clustering failed (%s); falling back to AHC", exc)
@@ -143,7 +220,40 @@ class SpeakerDiarizer:
                         linkage=self.config.ahc_linkage,
                         metric="cosine",
                     )
-                labels = clusterer.fit_predict(X)
+
+                def _agglo_fit() -> np.ndarray:
+                    return clusterer.fit_predict(X)
+
+                labels, aggl_elapsed = _run_with_progress(
+                    "[diarize] agglomerative clustering",
+                    _agglo_fit,
+                    total=n_embeddings,
+                    interval=progress_interval,
+                )
+                cluster_count = int(len(set(labels)))
+                merge_count = None
+                if hasattr(clusterer, "children_"):
+                    try:
+                        merge_count = int(getattr(clusterer, "children_").shape[0])
+                    except Exception:
+                        merge_count = None
+                distance_desc: str
+                if self.config.speaker_limit:
+                    distance_desc = "n/a"
+                elif self.config.ahc_distance_threshold is None:
+                    distance_desc = "None"
+                else:
+                    distance_desc = f"{float(self.config.ahc_distance_threshold):.3f}"
+                logger.info(
+                    "Agglomerative clustering assigned %d clusters in %.1fs "
+                    "(embeddings=%d, speaker_limit=%s, distance_threshold=%s, merges=%s)",
+                    cluster_count,
+                    aggl_elapsed,
+                    n_embeddings,
+                    str(self.config.speaker_limit),
+                    distance_desc,
+                    str(merge_count) if merge_count is not None else "n/a",
+                )
         except Exception as exc:
             logger.error("Clustering failed: %s", exc)
             labels = np.zeros(len(embeddings), dtype=int)

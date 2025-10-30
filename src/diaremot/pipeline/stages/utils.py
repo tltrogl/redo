@@ -52,6 +52,38 @@ def compute_pp_signature(pp_conf: Any) -> str:
     return json.dumps(sig, sort_keys=True)
 
 
+def compute_sed_signature(cfg: Any) -> str:
+    """Compute a deterministic signature for background SED configuration."""
+
+    def _get(source: Any, key: str) -> Any:
+        if source is None:
+            return None
+        if isinstance(source, dict):
+            return source.get(key)
+        return getattr(source, key, None)
+
+    keys = [
+        "enable_sed",
+        "sed_mode",
+        "sed_window_sec",
+        "sed_hop_sec",
+        "sed_enter",
+        "sed_exit",
+        "sed_min_dur",
+        "sed_default_min_dur",
+        "sed_merge_gap",
+        "sed_classmap_csv",
+        "sed_timeline_jsonl",
+        "sed_median_k",
+        "sed_batch_size",
+        "sed_max_windows",
+    ]
+    sig: dict[str, Any] = {}
+    for key in keys:
+        sig[key] = _get(cfg, key)
+    return json.dumps(sig, sort_keys=True)
+
+
 def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,5 +107,6 @@ __all__ = [
     "compute_audio_sha16",
     "compute_audio_sha16_from_file",
     "compute_pp_signature",
+    "compute_sed_signature",
     "read_json_safe",
 ]

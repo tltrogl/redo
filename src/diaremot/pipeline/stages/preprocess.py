@@ -11,9 +11,11 @@ from ..logging_utils import StageGuard, _fmt_hms
 from ..pipeline_checkpoint_system import ProcessingStage
 from .base import PipelineState
 from .utils import (
+    atomic_write_json,
     compute_audio_sha16,
     compute_audio_sha16_from_file,
     compute_pp_signature,
+    compute_sed_signature,
     read_json_safe,
 )
 
@@ -220,6 +222,48 @@ def _load_diar_tx_caches(
 def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
+    if not state.audio_sha16:
+        if state.y.size:
+            state.audio_sha16 = compute_audio_sha16(state.y)
+    cache_dir = state.cache_dir
+    if cache_dir is None:
+        base = pipeline.cache_root
+        key = state.audio_sha16 or "nohash"
+        cache_dir = base / key
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        state.cache_dir = cache_dir
+    else:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+    sed_sig = compute_sed_signature(pipeline.cfg)
+    sed_cache_path = cache_dir / "sed.json"
+    cached = read_json_safe(sed_cache_path) if sed_cache_path.exists() else None
+    if cached:
+        matches = (
+            cached.get("version") == pipeline.cache_version
+            and cached.get("audio_sha16") == state.audio_sha16
+            and cached.get("pp_signature") == state.pp_sig
+            and cached.get("sed_signature") == sed_sig
+            and cached.get("out_dir") == str(state.out_dir)
+        )
+        if matches:
+            sed_info = cached.get("sed_info") or {}
+            snapshot = dict(sed_info)
+            events = snapshot.pop("timeline_events", None)
+            if events is not None:
+                snapshot["timeline_event_count"] = len(events)
+            pipeline.stats.config_snapshot["background_sed"] = snapshot
+            state.sed_info = sed_info
+            guard.done()
+            pipeline.corelog.info(f"[background_sed] reused cache from {sed_cache_path}")
+            pipeline.corelog.event(
+                "background_sed",
+                "cache_hit",
+                audio_sha16=state.audio_sha16,
+                cache_path=str(sed_cache_path),
+            )
+            return
+
     empty_result = {"top": [], "dominant_label": None, "noise_score": 0.0}
     if not bool(pipeline.cfg.get("enable_sed", True)):
         disabled_result = dict(empty_result)
@@ -320,4 +364,17 @@ def run_background_sed(
             snapshot["timeline_event_count"] = len(events)
         pipeline.stats.config_snapshot["background_sed"] = snapshot
         state.sed_info = sed_info
+        try:
+            cache_payload = {
+                "version": pipeline.cache_version,
+                "audio_sha16": state.audio_sha16,
+                "pp_signature": state.pp_sig,
+                "sed_signature": sed_sig,
+                "out_dir": str(state.out_dir),
+                "sed_info": sed_info,
+            }
+            atomic_write_json(sed_cache_path, cache_payload)
+            pipeline.corelog.info(f"[background_sed] cached results to {sed_cache_path}")
+        except Exception as exc:  # pragma: no cover - best-effort cache
+            pipeline.corelog.warn(f"[background_sed] failed to cache results: {exc}")
         guard.done()

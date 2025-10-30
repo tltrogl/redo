@@ -22,6 +22,7 @@ class DiarizationConfig:
     ahc_distance_threshold: float = 0.15
     speaker_limit: int | None = None
     clustering_backend: str = "ahc"
+    clustering_progress_interval_sec: float = 60.0
     min_speakers: int | None = None
     max_speakers: int | None = None
     collar_sec: float = 0.25

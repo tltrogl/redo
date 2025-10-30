@@ -8,7 +8,6 @@ audioread==3.0.1 \
     --hash=sha256:4cdce70b8adc0da0a3c9e0d85fb10b3ace30fbdf8d1670fd443929b61d117c33 \
     --hash=sha256:ac5460a5498c48bdf2e8e767402583a4dcd13f4414d286f42ce4379e8b35066d
     # via librosa
-av==11.0.0 \
     --hash=sha256:13790fbb889b955baf885fe3761e923e85537ef414173465ec293177cedb7b99 \
     --hash=sha256:150490f2a62cfa470f3cb60f3a0060ff93afd807e2b7b3b0eeeb5a992eb8d67b \
     --hash=sha256:1aacc21f4cf96447117a61edfb776afb73186750a5e08a21484ddfc3599aefb5 \
@@ -264,6 +263,9 @@ ctranslate2==4.4.0 \
     # via
     #   -r requirements.in
     #   faster-whisper
+av==12.3.0 \
+    --hash=sha256:ef9066fd8d86548e12d587cbfe7b852159e48ff3c732271c3032668d4bd7c599
+    # via faster-whisper
 decorator==5.2.1 \
     --hash=sha256:65f266143752f734b0a7cc83c46f4618af75b8c5911b00ccb61d0ac9b6da0360 \
     --hash=sha256:d316bb415a2d9e2d2b3abcc4084c6502fc09240e292cd76a76afc106a1c8e04a

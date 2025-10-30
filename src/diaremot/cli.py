@@ -350,8 +350,22 @@ def _generate_sample_audio(
 
 @app.command()
 def run(
-    input: Path = typer.Option(..., "--input", "-i", help="Path to input audio file."),
-    outdir: Path = typer.Option(..., "--outdir", "-o", help="Directory to write outputs."),
+    audio_file: Optional[str] = typer.Argument(
+        None,
+        help="Optional audio file name relative to the default input directory ('audio/').",
+    ),
+    input: Optional[Path] = typer.Option(
+        None,
+        "--input",
+        "-i",
+        help="Path to input audio file. If omitted, defaults to 'audio/<audio_file>' when an audio file argument is provided.",
+    ),
+    outdir: Optional[Path] = typer.Option(
+        None,
+        "--outdir",
+        "-o",
+        help="Directory to write outputs. Defaults to 'audio/outs' when not provided.",
+    ),
     profile: Optional[str] = typer.Option(
         None,
         "--profile",
@@ -496,6 +510,20 @@ def run(
     ),
 ):
     _apply_model_root(model_root)
+
+    if audio_file is not None and input is not None:
+        raise typer.BadParameter("Provide either the audio file argument or --input, not both.")
+
+    if input is None:
+        if audio_file is None:
+            raise typer.BadParameter(
+                "No input specified. Provide an audio file argument or use --input/--outdir explicitly."
+            )
+        input = Path("audio") / audio_file
+
+    if outdir is None:
+        outdir = Path("audio/outs")
+
     run_overrides: dict[str, Any] = {
         "registry_path": _normalise_path(registry_path),
         "ahc_distance_threshold": ahc_distance_threshold,

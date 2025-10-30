@@ -76,7 +76,9 @@ class CoreLogger:
         if not self.log.handlers:
             handler = logging.StreamHandler()
             handler.setLevel(console_level)
-            fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M")
+            fmt = logging.Formatter(
+                "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            )
             handler.setFormatter(fmt)
             self.log.addHandler(handler)
 
