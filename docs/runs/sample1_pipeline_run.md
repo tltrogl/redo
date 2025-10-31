@@ -5,7 +5,7 @@ This record captures the end-to-end DiaRemot pipeline execution against `data/sa
 ## Preparation
 
 - Ensured the venv was active and exported the canonical cache/model environment variables outlined in `AGENTS.md`.
-- Verified the downloaded model bundle checksum (`eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f`) before extracting it into `./models/`.
+- Verified the downloaded model bundle checksum (`33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483`) before extracting it into `./models/`.
 - Normalised the Silero VAD directory name to `Diarization/silero_vad/` to match the expected loader alias.
 
 > **Note:** The repository does not ship `data/sample1.mp3`; for this run the file was provisioned by copying the bundled `data/sample2.mp3` into `data/sample1.mp3` so the CLI could operate on the expected sample name.

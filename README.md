@@ -321,7 +321,7 @@ DiaRemot uses a priority-based model discovery system. For each model, the syste
 ```bash
 mkdir -p ./assets
 curl -L https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o ./assets/models.zip
-sha256sum ./assets/models.zip  # Expect eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f
+sha256sum ./assets/models.zip  # Expect 33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483
 unzip -q ./assets/models.zip -d ./models
 ```
 
@@ -563,7 +563,7 @@ When ONNX models are unavailable, system auto-downloads from:
 ### Basic Commands
 
 ```bash
-# Standard processing (int8 ASR default; defaults to audio/<file> → audio/outs)
+# Standard processing (int8 ASR default; defaults to audio/<file> → audio/outs/<stem>)
 diaremot run sample1.mp3
 
 # Fast mode (int8 quantization)
@@ -582,7 +582,7 @@ diaremot run sample1.mp3 --profile fast
 diaremot run sample1.mp3 --disable-sed --disable-affect
 
 # Resume from checkpoint
-diaremot resume --input audio/sample1.mp3 --outdir audio/outs
+diaremot resume --input audio/sample1.mp3
 
 # Clear cache before run
 diaremot run sample1.mp3 --clear-cache
@@ -595,7 +595,7 @@ diaremot smoke --outdir outputs/
 
 **Input/Output:**
 - `--input, -i` – Audio file path (WAV, MP3, M4A, FLAC)
-- `--outdir, -o` – Output directory
+- `--outdir, -o` – Output directory (defaults to <input parent>/outs/<input stem>)
 
 **Performance:**
 - `--asr-compute-type` – `int8` (default) | `float32` | `int8_float16`
@@ -1129,3 +1129,4 @@ Special thanks to the open-source ML community.
 **License:** MIT
 
 [![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/redo&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)
+

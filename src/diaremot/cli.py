@@ -117,6 +117,12 @@ def _normalise_path(value: Path | None) -> str | None:
     return str(value.expanduser().resolve())
 
 
+def _default_outdir_for_input(input_path: Path) -> Path:
+    expanded = input_path.expanduser()
+    base_dir = expanded.parent if str(expanded.parent) not in {"", "."} else Path(".")
+    return base_dir / "outs" / expanded.stem
+
+
 def _parse_min_dur_map(value: str | None) -> dict[str, float] | None:
     if value is None:
         return None
@@ -364,7 +370,7 @@ def run(
         None,
         "--outdir",
         "-o",
-        help="Directory to write outputs. Defaults to 'audio/outs' when not provided.",
+        help="Directory to write outputs. Defaults to '<input parent>/outs/<input stem>' when omitted.",
     ),
     profile: str | None = typer.Option(
         None,
@@ -521,8 +527,11 @@ def run(
             )
         input = Path("audio") / audio_file
 
+    input = input.expanduser()
     if outdir is None:
-        outdir = Path("audio/outs")
+        outdir = _default_outdir_for_input(input)
+    else:
+        outdir = outdir.expanduser()
 
     run_overrides: dict[str, Any] = {
         "registry_path": _normalise_path(registry_path),
@@ -699,8 +708,11 @@ def smoke(
 @app.command()
 def resume(
     input: Path = typer.Option(..., "--input", "-i", help="Original input audio file."),
-    outdir: Path = typer.Option(
-        ..., "--outdir", "-o", help="Output directory used in the previous run."
+    outdir: Path | None = typer.Option(
+        None,
+        "--outdir",
+        "-o",
+        help="Output directory used in the previous run. Defaults to '<input parent>/outs/<input stem>'.",
     ),
     profile: str | None = typer.Option(
         None,
@@ -799,6 +811,12 @@ def resume(
     ),
 ):
     _apply_model_root(model_root)
+
+    input = input.expanduser()
+    if outdir is None:
+        outdir = _default_outdir_for_input(input)
+    else:
+        outdir = outdir.expanduser()
 
     resume_overrides: dict[str, Any] = {
         "registry_path": _normalise_path(registry_path),

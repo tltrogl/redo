@@ -20,7 +20,7 @@ This document describes how the interactive Codex agent collaborates with the us
 - **CPU‑only.** Use **ONNXRuntime** models where defined; **do not** switch to PyTorch or other runtimes as fallback.
 - **System tools:** `ffmpeg` must be on PATH.
 - **Network:** **Allowed.** Internet access is available at all times.
-- **Models:** **All required models are provided by `./assets/models.zip`** (SHA-256 `eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f`). Extract this archive locally on first run and reuse the unpacked assets; do **not** download alternative model files during the run.
+- **Models:** **All required models are provided by `./assets/models.zip`** (SHA-256 `33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483`). Extract this archive locally on first run and reuse the unpacked assets; do **not** download alternative model files during the run.
 ## 2. Environment Assumptions
 
 - Python 3.11, the virtual environment (`.venv`), ffmpeg, and dependencies are already in place.
@@ -65,7 +65,7 @@ mkdir -p ./assets
 if [ ! -f ./assets/models.zip ]; then
   curl -sSLf https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o ./assets/models.zip
 fi
-sha256sum ./assets/models.zip | grep -qi "eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f"
+sha256sum ./assets/models.zip | grep -qi "33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483"
 rm -rf ./models
 unzip -q ./assets/models.zip -d ./models
 
@@ -118,7 +118,7 @@ if [ ! -f "$DIAREMOT_MODEL_DIR/Diarization/ecapa-onnx/ecapa_tdnn.onnx" ]; then
   if [ ! -f assets/models.zip ]; then
     curl -sSLf https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o assets/models.zip
   fi
-  sha256sum assets/models.zip | grep -qi "eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f"
+  sha256sum assets/models.zip | grep -qi "33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483"
   unzip -qn assets/models.zip -d "$DIAREMOT_MODEL_DIR"
 fi
 export HF_HOME="$(pwd)/.cache"
@@ -135,16 +135,16 @@ set -euo pipefail
 . .venv/bin/activate
 
 # Lint (required)
-# Pipeline execution on real audio
-python -m diaremot.cli run --input input.wav --outdir outputs/ \
+# Pipeline execution on real audio (outputs → <input dir>/outs/<stem> by default)
+python -m diaremot.cli run --input input.wav \
   --model-root "${DIAREMOT_MODEL_DIR:-./models}" --enable-sed --enable-affect
 
 # Synthetic smoke test (generates demo audio)
 python -m diaremot.cli smoke --outdir /tmp/smoke --enable-affect \
   --model-root "${DIAREMOT_MODEL_DIR:-./models}"
 
-# Resume from checkpoints
-python -m diaremot.cli resume --input input.wav --outdir outputs/
+# Resume from checkpoints (reuses the same derived outdir unless overridden)
+python -m diaremot.cli resume --input input.wav
 
 # Lint / tests
 ruff check src/ tests/

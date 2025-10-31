@@ -21,7 +21,7 @@ This contract applies to autonomous Codex agents running DiaRemot in the cloud. 
 - **CPU-only:** Use **ONNXRuntime** models where defined; **never** fall back to PyTorch or other runtimes.
 - **System tools:** `ffmpeg` must be available on `PATH`.
 - **Network:** **Allowed.** Use it for package/model downloads as needed.
-- **Models:** **All required models are provided by `./assets/models.zip`** (SHA-256 `eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f`). Extract to `./models` and reuse the unpacked assets. Do **not** download alternate model files.
+- **Models:** **All required models are provided by `./assets/models.zip`** (SHA-256 `33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483`). Extract to `./models` and reuse the unpacked assets. Do **not** download alternate model files.
 
 ---
 
@@ -57,7 +57,7 @@ mkdir -p ./assets
 if [ ! -f ./assets/models.zip ]; then
   curl -sSLf https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip -o ./assets/models.zip
 fi
-sha256sum ./assets/models.zip | grep -qi "eb2594c5ee3e470baf7191f11109e082050c9e56fd9e3a59d76101924793df5f"
+sha256sum ./assets/models.zip | grep -qi "33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483"
 rm -rf ./models
 unzip -q ./assets/models.zip -d ./models
 
