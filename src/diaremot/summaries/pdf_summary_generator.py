@@ -80,6 +80,7 @@ class PDFSummaryGenerator:
         segments: list[dict[str, Any]],
         speakers_summary: list[dict[str, Any]],
         overlap_stats: dict[str, Any],
+        narrative: dict[str, Any] | None = None,
     ) -> str:
         """
         Core interface: generate PDF from pipeline data
@@ -98,6 +99,7 @@ class PDFSummaryGenerator:
             len(segments),
             speakers_summary,
             segments,
+            narrative,
         )
 
     def _generate_pdf(
@@ -109,6 +111,7 @@ class PDFSummaryGenerator:
         num_segments: int,
         speakers: list,
         segments: list,
+        narrative: dict[str, Any] | None,
     ) -> str:
         gen_ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
 
@@ -125,6 +128,15 @@ class PDFSummaryGenerator:
         # Title
         title_style = ParagraphStyle("title", fontSize=18, leading=22, spaceAfter=12)
         meta_style = ParagraphStyle("meta", fontSize=10, textColor=colors.grey, spaceAfter=6)
+        body_style = ParagraphStyle("body", fontSize=10, leading=13, spaceAfter=6)
+        bullet_style = ParagraphStyle(
+            "bullet",
+            fontSize=10,
+            leading=13,
+            leftIndent=12,
+            bulletIndent=0,
+            spaceAfter=2,
+        )
         story.append(Paragraph(f"<b>{title}</b>", title_style))
         story.append(
             Paragraph(
@@ -149,6 +161,52 @@ class PDFSummaryGenerator:
         else:
             summary = f"Audio length {_fmt_hms(duration)}"
         story.append(Paragraph(summary, ParagraphStyle("p", fontSize=11, spaceAfter=8)))
+
+        if narrative:
+            story.append(
+                Paragraph(
+                    "<b>Conversation Narrative</b>",
+                    ParagraphStyle("h2", fontSize=14, spaceBefore=6, spaceAfter=6),
+                )
+            )
+            story.append(
+                Paragraph(
+                    narrative.get("summary", "Conversation summary unavailable."),
+                    body_style,
+                )
+            )
+            story.append(
+                Paragraph(
+                    f"<b>Emotion Brief:</b> {narrative.get('emotion_brief', 'Emotion analysis unavailable.')}",
+                    body_style,
+                )
+            )
+
+            top_emotions = narrative.get("top_emotions") or []
+            if top_emotions:
+                top_lines = ", ".join(f"{label}: {count}" for label, count in top_emotions)
+                story.append(Paragraph(f"Top emotions: {top_lines}", body_style))
+
+            dominant = (narrative.get("dominant_speaker") or {})
+            if dominant.get("name") and dominant.get("percent") is not None:
+                story.append(
+                    Paragraph(
+                        f"Dominant speaker: {dominant['name']} "
+                        f"({dominant['percent']:.0f}% of speech time).",
+                        body_style,
+                    )
+                )
+
+            insights = narrative.get("interaction_insights") or []
+            if insights:
+                story.append(
+                    Paragraph(
+                        "<b>Interaction Insights</b>",
+                        ParagraphStyle("h3", fontSize=12, spaceBefore=4, spaceAfter=4),
+                    )
+                )
+                for item in insights:
+                    story.append(Paragraph(str(item), bullet_style, bulletText="•"))
 
         # Speaker table
         if speakers:
@@ -280,5 +338,12 @@ class PDFSummaryGenerator:
         segments = analysis_results.get("segments", [])
 
         return self._generate_pdf(
-            out_path, title, duration, nspeakers, nsegments, spk_rows, segments
+            out_path,
+            title,
+            duration,
+            nspeakers,
+            nsegments,
+            spk_rows,
+            segments,
+            analysis_results.get("narrative"),
         )

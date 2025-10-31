@@ -107,6 +107,82 @@ class CoreLogger:
 
         self.log.error(message, *args, **kwargs)
 
+    def stage(
+        self,
+        stage: str,
+        status: str,
+        *,
+        message: str | None = None,
+        step: int | None = None,
+        total: int | None = None,
+        elapsed_ms: float | None = None,
+        counts: dict[str, int] | None = None,
+        level: int | None = None,
+        **extra: Any,
+    ) -> None:
+        """
+        Emit a structured stage log and mirror it to the consolidated JSONL feed.
+
+        Parameters
+        ----------
+        stage:
+            Stage identifier (e.g. ``"diarize"``).
+        status:
+            Status keyword such as ``"start"``, ``"progress"``, ``"done"``, ``"warn"``.
+        message:
+            Optional free-form description.
+        step / total:
+            Optional progress counters for long running loops.
+        elapsed_ms:
+            Optional duration in milliseconds.
+        counts:
+            Optional aggregate counts to include with the message payload.
+        level:
+            Optional `logging` level override. Defaults to ``logging.INFO`` unless the
+            status is ``"warn"`` or ``"error"``.
+        extra:
+            Additional key/value pairs persisted to the JSONL event.
+        """
+
+        payload: dict[str, Any] = {}
+        if message:
+            payload["message"] = message
+        if step is not None:
+            payload["step"] = int(step)
+        if total is not None:
+            payload["total"] = int(total)
+        if elapsed_ms is not None:
+            payload["elapsed_ms"] = float(elapsed_ms)
+        if counts:
+            payload["counts"] = {k: int(v) for k, v in counts.items()}
+        if extra:
+            payload.update(extra)
+
+        self.event(stage, status, **payload)
+
+        parts = [f"[{stage}] {status}"]
+        if step is not None and total is not None and total > 0:
+            parts.append(f"{step}/{total}")
+        if elapsed_ms is not None:
+            parts.append(f"{_fmt_hms_ms(elapsed_ms)}")
+        if counts:
+            summary = ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+            if summary:
+                parts.append(summary)
+        if message:
+            parts.append(message)
+        line = " ".join(parts)
+
+        if level is None:
+            if status.lower() == "warn":
+                level = logging.WARNING
+            elif status.lower() == "error":
+                level = logging.ERROR
+            else:
+                level = logging.INFO
+
+        self.log.log(level, line)
+
 
 def _fmt_hms(seconds: float) -> str:
     """Return a human readable H:MM:SS style string for ``seconds``."""
@@ -172,16 +248,38 @@ class StageGuard(AbstractContextManager["StageGuard"]):
         self.stats = stats
         self.stage = stage
         self.start: float | None = None
-        self.corelog.info(f"[{self.stage}] start")
+        self._counts: dict[str, int] = {}
 
     def __enter__(self) -> StageGuard:
         self.start = time.time()
-        self.corelog.event(self.stage, "start")
+        self.corelog.stage(self.stage, "start")
         return self
 
     def done(self, **counts: int) -> None:
         if counts:
+            for key, value in counts.items():
+                try:
+                    self._counts[key] = self._counts.get(key, 0) + int(value)
+                except (TypeError, ValueError):
+                    continue
             self.stats.mark(self.stage, 0.0, counts)
+
+    def progress(
+        self,
+        message: str,
+        *,
+        step: int | None = None,
+        total: int | None = None,
+    ) -> None:
+        """Emit a structured progress log for the current stage."""
+
+        self.corelog.stage(
+            self.stage,
+            "progress",
+            message=message,
+            step=step,
+            total=total,
+        )
 
     def _is_known_nonfatal(self, exc: BaseException) -> bool:
         if isinstance(exc, TimeoutError | subprocess.TimeoutExpired) and (
@@ -212,10 +310,14 @@ class StageGuard(AbstractContextManager["StageGuard"]):
             )
 
             dur_txt = _fmt_hms_ms(elapsed_ms)
-            log_fn = self.corelog.warn if known_nonfatal else self.corelog.error
-            log_fn(
-                f"[{self.stage}] {'handled ' if known_nonfatal else ''}"
-                f"{type(exc).__name__}: {exc} ({dur_txt})"
+            self.corelog.stage(
+                self.stage,
+                "warn" if known_nonfatal else "error",
+                message=f"{type(exc).__name__}: {exc}",
+                elapsed_ms=elapsed_ms,
+                counts=self._counts or None,
+                handled=known_nonfatal,
+                duration_text=dur_txt,
             )
             self.stats.mark(self.stage, elapsed_ms)
             try:
@@ -286,9 +388,12 @@ class StageGuard(AbstractContextManager["StageGuard"]):
             swallow = known_nonfatal and self.stage not in self._CRITICAL_STAGES
             return swallow
         else:
-            self.corelog.event(self.stage, "stop", elapsed_ms=elapsed_ms)
-            dur_txt = _fmt_hms_ms(elapsed_ms)
-            self.corelog.info(f"[{self.stage}] ok in {dur_txt}")
+            self.corelog.stage(
+                self.stage,
+                "done",
+                elapsed_ms=elapsed_ms,
+                counts=self._counts or None,
+            )
             self.stats.mark(self.stage, elapsed_ms)
             return False
 

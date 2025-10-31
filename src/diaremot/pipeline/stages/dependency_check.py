@@ -20,7 +20,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     # whether the upfront verification runs; honouring it here prevents the stage
     # from blocking long runs with repeated import checks.
     if not pipeline.cfg.get("validate_dependencies", False):
-        pipeline.corelog.info("[dependency_check] skipped (validate_dependencies=false)")
+        guard.progress("skipped (validate_dependencies=false)")
         guard.done(skipped=1)
         return
 
@@ -28,7 +28,11 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     unhealthy = [k for k, v in dep_summary.items() if v.get("status") != "ok"]
     pipeline.corelog.event("dependency_check", "summary", unhealthy=unhealthy)
     if unhealthy:
-        pipeline.corelog.warn(f"Dependency issues detected: {unhealthy}")
+        pipeline.corelog.stage(
+            "dependency_check",
+            "warn",
+            message=f"Dependency issues detected: {unhealthy}",
+        )
         for key in unhealthy:
             issue = dep_summary[key].get("issue")
             if issue:

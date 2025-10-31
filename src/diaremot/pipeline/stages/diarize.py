@@ -96,14 +96,18 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             turns.append(_fallback_turn(duration_s))
         state.vad_unstable = False
         speakers_est, turn_count = _speaker_metrics(turns)
-        pipeline.corelog.info(
-            f"[diarize] resume (tx cache) estimated {speakers_est} speakers across {turn_count} turns"
+        guard.progress(
+            f"resume (tx cache) estimated {speakers_est} speakers across {turn_count} turns",
         )
         guard.done(turns=turn_count, speakers_est=speakers_est)
     elif state.resume_diar and state.diar_cache:
         turns = state.diar_cache.get("turns", []) or []
         if not turns:
-            pipeline.corelog.warn("Cached diar.json has 0 turns; proceeding with fallback")
+            pipeline.corelog.stage(
+                "diarize",
+                "warn",
+                message="Cached diar.json has 0 turns; proceeding with fallback",
+            )
             turns = [_fallback_turn(duration_s)]
         vad_toggles = 0
         try:
@@ -112,8 +116,8 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             vad_toggles = 0
         state.vad_unstable = (vad_toggles / max(1, int(duration_s / 60) or 1)) > 60
         speakers_est, turn_count = _speaker_metrics(turns)
-        pipeline.corelog.info(
-            f"[diarize] resume (diar cache) estimated {speakers_est} speakers across {turn_count} turns"
+        guard.progress(
+            f"resume (diar cache) estimated {speakers_est} speakers across {turn_count} turns",
         )
         guard.done(turns=turn_count, speakers_est=speakers_est)
     else:
@@ -125,13 +129,17 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             OSError,
             subprocess.CalledProcessError,
         ) as exc:
-            pipeline.corelog.warn(
-                "Diarization failed: "
-                f"{exc}; reverting to single-speaker assumption. Verify ECAPA/pyannote assets."
+            pipeline.corelog.stage(
+                "diarize",
+                "warn",
+                message=(
+                    "Diarization failed: "
+                    f"{exc}; reverting to single-speaker assumption. Verify ECAPA/pyannote assets."
+                ),
             )
             turns = []
         if not turns:
-            pipeline.corelog.warn("Diarizer returned 0 turns; using fallback")
+            pipeline.corelog.stage("diarize", "warn", message="Diarizer returned 0 turns; using fallback")
             turns = [_fallback_turn(duration_s)]
 
         vad_toggles = 0
@@ -141,9 +149,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             vad_toggles = 0
         state.vad_unstable = (vad_toggles / max(1, int(duration_s / 60) or 1)) > 60
         speakers_est, turn_count = _speaker_metrics(turns)
-        pipeline.corelog.info(
-            f"[diarize] estimated {speakers_est} speakers across {turn_count} turns"
-        )
+        guard.progress(f"estimated {speakers_est} speakers across {turn_count} turns")
         guard.done(turns=turn_count, speakers_est=speakers_est)
 
         if state.cache_dir:
@@ -159,8 +165,10 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     },
                 )
             except OSError as exc:
-                pipeline.corelog.warn(
-                    f"[cache] diar.json write failed: {exc}. Ensure cache directory is writable."
+                pipeline.corelog.stage(
+                    "diarize",
+                    "warn",
+                    message=f"[cache] diar.json write failed: {exc}. Ensure cache directory is writable.",
                 )
 
     if not turns:

@@ -54,7 +54,9 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     tx_out: list[Any] = []
     if state.resume_tx and state.tx_cache:
         tx_out = []
-        guard.done(segments=len(state.tx_cache.get("segments", []) or []))
+        cached_segments = len(state.tx_cache.get("segments", []) or [])
+        guard.progress(f"resume (tx cache) using {cached_segments} cached segments")
+        guard.done(segments=cached_segments)
     else:
         try:
             tx_out = pipeline.tx.transcribe_segments(state.y, state.sr, tx_in) or []
@@ -63,12 +65,17 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             TimeoutError,
             subprocess.CalledProcessError,
         ) as exc:
-            pipeline.corelog.warn(
-                "Transcription failed: "
-                f"{exc}; generating placeholder segments. Verify faster-whisper setup or tune --asr-segment-timeout."
+            pipeline.corelog.stage(
+                "transcribe",
+                "warn",
+                message=(
+                    "Transcription failed: "
+                    f"{exc}; generating placeholder segments. Verify faster-whisper setup or tune --asr-segment-timeout."
+                ),
             )
             tx_out = [_placeholder_segment(seg) for seg in tx_in]
 
+        guard.progress(f"processed {len(tx_out)} segments")
         guard.done(segments=len(tx_out))
 
     norm_tx: list[dict[str, Any]] = []
@@ -132,6 +139,8 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 },
             )
         except OSError as exc:
-            pipeline.corelog.warn(
-                f"[cache] tx.json write failed: {exc}. Check disk space and cache directory permissions."
+            pipeline.corelog.stage(
+                "transcribe",
+                "warn",
+                message=f"[cache] tx.json write failed: {exc}. Check disk space and cache directory permissions.",
             )

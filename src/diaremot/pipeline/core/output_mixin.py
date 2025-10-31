@@ -6,9 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from ...summaries.conversation_analysis import ConversationMetrics
+from ...summaries.narrative_builder import build_narrative
 from ..outputs import (
     ensure_segment_keys,
     write_human_transcript,
+    write_narrative_report,
     write_qc_report,
     write_segments_csv,
     write_segments_jsonl,
@@ -47,6 +49,22 @@ class OutputMixin:
         )
         write_speakers_summary(outp / "speakers_summary.csv", speakers_summary)
 
+        narrative = build_narrative(
+            segments_final,
+            speakers_summary,
+            conv_metrics,
+            total_duration=duration_s,
+        )
+        narrative_path = None
+        try:
+            write_narrative_report(outp / "conversation_report.md", narrative)
+            narrative_path = str(outp / "conversation_report.md")
+        except Exception as exc:  # pragma: no cover - narrative is best effort
+            narrative_path = None
+            self.corelog.warn(
+                f"Narrative report skipped: {exc}. Review segment data or permissions."
+            )
+
         try:
             html_path = self.html.render_to_html(
                 out_dir=str(outp),
@@ -54,6 +72,7 @@ class OutputMixin:
                 segments=segments_final,
                 speakers_summary=speakers_summary,
                 overlap_stats=overlap_stats,
+                narrative=narrative,
             )
         except (RuntimeError, ValueError, OSError, ImportError) as exc:
             html_path = None
@@ -68,6 +87,7 @@ class OutputMixin:
                 segments=segments_final,
                 speakers_summary=speakers_summary,
                 overlap_stats=overlap_stats,
+                narrative=narrative,
             )
         except (RuntimeError, ValueError, OSError, ImportError) as exc:
             pdf_path = None
@@ -78,7 +98,7 @@ class OutputMixin:
         self.checkpoints.create_checkpoint(
             input_audio_path,
             ProcessingStage.SUMMARY_GENERATION,
-            {"html": html_path, "pdf": pdf_path},
+            {"html": html_path, "pdf": pdf_path, "report": narrative_path},
             progress=90.0,
         )
 

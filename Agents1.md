@@ -138,6 +138,8 @@ set -euo pipefail
 # Pipeline execution on real audio (outputs → <input dir>/outs/<stem> by default)
 python -m diaremot.cli run --input input.wav \
   --model-root "${DIAREMOT_MODEL_DIR:-./models}" --enable-sed --enable-affect
+# Or use the helper wrapper (auto-detects threads on the VM)
+bash scripts/diaremot_run.sh run input.wav
 
 # Synthetic smoke test (generates demo audio)
 python -m diaremot.cli smoke --outdir /tmp/smoke --enable-affect \

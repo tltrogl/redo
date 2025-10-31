@@ -125,6 +125,66 @@ def write_timeline_csv(path: Path, segments: list[dict[str, Any]]) -> None:
             )
 
 
+def write_narrative_report(path: Path, narrative: dict[str, Any]) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    summary = (narrative or {}).get("summary") or "Conversation summary unavailable."
+    emotion_brief = (narrative or {}).get("emotion_brief") or "Emotion analysis unavailable."
+    insights = (narrative or {}).get("interaction_insights") or []
+    top_emotions = (narrative or {}).get("top_emotions") or []
+    emotion_stats = (narrative or {}).get("emotion_stats") or {}
+    dominant = (narrative or {}).get("dominant_speaker") or {}
+
+    lines = [
+        "# Conversation Overview",
+        "",
+        summary,
+        "",
+        "## Emotion Brief",
+        "",
+        emotion_brief,
+        "",
+    ]
+
+    if top_emotions:
+        lines.extend(["### Top Emotions", ""])
+        for label, count in top_emotions:
+            lines.append(f"- {label}: {count}")
+        lines.append("")
+
+    if emotion_stats:
+        metrics_lines = [
+            f"- {key.replace('_', ' ').title()}: {value:.2f}"
+            for key, value in emotion_stats.items()
+            if value is not None
+        ]
+        if metrics_lines:
+            lines.extend(["### Affect Metrics", ""])
+            lines.extend(metrics_lines)
+            lines.append("")
+
+    dom_name = dominant.get("name")
+    dom_pct = dominant.get("percent")
+    if dom_name and dom_pct is not None:
+        lines.extend(
+            [
+                "### Dominant Speaker",
+                "",
+                f"{dom_name} controlled approximately {dom_pct:.0f}% of the speaking time.",
+                "",
+            ]
+        )
+
+    lines.extend(["## Interaction Insights", ""])
+    if insights:
+        lines.extend(f"- {item}" for item in insights)
+    else:
+        lines.append("- No notable interaction dynamics detected.")
+
+    path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+
+
 def write_qc_report(
     path: Path,
     stats: RunStats,
@@ -304,6 +364,7 @@ __all__ = [
     "write_segments_csv",
     "write_segments_jsonl",
     "write_timeline_csv",
+    "write_narrative_report",
     "write_qc_report",
     "write_human_transcript",
     "write_speakers_summary",

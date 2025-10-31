@@ -104,6 +104,7 @@ Output Files:
   • segments.jsonl
   • timeline.csv
   • diarized_transcript_readable.txt
+  • conversation_report.md
   • summary.html
   • summary.pdf
   • qc_report.json
@@ -130,6 +131,11 @@ Output Files:
 - **Quality Flags**: low confidence, VAD instability, error flags
 
 **`diarized_transcript_readable.txt`** - Plain-text transcript with diarized turns, human-friendly timestamps, VAD stability, top sound events, dominant intent, and affect snapshot (valence/arousal/dominance + emotion hint).
+
+**`conversation_report.md`** - Narrative summary for quick human review
+- Executive one-pager covering duration, dominant voices, and pacing
+- Emotion brief with top detected emotions and aggregate valence/arousal
+- Interaction insights (balance, interruptions, coherence) + potential risk flags
 
 **`summary.html`** - Interactive HTML report (generated when HTML dependencies are available)
 - Quick Take overview
@@ -566,6 +572,9 @@ When ONNX models are unavailable, system auto-downloads from:
 # Standard processing (int8 ASR default; defaults to audio/<file> → audio/outs/<stem>)
 diaremot run sample1.mp3
 
+# Helper wrapper (auto-sets threads/env on the VM)
+bash scripts/diaremot_run.sh run audio/sample1.mp3
+
 # Fast mode (int8 quantization)
 diaremot run sample1.mp3 --asr-compute-type int8
 
@@ -596,6 +605,7 @@ diaremot smoke --outdir outputs/
 **Input/Output:**
 - `--input, -i` – Audio file path (WAV, MP3, M4A, FLAC)
 - `--outdir, -o` – Output directory (defaults to <input parent>/outs/<input stem>)
+- `scripts/diaremot_run.sh` – Wrapper that activates `.balls`, detects vCPUs (via `nproc`), and sets `CT2_NUM_THREADS`/`OMP_NUM_THREADS`/`MKL_NUM_THREADS`. Accepts optional `--threads N`.
 
 **Performance:**
 - `--asr-compute-type` – `int8` (default) | `float32` | `int8_float16`

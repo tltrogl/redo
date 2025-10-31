@@ -63,8 +63,8 @@ def run_preprocess(
                     else:
                         state.health = None
                     
-                    pipeline.corelog.info(
-                        f"[preprocess] loaded cached preprocessed audio {_fmt_hms(state.duration_s)}"
+                    guard.progress(
+                        f"loaded cached preprocessed audio {_fmt_hms(state.duration_s)}"
                     )
                     pipeline.corelog.event(
                         "preprocess",
@@ -78,9 +78,21 @@ def run_preprocess(
                     _load_diar_tx_caches(pipeline, state, cache_dir)
                     return
                 else:
-                    pipeline.corelog.info("[preprocess] cache exists but config changed, re-preprocessing")
+                    guard.progress("cache exists but config changed, re-preprocessing")
             except Exception as exc:
-                pipeline.corelog.warn(f"[preprocess] failed to load cache: {exc}")
+                pipeline.corelog.stage(
+                    "preprocess",
+                    "warn",
+                    message=f"failed to load cache: {exc}",
+                )
+                try:
+                    preproc_cache_path.unlink(missing_ok=True)
+                except TypeError:  # Python <3.8 compatibility
+                    try:
+                        preproc_cache_path.unlink()
+                    except OSError:
+                        pass
+
     
     # No cache or cache invalid - do actual preprocessing
     result = pipeline.pre.process_file(state.input_audio_path)
@@ -88,7 +100,7 @@ def run_preprocess(
     state.sr = result.sample_rate
     state.health = result.health
     state.duration_s = float(result.duration_s)
-    pipeline.corelog.info(f"[preprocess] file duration {_fmt_hms(state.duration_s)}")
+    guard.progress(f"file duration {_fmt_hms(state.duration_s)}")
     pipeline.corelog.event(
         "preprocess",
         "metrics",
@@ -145,9 +157,13 @@ def run_preprocess(
             pp_signature=state.pp_sig,
             health=health_dict,
         )
-        pipeline.corelog.info(f"[preprocess] saved cache to {preproc_cache_path}")
+        guard.progress(f"saved cache to {preproc_cache_path}")
     except Exception as exc:
-        pipeline.corelog.warn(f"[preprocess] failed to save cache: {exc}")
+        pipeline.corelog.stage(
+            "preprocess",
+            "warn",
+            message=f"failed to save cache: {exc}",
+        )
     
     # Load diar/tx caches
     _load_diar_tx_caches(pipeline, state, cache_dir)
@@ -191,10 +207,10 @@ def _load_diar_tx_caches(
         state.resume_tx = True
         state.resume_diar = bool(_cache_matches(state.diar_cache))
         if state.resume_diar:
-            pipeline.corelog.info("[resume] using tx.json+diar.json caches; skipping diarize+ASR")
+            guard.progress("resume: using tx.json+diar.json caches; skipping diarize+ASR")
         else:
-            pipeline.corelog.info(
-                "[resume] using tx.json cache; skipping ASR and reconstructing turns from tx cache"
+            guard.progress(
+                "resume: using tx.json cache; skipping ASR and reconstructing turns from tx cache"
             )
         pipeline.corelog.event(
             "resume",
@@ -204,7 +220,7 @@ def _load_diar_tx_caches(
         )
     elif _cache_matches(state.diar_cache):
         state.resume_diar = True
-        pipeline.corelog.info("[resume] using diar.json cache; skipping diarize")
+        guard.progress("resume: using diar.json cache; skipping diarize")
         pipeline.corelog.event(
             "resume",
             "diar_cache_hit",
@@ -255,7 +271,7 @@ def run_background_sed(
             pipeline.stats.config_snapshot["background_sed"] = snapshot
             state.sed_info = sed_info
             guard.done()
-            pipeline.corelog.info(f"[background_sed] reused cache from {sed_cache_path}")
+            guard.progress(f"background SED reused cache from {sed_cache_path}")
             pipeline.corelog.event(
                 "background_sed",
                 "cache_hit",
@@ -268,7 +284,7 @@ def run_background_sed(
     if not bool(pipeline.cfg.get("enable_sed", True)):
         disabled_result = dict(empty_result)
         disabled_result["enabled"] = False
-        pipeline.corelog.info("[sed] background sound event detection disabled via configuration.")
+        guard.progress("background sound event detection disabled via configuration")
         pipeline.stats.config_snapshot["background_sed"] = disabled_result
         state.sed_info = disabled_result
         guard.done()
@@ -287,8 +303,10 @@ def run_background_sed(
                 noise_score=sed_info.get("noise_score"),
             )
         else:
-            pipeline.corelog.warn(
-                "[sed] tagger unavailable; emitting empty background tag summary."
+            pipeline.corelog.stage(
+                "background_sed",
+                "warn",
+                message="tagger unavailable; emitting empty background tag summary",
             )
             sed_info["enabled"] = True
     except (
@@ -298,9 +316,10 @@ def run_background_sed(
         ValueError,
         OSError,
     ) as exc:
-        pipeline.corelog.warn(
-            "[sed] tagging skipped: %s. Emitting empty background tag summary.",
-            exc,
+        pipeline.corelog.stage(
+            "background_sed",
+            "warn",
+            message=f"tagging skipped: {exc}. Emitting empty background tag summary.",
         )
         sed_info["enabled"] = True
     finally:
@@ -352,9 +371,10 @@ def run_background_sed(
                     if getattr(artifacts, "mode", None):
                         sed_info["timeline_inference_mode"] = artifacts.mode
             except Exception as exc:  # pragma: no cover - runtime dependent
-                pipeline.corelog.warn(
-                    "[sed.timeline] generation failed: %s. Falling back to global tags only.",
-                    exc,
+                pipeline.corelog.stage(
+                    "background_sed",
+                    "warn",
+                    message=f"timeline generation failed: {exc}. Falling back to global tags only.",
                 )
 
         sed_info.setdefault("enabled", True)
@@ -374,7 +394,11 @@ def run_background_sed(
                 "sed_info": sed_info,
             }
             atomic_write_json(sed_cache_path, cache_payload)
-            pipeline.corelog.info(f"[background_sed] cached results to {sed_cache_path}")
+            guard.progress(f"background SED cached results to {sed_cache_path}")
         except Exception as exc:  # pragma: no cover - best-effort cache
-            pipeline.corelog.warn(f"[background_sed] failed to cache results: {exc}")
+            pipeline.corelog.stage(
+                "background_sed",
+                "warn",
+                message=f"failed to cache results: {exc}",
+            )
         guard.done()

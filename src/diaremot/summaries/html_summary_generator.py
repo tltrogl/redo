@@ -1,6 +1,7 @@
 """Enhanced HTML summary generator with core interface compatibility."""
 
 import json
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,7 @@ class HTMLSummaryGenerator:
         segments: list[dict[str, Any]],
         speakers_summary: list[dict[str, Any]],
         overlap_stats: dict[str, Any],
+        narrative: dict[str, Any] | None = None,
     ) -> str:
         """Core interface: generate HTML from pipeline data"""
         out_path = Path(out_dir) / "summary.html"
@@ -56,7 +58,7 @@ class HTMLSummaryGenerator:
             "num_speakers": len(speakers_summary),
         }
 
-        html = self._build_html(metadata, segments, speakers_summary, overlap_stats)
+        html = self._build_html(metadata, segments, speakers_summary, overlap_stats, narrative)
 
         with out_path.open("w", encoding="utf-8") as f:
             f.write(html)
@@ -64,7 +66,12 @@ class HTMLSummaryGenerator:
         return str(out_path)
 
     def _build_html(
-        self, metadata: dict, segments: list, speakers: list, overlap_stats: dict
+        self,
+        metadata: dict,
+        segments: list,
+        speakers: list,
+        overlap_stats: dict,
+        narrative: dict | None,
     ) -> str:
         duration = _coerce_float(metadata.get("duration_seconds", 0))
         title = metadata.get("title", "Audio Analysis")
@@ -83,6 +90,43 @@ class HTMLSummaryGenerator:
             exec_summary = f"{lead_name} spoke most ({lead_pct:.0f}%). Total: {fmt_hms(duration)}, {len(speakers)} speakers."
         else:
             exec_summary = f"Audio length: {fmt_hms(duration)}"
+
+        narrative_block = ""
+        if narrative:
+            summary_text = escape(str(narrative.get("summary", "")))
+            emotion_text = escape(str(narrative.get("emotion_brief", "")))
+            insights = narrative.get("interaction_insights") or []
+            insights_html = "".join(f"<li>{escape(str(item))}</li>" for item in insights)
+            if not insights_html:
+                insights_html = "<li>No notable interaction dynamics detected.</li>"
+            top_emotions = narrative.get("top_emotions") or []
+            top_html = ""
+            if top_emotions:
+                top_items = "".join(
+                    f"<li>{escape(str(label))}: {count}</li>" for label, count in top_emotions
+                )
+                top_html = f"<h3>Top Emotions</h3><ul>{top_items}</ul>"
+            dominant = narrative.get("dominant_speaker") or {}
+            dominant_html = ""
+            name = dominant.get("name")
+            pct = dominant.get("percent")
+            if name and pct is not None:
+                dominant_html = (
+                    f"<p><strong>Dominant speaker:</strong> {escape(str(name))} "
+                    f"({pct:.0f}% of speech time)</p>"
+                )
+            narrative_block = (
+                "<div class=\"section narrative\">\n"
+                "  <h2>Conversation Summary</h2>\n"
+                f"  <p>{summary_text}</p>\n"
+                "  <h3>Emotion Brief</h3>\n"
+                f"  <p>{emotion_text}</p>\n"
+                f"  {top_html}\n"
+                f"  {dominant_html}\n"
+                "  <h3>Interaction Insights</h3>\n"
+                f"  <ul>{insights_html}</ul>\n"
+                "</div>\n"
+            )
 
         # Key moments (top arousal segments)
         moments = []
@@ -160,6 +204,8 @@ body {{ font: 14px system-ui; margin: 0; background: #f8f9fa; }}
     <h1>Audio Analysis Report</h1>
     <div class="meta">{metadata.get("file_name", "Unknown")} &bull; {fmt_hms(duration)} &bull; {len(speakers)} speakers</div>
   </div>
+
+  {narrative_block}
 
   <div class="section">
     <h2>Executive Summary</h2>

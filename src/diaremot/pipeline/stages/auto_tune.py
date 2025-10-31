@@ -104,11 +104,9 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     }
     pipeline.stats.config_snapshot = snapshot
 
-    if any(applied.values()):
-        pipeline.corelog.info(
-            "[auto_tune] applied adjustments: %s",
-            {k: v for k, v in applied.items() if v},
-        )
+    applied_updates = {k: v for k, v in applied.items() if v}
+    if applied_updates:
+        guard.progress(f"applied adjustments: {applied_updates}")
         pipeline.corelog.event(
             "auto_tune",
             "applied",
@@ -117,7 +115,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             applied=applied,
         )
     else:
-        pipeline.corelog.info("[auto_tune] no adjustments required")
+        guard.progress("no adjustments required")
         pipeline.corelog.event("auto_tune", "noop", metrics=result.metrics, notes=result.notes)
 
     guard.done()

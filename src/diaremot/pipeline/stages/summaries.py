@@ -77,9 +77,10 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
 
         per_speaker = per_speaker_map
     except (AttributeError, RuntimeError, ValueError) as exc:
-        pipeline.corelog.warn(
-            "[overlap] skipped: "
-            f"{exc}. Install paralinguistics extras or validate overlap feature inputs."
+        pipeline.corelog.stage(
+            "overlap_interruptions",
+            "warn",
+            message=f"skipped: {exc}. Install paralinguistics extras or validate overlap feature inputs.",
         )
     state.overlap_stats = overlap_stats
     state.per_speaker_interrupts = per_speaker
@@ -100,8 +101,10 @@ def run_conversation(
         )
         state.conv_metrics = metrics
     except (RuntimeError, ValueError, ZeroDivisionError) as exc:
-        pipeline.corelog.warn(
-            f"Conversation analysis failed: {exc}. Falling back to neutral conversational metrics."
+        pipeline.corelog.stage(
+            "conversation_analysis",
+            "warn",
+            message=f"analysis failed: {exc}. Falling back to neutral conversational metrics.",
         )
         try:
             state.conv_metrics = ConversationMetrics(
@@ -133,9 +136,10 @@ def run_speaker_rollups(
             summary = []
         state.speakers_summary = summary
     except (RuntimeError, ValueError, TypeError) as exc:
-        pipeline.corelog.warn(
-            "Speaker rollups failed: "
-            f"{exc}. Inspect segment records or disable speaker summary generation."
+        pipeline.corelog.stage(
+            "speaker_rollups",
+            "warn",
+            message=f"failed: {exc}. Inspect segment records or disable speaker summary generation.",
         )
         state.speakers_summary = []
     guard.done(count=len(state.speakers_summary))
