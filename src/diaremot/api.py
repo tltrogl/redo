@@ -73,6 +73,7 @@ def _build_config(out_dir: Path) -> Dict[str, Any]:
         "cache_root": str(out_dir / ".cache"),
         "ignore_tx_cache": True,
         "quiet": True,
+        "noise_reduction": True,
     }
     return build_pipeline_config(overrides)  # type: ignore[arg-type]
 
