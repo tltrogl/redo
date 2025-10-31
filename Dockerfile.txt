@@ -1,0 +1,95 @@
+# Multi-stage build for diaremot2-on
+# CPU-only speech intelligence pipeline
+
+ARG PYTHON_VERSION=3.11
+
+# Stage 1: Builder - install dependencies
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+# Set working directory
+WORKDIR /build
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    build-essential \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements first (for better caching)
+COPY requirements.txt requirements.in ./
+
+# Create virtual environment and install dependencies
+ENV VIRTUAL_ENV=/opt/venv
+RUN python -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+# Upgrade pip and install dependencies into the venv
+RUN pip install --upgrade pip wheel setuptools && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy source code and install package (still inside venv)
+COPY pyproject.toml README.md ./
+COPY src/ ./src/
+COPY tests/ ./tests/
+RUN pip install --no-cache-dir .
+
+# Stage 2: Runtime - minimal image
+FROM python:${PYTHON_VERSION}-slim
+
+# Set working directory
+WORKDIR /app
+
+# Install only runtime system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the virtual environment from the builder stage
+COPY --from=builder /opt/venv /opt/venv
+
+# Copy application source
+COPY src/ ./src/
+COPY pyproject.toml README.md ./
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    # Model directory (can be overridden at runtime)
+    DIAREMOT_MODEL_DIR=/srv/models \
+    # HuggingFace cache
+    HF_HOME=/app/.cache \
+    HUGGINGFACE_HUB_CACHE=/app/.cache/hub \
+    TRANSFORMERS_CACHE=/app/.cache/transformers \
+    TORCH_HOME=/app/.cache/torch \
+    # CPU threading
+    OMP_NUM_THREADS=4 \
+    MKL_NUM_THREADS=4 \
+    NUMEXPR_MAX_THREADS=4 \
+    TOKENIZERS_PARALLELISM=false
+
+# Create directories
+RUN mkdir -p /srv/models /app/outputs /app/.cache && \
+    chmod -R 777 /app/outputs /app/.cache
+
+# Expose volume mount points
+VOLUME ["/srv/models", "/app/outputs"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD python -c "import diaremot; print('OK')" || exit 1
+
+# Default entrypoint
+ENTRYPOINT ["python", "-m", "diaremot.cli"]
+
+# Default command (shows help)
+CMD ["--help"]
+
+# Labels
+LABEL maintainer="Timothy Leigh Troglin" \
+      version="2.2.0" \
+      description="CPU-only speech intelligence pipeline with diarization, ASR, and affect analysis" \
+      org.opencontainers.image.source="https://github.com/your-org/diaremot2-on" \
+      org.opencontainers.image.documentation="https://github.com/your-org/diaremot2-on/blob/main/README.md" \
+      org.opencontainers.image.vendor="DiaRemot" \
+      org.opencontainers.image.licenses="MIT"

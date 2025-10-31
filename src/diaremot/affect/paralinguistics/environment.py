@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import warnings
 from importlib import import_module
 from importlib import util as importlib_util
-import warnings
 from types import ModuleType
 from typing import Final
 

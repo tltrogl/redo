@@ -1,6 +1,12 @@
 """Transcription subpackage exposing backend management and scheduling primitives."""
 
-from .backends import BackendAvailability, ModelManager, backends, configure_environment, get_system_capabilities
+from .backends import (
+    BackendAvailability,
+    ModelManager,
+    backends,
+    configure_environment,
+    get_system_capabilities,
+)
 from .models import (
     BatchingConfig,
     TranscriptionError,

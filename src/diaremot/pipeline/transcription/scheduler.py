@@ -106,7 +106,7 @@ class AsyncTranscriber:
         self._loop.set_default_executor(self.executor)
         self._reset_lock = threading.Lock()
 
-    async def __aenter__(self) -> "AsyncTranscriber":
+    async def __aenter__(self) -> AsyncTranscriber:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:

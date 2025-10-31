@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 
@@ -11,9 +11,9 @@ from .common import (
     IssueRecorder,
     VadEmotionResult,
     default_vad_result,
+    ort_session,
     target_sample_rate,
 )
-from .common import ort_session
 
 logger = logging.getLogger(__name__)
 

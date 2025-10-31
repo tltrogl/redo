@@ -4,8 +4,9 @@ import math
 import os
 import threading
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 import scipy.signal

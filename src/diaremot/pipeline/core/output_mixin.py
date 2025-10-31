@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ...summaries.conversation_analysis import ConversationMetrics
 from ..outputs import (
     ensure_segment_keys,
     write_human_transcript,
@@ -15,7 +16,6 @@ from ..outputs import (
     write_timeline_csv,
 )
 from ..pipeline_checkpoint_system import ProcessingStage
-from ...summaries.conversation_analysis import ConversationMetrics
 
 
 class OutputMixin:

@@ -4,10 +4,9 @@ import argparse
 import hashlib
 import json
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, List, Optional
-
 
 SER_PATTERNS = (
     "ser8",
@@ -20,8 +19,8 @@ class ModelInfo:
     path: Path
     size: int
     sha256: str
-    n_outputs: Optional[int]
-    n_classes: Optional[int]
+    n_outputs: int | None
+    n_classes: int | None
     valid_ser8: bool
 
 
@@ -48,13 +47,13 @@ def sha256sum(path: Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def try_inspect_onnx(path: Path) -> tuple[Optional[int], Optional[int]]:
+def try_inspect_onnx(path: Path) -> tuple[int | None, int | None]:
     """Return (n_outputs, n_classes) when discoverable; otherwise (None, None).
 
     Uses onnxruntime if available to read output shapes. Falls back to graph inspection via onnx.
     """
-    n_outputs: Optional[int] = None
-    n_classes: Optional[int] = None
+    n_outputs: int | None = None
+    n_classes: int | None = None
     try:
         import onnxruntime as ort  # type: ignore
 
@@ -88,7 +87,7 @@ def try_inspect_onnx(path: Path) -> tuple[Optional[int], Optional[int]]:
 
 
 def collect(root: Path) -> list[ModelInfo]:
-    results: List[ModelInfo] = []
+    results: list[ModelInfo] = []
     for p in iter_files(root):
         if not is_ser_candidate(p):
             continue

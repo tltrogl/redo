@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from diaremot.pipeline.preprocess.chain import build_health
 from diaremot.pipeline.preprocess.chunking import ChunkInfo, merge_chunked_audio
 from diaremot.pipeline.preprocess.config import PreprocessConfig
 from diaremot.pipeline.preprocess.denoise import spectral_subtract_soft_vad
-from diaremot.pipeline.preprocess.chain import build_health
 
 
 def test_merge_chunked_audio_trims_overlap() -> None:

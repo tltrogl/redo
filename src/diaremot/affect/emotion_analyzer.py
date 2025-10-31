@@ -7,10 +7,12 @@ from typing import Any
 
 import numpy as np
 
+from ..intent_defaults import INTENT_LABELS_DEFAULT
+from ..io.onnx_utils import create_onnx_session
 from .analyzers.common import (
-    EmotionOutputs,
     GOEMOTIONS_LABELS,
     SER8_LABELS,
+    EmotionOutputs,
     IntentResult,
     SpeechEmotionResult,
     TextEmotionResult,
@@ -26,8 +28,6 @@ from .analyzers.intent import IntentAnalyzer, resolve_intent_model_dir
 from .analyzers.speech import SpeechEmotionAnalyzer
 from .analyzers.text import TextEmotionAnalyzer
 from .analyzers.vad import VadEmotionAnalyzer
-from ..intent_defaults import INTENT_LABELS_DEFAULT
-from ..io.onnx_utils import create_onnx_session
 
 
 class EmotionAnalyzer:

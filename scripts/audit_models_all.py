@@ -4,10 +4,9 @@ import argparse
 import hashlib
 import json
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Iterator, Optional
-
 
 # Canonical targets this pipeline actually uses
 CANONICAL = {
@@ -90,7 +89,7 @@ def collect_onnx(root: Path) -> list[FileInfo]:
         kind = classify(p)
         if kind == "other":
             # Include only model-like binaries for 'other'
-            if not p.suffix.lower() in {".onnx", ".bin", ".json", ".vocab", ".model"}:
+            if p.suffix.lower() not in {".onnx", ".bin", ".json", ".vocab", ".model"}:
                 continue
         try:
             size = p.stat().st_size
@@ -192,7 +191,7 @@ def main() -> None:
     for sub, h, size in fw_dirs:
         by_hash.setdefault(h, []).append((sub, h, size))
     for h, group in by_hash.items():
-        preferred: Optional[Path] = None
+        preferred: Path | None = None
         for sub, _hh, _size in group:
             if sub.name.lower() == "tiny.en":
                 preferred = sub

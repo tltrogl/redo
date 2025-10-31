@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
-from typing import Callable, Iterable, Sequence
 
 import numpy as np
 
 from ...io.onnx_utils import create_onnx_session
 from ..intent_defaults import INTENT_LABELS_DEFAULT
-from .common import IssueRecorder, IntentResult, normalize_backend, softmax
+from .common import IntentResult, IssueRecorder, normalize_backend, softmax
 
 logger = logging.getLogger(__name__)
 

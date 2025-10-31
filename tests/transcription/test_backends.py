@@ -2,7 +2,6 @@ import sys
 import types
 
 import numpy as np
-import pytest
 
 _librosa_stub = types.SimpleNamespace(
     resample=lambda data, orig_sr, target_sr: np.asarray(data, dtype=np.float32),

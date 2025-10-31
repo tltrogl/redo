@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 
 from .transcription import (
     AsyncTranscriber,
-    AudioTranscriber as _AudioTranscriber,
     BatchingConfig,
     TranscriptionSegment,
     configure_environment,
     get_system_capabilities,
+)
+from .transcription import (
+    AudioTranscriber as _AudioTranscriber,
 )
 
 __all__ = [

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, List
+from collections.abc import Iterable
+from typing import Any
 
 from .models import TranscriptionSegment
 
@@ -15,7 +16,7 @@ def distribute_batch_results(
     if not batch_result.words:
         return distribute_text_proportionally(batch_result, boundaries)
 
-    results: List[TranscriptionSegment] = []
+    results: list[TranscriptionSegment] = []
     for boundary in boundaries:
         seg = boundary["original"]
         concat_start = boundary["concat_start"]
@@ -71,7 +72,7 @@ def distribute_text_proportionally(
 
     total_duration = sum(b["concat_end"] - b["concat_start"] for b in boundaries)
     words = batch_result.text.split()
-    results: List[TranscriptionSegment] = []
+    results: list[TranscriptionSegment] = []
     word_index = 0
 
     for boundary in boundaries:

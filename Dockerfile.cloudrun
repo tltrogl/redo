@@ -9,7 +9,19 @@ WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ffmpeg \
+    pkg-config \
+    libavcodec-dev \
+    libavformat-dev \
+    libavdevice-dev \
+    libavfilter-dev \
+    libswresample-dev \
+    libswscale-dev \
+    libasound2-dev \
+    python3-dev \
+    curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install Python packages
@@ -23,7 +35,7 @@ COPY src/ ./src/
 COPY pyproject.toml README.md ./
 
 # Install package
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -43,6 +55,14 @@ ENV PYTHONUNBUFFERED=1 \
 RUN mkdir -p /srv/models /tmp/outputs /tmp/.cache && \
     chmod -R 777 /tmp
 
+# Fetch model bundle from GCS and verify checksum
+ARG MODELS_URI=https://storage.googleapis.com/diaremot/models.zip
+ARG MODELS_SHA256=33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483
+RUN curl -fSL "${MODELS_URI}" -o /tmp/models.zip && \
+    echo "${MODELS_SHA256}  /tmp/models.zip" | sha256sum -c - && \
+    unzip -q /tmp/models.zip -d /srv/models && \
+    rm /tmp/models.zip
+
 # Cloud Run runs as non-root user
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
@@ -51,6 +71,6 @@ USER appuser
 # Expose port
 EXPOSE 8080
 
-
 # Run FastAPI server
 CMD ["python", "-m", "uvicorn", "diaremot.api:app", "--host", "0.0.0.0", "--port", "8080"]
+

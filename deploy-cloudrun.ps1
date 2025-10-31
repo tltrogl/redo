@@ -13,12 +13,12 @@ if ([string]::IsNullOrEmpty($PROJECT_ID)) {
 }
 
 # Configuration
-$REGION = if ($args.Count -gt 0) { $args[0] } else { "us-central1" }
+if ($args.Count -gt 0) { $REGION = $args[0] } else { $REGION = "us-central1" }
 $SERVICE_NAME = "diaremot-service"
 $IMAGE_NAME = "diaremot2-on"
-$IMAGE_TAG = if ($args.Count -gt 1) { $args[1] } else { "latest" }
-$MEMORY = if ($args.Count -gt 2) { $args[2] } else { "4Gi" }
-$CPU = if ($args.Count -gt 3) { $args[3] } else { "4" }
+if ($args.Count -gt 1) { $IMAGE_TAG = $args[1] } else { $IMAGE_TAG = "latest" }
+if ($args.Count -gt 2) { $MEMORY = $args[2] } else { $MEMORY = "4Gi" }
+if ($args.Count -gt 3) { $CPU = $args[3] } else { $CPU = "4" }
 
 Write-Host "Configuration:" -ForegroundColor Green
 Write-Host "  Project: $PROJECT_ID"

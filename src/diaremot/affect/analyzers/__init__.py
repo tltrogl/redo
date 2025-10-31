@@ -1,9 +1,9 @@
 """Component analyzers for the affect processing stack."""
 
 from .common import (
-    EmotionOutputs,
     GOEMOTIONS_LABELS,
     SER8_LABELS,
+    EmotionOutputs,
     IntentResult,
     SpeechEmotionResult,
     TextEmotionResult,

@@ -2,23 +2,23 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Callable, Sequence
 
 import numpy as np
 
 from .common import (
-    IssueRecorder,
     SER8_LABELS,
+    IssueRecorder,
     SpeechEmotionResult,
     default_speech_result,
     ensure_16k_mono,
     normalize_scores,
+    ort_session,
     ser_low_confidence,
     target_sample_rate,
     trim_max_len,
 )
-from .common import ort_session
 
 logger = logging.getLogger(__name__)
 

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 
@@ -13,10 +13,10 @@ from .common import (
     TextEmotionResult,
     default_text_result,
     normalize_scores,
+    ort_session,
     softmax,
     topk_distribution,
 )
-from .common import ort_session
 
 logger = logging.getLogger(__name__)
 
