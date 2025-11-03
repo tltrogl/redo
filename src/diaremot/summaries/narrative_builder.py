@@ -54,9 +54,19 @@ def build_narrative(
             except Exception:
                 duration = None
 
-    num_speakers = len(speakers_summary) or len(
-        {str(seg.get("speaker_id") or seg.get("speaker")) for seg in segments}
-    )
+    # Count unique speakers robustly (speakers_summary may contain duplicates).
+    if speakers_summary:
+        try:
+            keys = []
+            for s in speakers_summary:
+                label = (s.get("speaker_name") or s.get("speaker_id") or "").strip()
+                if label:
+                    keys.append(label)
+            num_speakers = len(set(keys)) if keys else len(speakers_summary)
+        except Exception:
+            num_speakers = len(speakers_summary)
+    else:
+        num_speakers = len({str(seg.get("speaker_id") or seg.get("speaker")) for seg in segments})
 
     # Dominant speaker
     dominant = None
@@ -77,13 +87,19 @@ def build_narrative(
             dominant = None
             dominant_pct = None
     elif speakers_summary:
-        leader = max(
-            speakers_summary, key=lambda s: float(s.get("total_duration", 0.0) or 0.0)
-        )
-        dominant = _speaker_label(leader)
-        total = sum(float(s.get("total_duration", 0.0) or 0.0) for s in speakers_summary) or 1.0
-        dominant_pct = 100.0 * float(leader.get("total_duration", 0.0) or 0.0) / total
-        dominant_pct = max(0.0, min(100.0, dominant_pct))
+        # Aggregate durations by canonical label to avoid duplicate rows per speaker
+        totals: dict[str, float] = {}
+        for s in speakers_summary:
+            label = _speaker_label(s)
+            try:
+                totals[label] = totals.get(label, 0.0) + float(s.get("total_duration", 0.0) or 0.0)
+            except Exception:
+                pass
+        if totals:
+            dominant, dom_sec = max(totals.items(), key=lambda kv: kv[1])
+            total_sec = sum(totals.values()) or 1.0
+            dominant_pct = 100.0 * dom_sec / total_sec
+            dominant_pct = max(0.0, min(100.0, dominant_pct))
 
     # Emotion distribution
     emotion_counts = Counter(

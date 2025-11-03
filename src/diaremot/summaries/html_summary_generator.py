@@ -50,12 +50,18 @@ class HTMLSummaryGenerator:
 
         # Build metadata from inputs
         duration = max((seg.get("end", 0) or 0) for seg in segments) if segments else 0
+        # Unique speakers (speakers_summary may have duplicates)
+        uniq_labels = set()
+        for s in speakers_summary or []:
+            label = (s.get("speaker_name") or s.get("speaker_id") or "").strip()
+            if label:
+                uniq_labels.add(label)
         metadata = {
             "title": f"Summary - {file_id}",
             "file_name": file_id,
             "duration_seconds": duration,
             "num_segments": len(segments),
-            "num_speakers": len(speakers_summary),
+            "num_speakers": len(uniq_labels) if uniq_labels else len(speakers_summary),
         }
 
         html = self._build_html(metadata, segments, speakers_summary, overlap_stats, narrative)
@@ -86,8 +92,10 @@ class HTMLSummaryGenerator:
             lead_name = _get_speaker_name(
                 lead_speaker.get("speaker_id"), lead_speaker.get("speaker_name")
             )
-            lead_pct = 100 * _coerce_float(lead_speaker.get("total_duration", 0)) / max(1, duration)
-            exec_summary = f"{lead_name} spoke most ({lead_pct:.0f}%). Total: {fmt_hms(duration)}, {len(speakers)} speakers."
+            # Share relative to total speech time (sum of per-speaker durations)
+            total_speech = sum(_coerce_float(s.get("total_duration", 0)) for s in speakers) or 1.0
+            lead_pct = 100 * _coerce_float(lead_speaker.get("total_duration", 0)) / total_speech
+            exec_summary = f"{lead_name} spoke most ({lead_pct:.0f}%). Total: {fmt_hms(duration)}, {metadata.get('num_speakers', len(speakers))} speakers."
         else:
             exec_summary = f"Audio length: {fmt_hms(duration)}"
 
@@ -202,7 +210,7 @@ body {{ font: 14px system-ui; margin: 0; background: #f8f9fa; }}
 <div class="container">
   <div class="header">
     <h1>Audio Analysis Report</h1>
-    <div class="meta">{metadata.get("file_name", "Unknown")} &bull; {fmt_hms(duration)} &bull; {len(speakers)} speakers</div>
+    <div class="meta">{metadata.get("file_name", "Unknown")} &bull; {fmt_hms(duration)} &bull; {metadata.get('num_speakers', len(speakers))} speakers</div>
   </div>
 
   {narrative_block}
@@ -371,12 +379,13 @@ def render_summary_html(
     # The class render_to_html writes and returns path, but we also need the HTML string
     # for the pipeline's assignment. So call the internal builder directly.
     duration = max((seg.get("end", 0) or 0) for seg in segments) if segments else 0
+    uniq_labels = set((s.get("speaker_name") or s.get("speaker_id") or "").strip() for s in (speakers_summary or []))
     metadata = {
         "title": f"Summary - {file_id}",
         "file_name": file_id,
         "duration_seconds": duration,
         "num_segments": len(segments),
-        "num_speakers": len(speakers_summary),
+        "num_speakers": len(uniq_labels) if uniq_labels else len(speakers_summary),
     }
     html = gen._build_html(metadata, segments, speakers_summary, overlap_stats)
     # Also write a file for convenience (mirrors prior behavior)

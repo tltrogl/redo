@@ -75,7 +75,7 @@ def run_preprocess(
                     guard.done(duration_s=state.duration_s)
                     
                     # Still need to load diar/tx caches
-                    _load_diar_tx_caches(pipeline, state, cache_dir)
+                    _load_diar_tx_caches(pipeline, state, cache_dir, guard)
                     return
                 else:
                     guard.progress("cache exists but config changed, re-preprocessing")
@@ -166,13 +166,23 @@ def run_preprocess(
         )
     
     # Load diar/tx caches
-    _load_diar_tx_caches(pipeline, state, cache_dir)
+    _load_diar_tx_caches(pipeline, state, cache_dir, guard)
 
 
 def _load_diar_tx_caches(
-    pipeline: AudioAnalysisPipelineV2, state: PipelineState, cache_dir: Path
+    pipeline: AudioAnalysisPipelineV2, state: PipelineState, cache_dir: Path, guard: StageGuard | None = None
 ) -> None:
     """Load diarization and transcription caches."""
+    # Use corelog when no StageGuard is available
+    def _progress(message: str) -> None:
+        try:
+            if guard is not None:
+                guard.progress(message)
+            else:
+                pipeline.corelog.stage("resume", "progress", message=message)
+        except Exception:
+            # Logging must never fail the pipeline
+            pass
     diar_path = cache_dir / "diar.json"
     tx_path = cache_dir / "tx.json"
 
@@ -207,9 +217,9 @@ def _load_diar_tx_caches(
         state.resume_tx = True
         state.resume_diar = bool(_cache_matches(state.diar_cache))
         if state.resume_diar:
-            guard.progress("resume: using tx.json+diar.json caches; skipping diarize+ASR")
+            _progress("resume: using tx.json+diar.json caches; skipping diarize+ASR")
         else:
-            guard.progress(
+            _progress(
                 "resume: using tx.json cache; skipping ASR and reconstructing turns from tx cache"
             )
         pipeline.corelog.event(
@@ -220,7 +230,7 @@ def _load_diar_tx_caches(
         )
     elif _cache_matches(state.diar_cache):
         state.resume_diar = True
-        guard.progress("resume: using diar.json cache; skipping diarize")
+        _progress("resume: using diar.json cache; skipping diarize")
         pipeline.corelog.event(
             "resume",
             "diar_cache_hit",

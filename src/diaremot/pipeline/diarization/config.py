@@ -19,7 +19,7 @@ class DiarizationConfig:
     min_embedtable_sec: float = 0.6
     topk_windows: int = 3
     ahc_linkage: str = "average"
-    ahc_distance_threshold: float = 0.15
+    ahc_distance_threshold: float = 0.14
     speaker_limit: int | None = None
     clustering_backend: str = "ahc"
     clustering_progress_interval_sec: float = 60.0

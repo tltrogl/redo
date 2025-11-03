@@ -43,6 +43,24 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Maximum number of speakers to detect",
     )
     parser.add_argument(
+        "--min-speakers",
+        type=int,
+        default=None,
+        help="Minimum number of speakers (hint to clustering backend)",
+    )
+    parser.add_argument(
+        "--max-speakers",
+        type=int,
+        default=None,
+        help="Maximum number of speakers (hint to clustering backend)",
+    )
+    parser.add_argument(
+        "--clustering-backend",
+        default=None,
+        choices=["ahc", "spectral"],
+        help="Clustering backend for diarization (default: ahc)",
+    )
+    parser.add_argument(
         "--whisper-model",
         default=str(DEFAULT_WHISPER_MODEL),
         help="Whisper model identifier or path",
@@ -249,6 +267,9 @@ def _args_to_config(args: argparse.Namespace, *, ignore_tx_cache: bool) -> dict[
         "registry_path": args.registry_path,
         "ahc_distance_threshold": args.ahc_distance_threshold,
         "speaker_limit": args.speaker_limit,
+        "min_speakers": args.min_speakers,
+        "max_speakers": args.max_speakers,
+        "clustering_backend": args.clustering_backend,
         "whisper_model": args.whisper_model,
         "asr_backend": args.asr_backend,
         "compute_type": args.asr_compute_type,

@@ -91,11 +91,17 @@ class PDFSummaryGenerator:
         duration = max((s.get("end", 0) or 0) for s in segments) if segments else 0
         title = f"Summary - {file_id}"
 
+        # Unique speakers count (speakers_summary may include duplicates)
+        uniq = set()
+        for s in speakers_summary or []:
+            label = (s.get("speaker_name") or s.get("speaker_id") or "").strip()
+            if label:
+                uniq.add(label)
         return self._generate_pdf(
             out_path,
             title,
             duration,
-            len(speakers_summary),
+            len(uniq) if uniq else len(speakers_summary),
             len(segments),
             speakers_summary,
             segments,
@@ -156,7 +162,8 @@ class PDFSummaryGenerator:
         if speakers:
             lead = max(speakers, key=lambda r: _float(r.get("total_duration", 0)))
             lead_name = lead.get("speaker_name") or lead.get("speaker_id")
-            share = 100.0 * _float(lead.get("total_duration", 0)) / max(1.0, duration)
+            total_speech = sum(_float(r.get("total_duration", 0)) for r in speakers) or 1.0
+            share = 100.0 * _float(lead.get("total_duration", 0)) / total_speech
             summary = f"{lead_name} spoke most (~{share:.0f}%). Audio: {_fmt_hms(duration)}, {num_speakers} speakers."
         else:
             summary = f"Audio length {_fmt_hms(duration)}"
