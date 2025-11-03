@@ -155,9 +155,23 @@ def test_upward_gain_and_compression_match_legacy_fft() -> None:
     legacy_boosted = legacy_apply_upward_gain(y)
     legacy_compressed = legacy_apply_compression(legacy_boosted)
 
+    boosted_no_cache, boosted_stats_no_cache = apply_upward_gain(y, n_fft, hop, config)
+    compressed_no_cache = apply_compression(boosted_no_cache, n_fft, hop, config)
+
     spectral = SpectralFrameStats.from_signal(y, n_fft, hop)
     boosted, boosted_stats = apply_upward_gain(y, n_fft, hop, config, spectral=spectral)
     compressed = apply_compression(boosted, n_fft, hop, config, spectral=boosted_stats)
+
+    direct_boosted_stats_no_cache = SpectralFrameStats.from_signal(boosted_no_cache, n_fft, hop)
+    assert np.allclose(
+        boosted_stats_no_cache.frame_db, direct_boosted_stats_no_cache.frame_db, atol=1e-6
+    )
+
+    assert np.allclose(boosted_no_cache, legacy_boosted, atol=1e-5)
+    assert np.allclose(compressed_no_cache, legacy_compressed, atol=1e-5)
+
+    direct_boosted_stats = SpectralFrameStats.from_signal(boosted, n_fft, hop)
+    assert np.allclose(boosted_stats.frame_db, direct_boosted_stats.frame_db, atol=1e-6)
 
     assert np.allclose(boosted, legacy_boosted, atol=1e-5)
     assert np.allclose(compressed, legacy_compressed, atol=1e-5)
