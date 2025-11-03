@@ -25,6 +25,8 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - **GEMINI.md** - Project context for AI assistants (Gemini, Claude, etc.)
 - **AGENTS.md** - Setup guide for autonomous agents
 - **CLOUD_BUILD_GUIDE.md** - Cloud deployment instructions
+- **docs/pipeline_optimization_opportunities.md** - Stage-by-stage performance
+  considerations and optimisation backlog
 
 
 ### Preprocessing architecture
