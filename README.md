@@ -30,6 +30,8 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 ### Preprocessing architecture
 The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with focused modules for configuration (`config.py`), disk I/O (`io.py`), chunk lifecycle management (`chunking.py`), denoising primitives (`denoise.py`), and the signal chain (`chain.py`). The legacy `audio_preprocessing.py` module remains as a façade so existing imports continue to work. A standalone CLI for manual runs is available at `scripts/preprocess_audio.py`.
 
+`chain.py` now threads a cached spectral magnitude (`SpectralFrameStats`) through the upward gain and compression stages so both reuse the same STFT work. This removes a redundant FFT per clip while unit tests confirm the shared path is numerically identical to the legacy double-FFT flow.
+
 ---
 
 ## 11-Stage Processing Pipeline
