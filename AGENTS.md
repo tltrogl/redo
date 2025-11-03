@@ -1,120 +1,225 @@
-# AGENTS.md — Local IDE Agent Playbook
-ommunication
+# AGENTS.md — Local IDE Agent Playbook (Technical)
 
-- **Plan before you act.** Outline the goal, proposed edits/tests, and expected outcomes. Share the plan with the user; adjust based on their feedback before running commands or touching files.
-- **Stay surgical.** Modify only what the plan covers. Keep changes focused and explain your rationale.
-- **Observe first.** Review existing evidence (artefacts, logs, caches) before rerunning heavy jobs. That saves time and highlights whether a rerun is even necessary.
-- **Report
-DiaRemot is already installed and working on this workstation. Your job as the interactive Codex agent is to understand what’s happening, make the smallest necessary adjustments, and explain every action you take. Use this guide as your operating manual.
+This file defines how the interactive IDE agent operates on this Windows workstation for DiaRemot. It is specific to the local, human‑in‑the‑loop IDE flow and must not be confused with the non‑interactive cloud agent guidance in `agentscloud.md`.
 
 ---
 
-## 1. Mindset & C clearly.** After each task, return a concise summary: what changed, commands + exit codes, key observations, and follow-up suggestions.
-
-Why inspect existing artefa  xz? They capture the pipeline’s most recent behaviour—reading them tells you what actually happened (speaker counts, fallbacks, timing) without burning minutes on another run. Re-run only when you need fresh data after making changes or when artefacts are missing/invalid.
-
----
-
-## 2. Workspace Overview
-
-- **Repository root:** `D:\dia\diaremot2-on`
-- **Primary virtualenv:** `.balls` (PowerShell activation: `.\.balls\Scripts\Activate.ps1`)
-- **Models:** Shared bundle under `D:\models`. Only fall back to downloading `./assets/models.zip` if this drive is unavailable.
-- **Caches:** Hugging Face / CT2 caches under `.cache\`; stage checkpoints under `checkpoints\`; recent run outputs in `outputs_*` directories.
-- **Sample audio:** `data\sample1.mp3`, `data\sample2.mp3`, etc.
-- **New modules to know:** 
-  - Preprocess stack: `src/diaremot/pipeline/preprocess/`
-  - Affect analyzers: `src/diaremot/affect/analyzers/`
-  - Tests for these modules live under `tests/affect/` and `tests/test_preprocess_stack.py`
-- **Reference docs:** When you need deeper pipeline context, consult `README.md` (pipeline overview), `DATAFLOW.md` (stage-by-stage details), `MODEL_MAP.md` (model search paths), and `agentscloud.md` (strict cloud playbook). Validate their guidance against the current code/artefacts and flag or fix any inaccuracies.
+## 1. Scope & Role
+- Operate in `D:\dia\diaremot2-on` with the existing venv and models.
+- Explain actions before executing, then perform the smallest most thorough change that achieves the goal.
+- Prefer reading artefacts (logs, caches, outputs) to re‑running heavy stages; only re‑run when inputs/config changed or artefacts are missing/invalid. Never assume always verify.
+- Keep output concise; include exact commands, exit codes, and paths for anything you run or change.
 
 ---
 
-## 3. Typical Workflow
+## 2. Guardrails
+- Plan First: briefly outline intent, edits/tests, and expected outcome before touching files. Clearly present plans for approval before implementing.
+- Stay Surgical: modify only files relevant to the plan; avoid drive‑by refactors.
+- Evidence: after each task, report commands, exit codes, and the specific artefacts you inspected.
+- Reproducibility: do not clear caches or models without stating why and what will be lost; back up outputs first.
+- Complete: see all tasks through to completion. If sidetracked or interrupted always return and complete the task.
+- One Step: when giving multi step directions to user give one step, wait for completetion, then give next step.
+- Separation: this file governs the IDE agent only. Cloud automation rules live in `agentscloud.md`.
 
-1. **Context check**
+---
+
+## 3. Environment Facts (Local)
+- Repository root: `D:\dia\diaremot2-on`
+- Virtualenv: `.balls` (PowerShell activation: `.\\.balls\\Scripts\\Activate.ps1`)
+- Models: primary at `D:\models`. If unavailable, use `./assets/models.zip` (must be the approved bundle) and extract to `./models`.
+- Caches & outputs: Hugging Face/CT2 under `.cache\\`; checkpoints under `checkpoints\\`; recent runs under `outputs_*` or `audio\\outs\\<name>`.
+- Sample audio: `data\\sample1.mp3`, `data\\sample2.mp3`.
+
+---
+
+## 4. Working Sequence (IDE)
+1) Context Check
    - `git status -sb`
-   - Inspect recent outputs (`outputs_sample*`, `/tmp/smoke` if present)
-   - Review `logs/run.jsonl` for warnings or fallbacks
-2. **Plan & approval**
-   - Describe intended changes/tests and expected results
-3. **Execute approved steps**
-   - Activate venv: `.\.balls\Scripts\Activate.ps1`
-   - Set caches:  
+   - Inspect latest outputs and `logs\\run.jsonl`
+   - Note any “fallback”, “warn”, or long‑running stages
+2) Plan & Confirm
+   - Write a short plan (goal → edits/tests → expected results)
+3) Execute
+   - Activate venv: `.\\.balls\\Scripts\\Activate.ps1`
+   - Set env for caches/models:
      ```powershell
-     $env:HF_HOME = (Resolve-Path '.\.cache')
+     $env:HF_HOME = (Resolve-Path '.\\.cache')
      $env:TRANSFORMERS_CACHE = $env:HF_HOME
-     $env:DIAREMOT_MODEL_DIR = 'D:\models'
+     $env:DIAREMOT_MODEL_DIR = 'D:\\models'
      ```
-   - Run agreed commands (examples below)
-4. **Verify & interpret**
-   - Check outputs (CSV schema, speakers_summary, qc_report, summary.html/pdf)
-   - Note speaker counts, affect coverage, any fallback warnings
-5. **Summarise back to the user**
-   - Actions taken, exit codes, observations, next steps
+   - Run only the necessary pipeline commands
+4) Verify
+   - Validate against artefacts listed in Section 6
+5) Summarise
+   - What changed; commands + exit codes; artefact highlights; next steps
 
 ---
 
-## 4. Command Reference (use only after approval)
+## 5. Canonical Commands (Local)
+- Activate venv
+  ```powershell
+  .\.balls\Scripts\Activate.ps1
+  ```
+- Full run (default outdir: <input parent>\outs\<input stem>)
+  ```powershell
+  # Python module entry
+  python -m diaremot.cli run "audio\sample1.mp3"
+  # Or console script entry
+  diaremot run "audio\sample1.mp3"
+  ```
+- Resume using caches/checkpoints
+  ```powershell
+  # Python module entry
+  python -m diaremot.cli resume --input "audio\sample1.mp3"
+  # Or console script entry
+  diaremot resume --input "audio\sample1.mp3"
+  ```
+- Smoke test (synthetic)
+  ```powershell
+  python -m diaremot.cli smoke --enable-affect --model-root $env:DIAREMOT_MODEL_DIR
+  ```
+- Lint & tests
+  ```powershell
+  ruff check src/ tests/
+  pytest -q
+  ```
 
-```powershell
-# Activate environment (PowerShell)
-.\.balls\Scripts\Activate.ps1
-
-# Full pipeline on real audio
-python -m diaremot.cli run `
-  --input data\sample1.mp3 `
-  --outdir outputs_sample1 `
-  --model-root $env:DIAREMOT_MODEL_DIR `
-  --clear-cache    # add only when you need a fresh run
-
-# Resume using checkpoints
-python -m diaremot.cli resume --input data\sample1.mp3 --outdir outputs_sample1
-
-# Synthetic smoke test
-python -m diaremot.cli smoke --outdir /tmp/smoke --enable-affect --model-root $env:DIAREMOT_MODEL_DIR
-
-# Lint & tests
-ruff check src/ tests/
-pytest -q
-```
-
-Before running any pipeline command, note what success looks like (e.g., “expect 4 speakers, no fallbacks”). After the run, verify that those conditions hold.
-
----
-
-## 5. Diagnostics Checklist
-
-- **`logs/run.jsonl`** – Stage timings, speaker estimates, fallback warnings. Search for `fallback`, `warn`, `issues`.
-- **`outputs/*/qc_report.json`** – Confirm `dependency_ok`, inspect `warnings`, check audio health metrics (SNR, clipping).
-- **`diarized_transcript_with_emotion.csv`** – 39 columns, non-empty. Check `speaker_id` diversity, `snr_db_sed`, affect scores.
-- **`speakers_summary.csv`** – Verify speaker counts align with expectations.
-- **`segments.jsonl`** – Ensure valence/arousal/dominance, text emotions, intent fields are populated.
-- **`summary.html` / `summary.pdf`** – Confirm report generation; missing PDF often means wkhtmltopdf is absent.
-- **Caches** – `.cache`, `checkpoints`, `outputs_*`. Back up before clearing so you can compare results.
-
-Document any anomalies (missing artefacts, suspicious metrics, warnings) in your final message, even if you don’t fix them immediately.
+Notes
+- When `--outdir` is omitted, outputs default to `<input parent>\\outs\\<input stem>`.
+- Use `--clear-cache` only when a fresh run is required; prefer clearing specific cached files.
 
 ---
 
-## 6. Cache & Output Management
+## 6. What To Inspect (Before Re‑runs)
+- `logs\\run.jsonl`: stage timings, speaker estimates, warnings/fallbacks
+- `outputs/*/qc_report.json`: `dependency_ok`, `warnings`, and `config_snapshot`
+- `diarized_transcript_with_emotion.csv`: must have the full 39‑column schema
+- `speakers_summary.csv`: check estimated speaker count vs expectations
+- `segments.jsonl`: ensure V/A/D, text emotions, and intent fields are populated
+- `summary.html` / `summary.pdf`: confirm report generation (missing PDF often indicates wkhtmltopdf absent)
 
-- Archive current results before clearing:  
-  `Copy-Item outputs_sample1 outputs_sample1_cached`
-- Clear caches only with user approval:  
-  `Remove-Item -Recurse -Force .cache checkpoints`
-- Keep `./assets/models.zip` (if present) and `D:\models` intact unless explicitly asked to refresh them.
+Document anomalies even if you don’t fix them immediately.
 
 ---
 
-## 7. Completion Checklist
+## 7. Cache & Output Handling
+- Back up outputs before clearing:
+  ```powershell
+  Copy-Item audio\\outs\\sample1 audio\\outs\\sample1_cached -Recurse
+  ```
+- Targeted cache clears (prefer these over global wipes):
+  ```powershell
+  # Clear diarization/transcription cache entries only
+  Get-ChildItem .cache -Recurse -Include diar.json,tx.json | Remove-Item -Force
+  ```
+- Global cache clear (avoid unless necessary):
+  ```powershell
+  Remove-Item -Recurse -Force .cache, checkpoints
+  ```
 
-- Deactivate venv if needed (`deactivate`).
-- Provide a final response including:
-  1. Summary of actions and rationale
-  2. Commands with exit codes
-  3. Key log/artefact observations
-  4. Follow-up recommendations
-- Leave the workspace in a ready-to-use state (no stray temp files, caches only cleared if necessary).
+---
 
-Following this playbook keeps the IDE session predictable, minimises unnecessary reruns, and ensures the user always knows what happened and why.
+## 8. Models Policy (IDE)
+- Primary source: `D:\\models`.
+- Fallback: `./assets/models.zip` (organisation‑approved bundle). Extract to `./models` and set `DIAREMOT_MODEL_DIR` accordingly.
+- Do not download alternative model files without an explicit reason documented in your summary.
+
+---
+
+## 9. Documentation Cross‑Checks
+- When behaviour seems off, cross‑validate `README.md`, `DATAFLOW.md`, and `MODEL_MAP.md` against current code and artefacts.
+- If a doc is wrong or incomplete, note the discrepancy in your summary and suggest a precise fix (file + line reference).
+
+---
+
+## 10. Completion Checklist
+- Provide in your final message:
+  - Summary of changes and rationale
+  - Commands and exit codes
+  - Artefact paths inspected and key observations
+  - Follow‑up recommendations (if any)
+- Leave the workspace ready for the next task (no stray temp files).
+
+---
+
+This technical playbook keeps the IDE session predictable, evidences every action, and reduces unnecessary re‑runs while staying aligned with how the local pipeline actually behaves.
+
+---
+
+## 11. Operational TODOs (DiaRemot v2.2.0)
+
+Use this checklist to drive the pipeline to a stable, fast state on both local and VM environments.
+
+For detailed step-by-step instructions (commands, verification, rollback), see `docs/TODO.md`.
+
+### Critical Issues (Fix First)
+- Silero VAD pathing: ensure ONNX loads. Prefer env var over discovery.
+  - `SILERO_VAD_TORCH=0`
+  - `SILERO_VAD_ONNX_PATH=/home/<user>/dia/diaremot2-on/models/diarization/silaro_vad/silero_vad.onnx`
+- Diarization over‑segmentation: tighten VAD + bound clustering.
+  - `--vad-backend onnx --vad-threshold 0.22 --vad-min-speech-sec 0.25 --vad-min-silence-sec 0.25 --vad-speech-pad-sec 0.20`
+  - `--speaker_limit 4` (start; adjust 3–6 as needed)
+  - Keep `ahc_distance_threshold ≈ 0.12–0.16`, `min_turn_sec ≥ 1.2s`, `max_gap_to_merge_sec ≈ 1.0s`, post‑merge distance ≥ 0.30.
+- Preprocess cache crash: `_load_diar_tx_caches` must not call `guard.progress` (out of scope). Use pipeline logger instead. File: `src/diaremot/pipeline/stages/preprocess.py`.
+- Report correctness: count unique speakers by label; dominance from summed per‑speaker `total_duration`. Files:
+  - `src/diaremot/summaries/narrative_builder.py`
+  - `src/diaremot/summaries/html_summary_generator.py`
+  - `src/diaremot/summaries/pdf_summary_generator.py`
+
+### VM Performance Guardrails
+- Prevent hidden BLAS thread storms; let the app use cores:
+  - `OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_MAX_THREADS=1`
+- Faster ECAPA on CPU: `DIAREMOT_ECAPA_MAX_BATCH=1024` (tune to RAM).
+- ASR threads: `--asr-cpu-threads 4..8` (auto‑pick from `nproc`).
+
+### Two‑Phase Flow (Recommended)
+- Phase A (Core): dependency_check → preprocess → diarize → transcribe → minimal outputs.
+  - Command: `diaremot ... --no-enable-sed --disable-affect`
+- Phase B (Enrichment): paralinguistics → affect → SED → reports (from Phase A artifacts).
+  - Command: `diaremot ... --enable-sed` (omit `--disable-affect`)
+
+### CLI Ergonomics
+- Expose clustering controls in CLI (if missing on a machine):
+  - `--speaker_limit`, `--min-speakers`, `--max-speakers`, `--clustering-backend {ahc,spectral}`.
+
+### Standardize Preprocess Defaults
+- Use consistent flags across runs to avoid cache churn (`pp_signature`).
+- Defaults: noise reduction ON; loudness mode `asr`.
+
+### Sanity Checks (Add to QC / Logs)
+- Warn if `speakers_est` ≫ unique speakers (e.g., est>50 and unique<10).
+- Validate `diarized_transcript_with_emotion.csv` schema is 39 cols.
+- Fail‑soft with hint if Silero ONNX not found (print `SILERO_VAD_ONNX_PATH`).
+
+### Runbook Snippets
+- Targeted cache clear by audio SHA (keeps models):
+  ```bash
+  python - << 'PY'
+  import hashlib, pathlib, shutil
+  a=pathlib.Path('audio/yourfile.ext'); h=hashlib.blake2s(digest_size=16)
+  with a.open('rb') as f:
+      for chunk in iter(lambda:f.read(1024*1024), b''): h.update(chunk)
+  d=pathlib.Path('.cache')/h.hexdigest(); print('AUDIO_SHA16=',h.hexdigest())
+  if d.exists(): shutil.rmtree(d, ignore_errors=True)
+  PY
+  ```
+- “VM perf” core run (reuse preprocess/ASR; redo diar only):
+  ```bash
+  export HF_HOME=.cache TRANSFORMERS_CACHE=.cache
+  export DIAREMOT_MODEL_DIR=/home/<user>/dia/diaremot2-on/models
+  export SILERO_VAD_TORCH=0
+  export SILERO_VAD_ONNX_PATH=/home/<user>/dia/diaremot2-on/models/diarization/silaro_vad/silero_vad.onnx
+  export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 NUMEXPR_MAX_THREADS=1
+  find .cache -maxdepth 3 -type f -name diar.json -delete
+  PYTHONPATH=src python -m diaremot.pipeline.cli_entry \
+    --input audio/yourfile.ext --outdir audio/outs/core \
+    --vad-backend onnx --vad-threshold 0.22 --vad-min-speech-sec 0.25 \
+    --vad-min-silence-sec 0.25 --vad-speech-pad-sec 0.20 --speaker_limit 4 \
+    --no-enable-sed --disable-affect
+  ```
+
+### Acceptance Criteria
+- Unique speaker count in reports matches `speakers_summary.csv`.
+- Diarization yields realistic speaker count (no 900+ micro‑clusters).
+- Re‑runs reuse preprocess/ASR caches; only changed phases re‑exec.
+- Core pass on ~51‑min audio completes within ~10–15 minutes on the VM; enrichment dominates runtime when enabled.
