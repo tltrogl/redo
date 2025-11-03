@@ -30,6 +30,8 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 ### Preprocessing architecture
 The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with focused modules for configuration (`config.py`), disk I/O (`io.py`), chunk lifecycle management (`chunking.py`), denoising primitives (`denoise.py`), and the signal chain (`chain.py`). The legacy `audio_preprocessing.py` module remains as a façade so existing imports continue to work. A standalone CLI for manual runs is available at `scripts/preprocess_audio.py`.
 
+`chain.py` now threads a cached spectral magnitude (`SpectralFrameStats`) through the upward gain and compression stages so both reuse the same STFT work. This removes a redundant FFT per clip while unit tests confirm the shared path is numerically identical to the legacy double-FFT flow.
+
 ---
 
 ## 11-Stage Processing Pipeline
@@ -294,6 +296,13 @@ export TOKENIZERS_PARALLELISM=false
 - Programmatic integrations can control this via `build_pipeline_config({... 'local_first': False ...})` when a remote-first run is desired.
 
 **IMPORTANT:** `local_first` controls search PRIORITY only. Downloaded models (especially faster-whisper) ALWAYS cache to `$HF_HOME/.cache/` - there is no way to disable caching. This is CTranslate2/HuggingFace default behavior.
+
+### ASR concurrency
+
+- Set `enable_async_transcription: true` in your pipeline configuration to run the non-blocking Faster-Whisper scheduler. The
+  ASR stage awaits all batches concurrently and emits segments in deterministic time order.
+- Use `--async-asr` when invoking `diaremot run` or `diaremot core` to enable the same behaviour from the CLI.
+- Leaving the flag disabled preserves the synchronous execution path for environments where lightweight scheduling is preferred.
 
 ### Model Search Paths
 

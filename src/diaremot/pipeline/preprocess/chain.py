@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 import librosa
 import numpy as np
@@ -23,6 +24,27 @@ __all__ = [
     "process_array",
     "combine_chunk_health",
 ]
+
+
+@dataclass(frozen=True)
+class SpectralFrameStats:
+    """Lightweight container for per-frame loudness statistics."""
+
+    frame_db: np.ndarray
+
+    @classmethod
+    def from_signal(
+        cls, y: np.ndarray, n_fft: int, hop: int, window: str = "hann"
+    ) -> "SpectralFrameStats":
+        S = librosa.stft(y, n_fft=n_fft, hop_length=hop, window=window)
+        mag = np.abs(S)
+        frame_rms = np.sqrt(np.mean(mag**2, axis=0) + 1e-12)
+        frame_db = 20 * np.log10(frame_rms + 1e-12)
+        return cls(frame_db=frame_db)
+
+    def apply_gain_db(self, gain_db: np.ndarray) -> "SpectralFrameStats":
+        gain = np.asarray(gain_db, dtype=self.frame_db.dtype)
+        return SpectralFrameStats(frame_db=self.frame_db + gain)
 
 
 def hann_smooth(x: np.ndarray, win: int) -> np.ndarray:
@@ -80,11 +102,15 @@ def estimate_loudness_lufs_approx(y: np.ndarray, sr: int) -> float:
     return lufs
 
 
-def apply_upward_gain(y: np.ndarray, n_fft: int, hop: int, config: PreprocessConfig) -> np.ndarray:
-    S = librosa.stft(y, n_fft=n_fft, hop_length=hop, window="hann")
-    mag = np.abs(S)
-    frame_rms = np.sqrt(np.mean(mag**2, axis=0) + 1e-12)
-    frame_db = 20 * np.log10(frame_rms + 1e-12)
+def apply_upward_gain(
+    y: np.ndarray,
+    n_fft: int,
+    hop: int,
+    config: PreprocessConfig,
+    spectral: SpectralFrameStats | None = None,
+) -> tuple[np.ndarray, SpectralFrameStats]:
+    stats = spectral or SpectralFrameStats.from_signal(y, n_fft, hop)
+    frame_db = stats.frame_db
 
     gain_db = np.zeros_like(frame_db)
     gate_db = float(config.gate_db)
@@ -101,13 +127,22 @@ def apply_upward_gain(y: np.ndarray, n_fft: int, hop: int, config: PreprocessCon
 
     gain_lin = np.power(10.0, gain_db_sm / 20.0)
     env = interp_per_sample(gain_lin, hop, len(y))
-    return y * env.astype(np.float32)
+    boosted = y * env.astype(np.float32)
+    boosted_stats = stats.apply_gain_db(gain_db_sm)
+    return boosted, boosted_stats
 
 
-def apply_compression(y: np.ndarray, n_fft: int, hop: int, config: PreprocessConfig) -> np.ndarray:
-    S = librosa.stft(y, n_fft=n_fft, hop_length=hop, window="hann")
-    mag = np.abs(S)
-    lvl_db = 20 * np.log10(np.sqrt(np.mean(mag**2, axis=0)) + 1e-12)
+def apply_compression(
+    y: np.ndarray,
+    n_fft: int,
+    hop: int,
+    config: PreprocessConfig,
+    spectral: SpectralFrameStats | None = None,
+) -> np.ndarray:
+    if spectral is None:
+        spectral = SpectralFrameStats.from_signal(y, n_fft, hop)
+
+    lvl_db = spectral.frame_db
 
     thr = float(config.comp_thresh_db)
     ratio = float(config.comp_ratio)
@@ -260,8 +295,13 @@ def process_array(y: np.ndarray, sr: int, config: PreprocessConfig) -> Preproces
         floor_ratio = 0.0
 
     n_fft, hop = frame_params(sr, config.frame_ms, config.hop_ms)
-    y_boosted = apply_upward_gain(y_denoised, n_fft, hop, config)
-    y_compressed = apply_compression(y_boosted, n_fft, hop, config)
+    spectral = SpectralFrameStats.from_signal(y_denoised, n_fft, hop)
+    y_boosted, spectral_after_gain = apply_upward_gain(
+        y_denoised, n_fft, hop, config, spectral=spectral
+    )
+    y_compressed = apply_compression(
+        y_boosted, n_fft, hop, config, spectral=spectral_after_gain
+    )
     y_loud = apply_loudness(y_compressed, sr, config)
     y_final = apply_safety_limit(y_loud)
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import functools
+import inspect
 from collections.abc import Sequence
 from typing import Any
 
@@ -45,7 +48,8 @@ class Transcriber:
         self._batching = batching_config or BatchingConfig(enabled=enable_batching)
         base_kwargs = {"batching_config": self._batching, "max_workers": max_workers}
         base_kwargs.update(kwargs)
-        if enable_async:
+        self._async_enabled = bool(enable_async)
+        if self._async_enabled:
             self._engine: AsyncTranscriber | _AudioTranscriber = AsyncTranscriber(
                 **base_kwargs
             )
@@ -62,11 +66,55 @@ class Transcriber:
         sr: int,
         diar_segments: Sequence[dict[str, Any]],
     ) -> list[TranscriptionSegment]:
-        return self._engine.transcribe_segments(
-            np.asarray(audio_16k_mono, dtype=np.float32),
-            sr,
-            list(diar_segments),
+        audio = np.asarray(audio_16k_mono, dtype=np.float32)
+        diar_list = list(diar_segments)
+        result = self._engine.transcribe_segments(audio, sr, diar_list)
+        if inspect.isawaitable(result):
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    raise RuntimeError("event loop already running")
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                try:
+                    asyncio.set_event_loop(loop)
+                    return loop.run_until_complete(result)
+                finally:
+                    asyncio.set_event_loop(None)
+                    loop.close()
+            else:
+                return loop.run_until_complete(result)
+        return result
+
+    async def transcribe_segments_async(
+        self,
+        audio_16k_mono: np.ndarray,
+        sr: int,
+        diar_segments: Sequence[dict[str, Any]],
+    ) -> list[TranscriptionSegment]:
+        audio = np.asarray(audio_16k_mono, dtype=np.float32)
+        diar_list = list(diar_segments)
+        engine = self._engine
+        candidate = getattr(engine, "transcribe_segments_async", None)
+        if callable(candidate):
+            result = candidate(audio, sr, diar_list)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+        result = engine.transcribe_segments(audio, sr, diar_list)
+        if inspect.isawaitable(result):
+            return await result
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            functools.partial(engine.transcribe_segments, audio, sr, diar_list),
         )
+
+    @property
+    def async_enabled(self) -> bool:
+        return self._async_enabled and isinstance(self._engine, AsyncTranscriber)
 
     def validate_backend(self) -> dict[str, Any]:
         return self._engine.validate_backend()
