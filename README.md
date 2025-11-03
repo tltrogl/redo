@@ -297,6 +297,13 @@ export TOKENIZERS_PARALLELISM=false
 
 **IMPORTANT:** `local_first` controls search PRIORITY only. Downloaded models (especially faster-whisper) ALWAYS cache to `$HF_HOME/.cache/` - there is no way to disable caching. This is CTranslate2/HuggingFace default behavior.
 
+### ASR concurrency
+
+- Set `enable_async_transcription: true` in your pipeline configuration to run the non-blocking Faster-Whisper scheduler. The
+  ASR stage awaits all batches concurrently and emits segments in deterministic time order.
+- Use `--async-asr` when invoking `diaremot run` or `diaremot core` to enable the same behaviour from the CLI.
+- Leaving the flag disabled preserves the synchronous execution path for environments where lightweight scheduling is preferred.
+
 ### Model Search Paths
 
 DiaRemot uses a priority-based model discovery system. For each model, the system searches these locations in order:

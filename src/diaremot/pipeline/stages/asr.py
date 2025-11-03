@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import time
 from typing import TYPE_CHECKING, Any
@@ -33,6 +34,22 @@ def _placeholder_segment(seg: dict[str, Any]) -> Any:
     )()
 
 
+def _segment_start(item: Any) -> float:
+    if hasattr(item, "start_time"):
+        start = getattr(item, "start_time")
+        if start is not None:
+            return float(start)
+    if hasattr(item, "start"):
+        start = getattr(item, "start")
+        if start is not None:
+            return float(start)
+    if isinstance(item, dict):
+        start = item.get("start_time") or item.get("start")
+        if start is not None:
+            return float(start)
+    return 0.0
+
+
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     tx_in: list[dict[str, Any]] = []
     speaker_name_map: dict[str, str] = {}
@@ -58,8 +75,31 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         guard.progress(f"resume (tx cache) using {cached_segments} cached segments")
         guard.done(segments=cached_segments)
     else:
+        async_enabled = False
         try:
-            tx_out = pipeline.tx.transcribe_segments(state.y, state.sr, tx_in) or []
+            async_enabled = bool(
+                getattr(pipeline.pipeline_config, "enable_async_transcription", False)
+            )
+
+            if async_enabled and hasattr(pipeline.tx, "transcribe_segments_async"):
+
+                async def _do_async() -> list[Any]:
+                    return await pipeline.tx.transcribe_segments_async(
+                        state.y, state.sr, tx_in
+                    )
+
+                try:
+                    tx_out = asyncio.run(_do_async()) or []
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    try:
+                        asyncio.set_event_loop(loop)
+                        tx_out = loop.run_until_complete(_do_async()) or []
+                    finally:
+                        asyncio.set_event_loop(None)
+                        loop.close()
+            else:
+                tx_out = pipeline.tx.transcribe_segments(state.y, state.sr, tx_in) or []
         except (
             RuntimeError,
             TimeoutError,
@@ -75,7 +115,13 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             )
             tx_out = [_placeholder_segment(seg) for seg in tx_in]
 
-        guard.progress(f"processed {len(tx_out)} segments")
+        tx_out = list(tx_out or [])
+        tx_out.sort(key=_segment_start)
+
+        guard.progress(
+            f"processed {len(tx_out)} segments"
+            + (" (async)" if async_enabled else "")
+        )
         guard.done(segments=len(tx_out))
 
     norm_tx: list[dict[str, Any]] = []

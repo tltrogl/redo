@@ -62,6 +62,7 @@ class PipelineConfig:
     language: str | None = None
     language_mode: str = "auto"
     ignore_tx_cache: bool = False
+    enable_async_transcription: bool = False
     quiet: bool = False
     disable_affect: bool = False
     affect_backend: str = "onnx"
@@ -180,6 +181,7 @@ class PipelineConfig:
         else:
             raise ValueError("enable_sed must be a boolean value")
         self.enable_sed = bool(self.enable_sed)
+        self.enable_async_transcription = bool(self.enable_async_transcription)
         _ensure_numeric_range("vad_threshold", self.vad_threshold, ge=0.0, le=1.0)
         _ensure_numeric_range("temperature", self.temperature, ge=0.0, le=1.0)
         _ensure_numeric_range("no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0)
