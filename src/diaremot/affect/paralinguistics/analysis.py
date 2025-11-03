@@ -161,7 +161,7 @@ def compute_overlap_and_interruptions(
     min_overlap_sec: float = 0.05,
     interruption_gap_sec: float = 0.15,
 ) -> dict[str, Any]:
-    """Compute overlap statistics using the legacy single-list signature."""
+    """Compute overlap statistics using an event sweep over segment boundaries."""
 
     if not segments:
         return {
@@ -171,53 +171,85 @@ def compute_overlap_and_interruptions(
             "interruptions": [],
         }
 
-    norm: list[tuple[float, float, str, dict[str, Any]]] = []
+    normalized: list[tuple[float, float, str, dict[str, Any]]] = []
     for seg in segments:
         start = float(seg.get("start", 0.0) or 0.0)
         end = float(seg.get("end", start) or start)
         if end < start:
             start, end = end, start
-        speaker = seg.get("speaker_id") or seg.get("speaker") or "unknown"
-        norm.append((start, end, str(speaker), seg))
+        speaker = str(seg.get("speaker_id") or seg.get("speaker") or "unknown")
+        normalized.append((start, end, speaker, seg))
 
-    norm.sort(key=lambda item: item[0])
+    if not normalized:
+        return {
+            "overlap_total_sec": 0.0,
+            "overlap_ratio": 0.0,
+            "by_speaker": {},
+            "interruptions": [],
+        }
 
-    total_start = norm[0][0]
-    total_end = max(entry[1] for entry in norm)
+    events: list[tuple[float, int, int]] = []
+    for idx, (start, end, _, _) in enumerate(normalized):
+        events.append((start, 1, idx))  # start events processed after overlap update
+        events.append((end, 0, idx))  # ensure end events clear speakers before same-time starts
+
+    events.sort(key=lambda event: (event[0], event[1]))
+
+    total_start = min(event[0] for event in events if event[1] == 1)
+    total_end = max(event[0] for event in events if event[1] == 0)
     total_dur = max(1e-6, total_end - total_start)
 
     overlap_total = 0.0
     by_speaker: dict[str, dict[str, Any]] = {}
     interruptions: list[dict[str, Any]] = []
 
-    j = 0
-    for i, (si, ei, spk_i, _) in enumerate(norm):
-        while j < i and norm[j][1] <= si:
-            j += 1
-        for k in range(j, i):
-            sk, ek, spk_k, _ = norm[k]
-            start = max(si, sk)
-            end = min(ei, ek)
-            overlap = end - start
-            if overlap >= min_overlap_sec:
-                overlap_total += overlap
-                for speaker in (spk_i, spk_k):
-                    slot = by_speaker.setdefault(speaker, {"overlap_sec": 0.0, "interruptions": 0})
-                    slot["overlap_sec"] += overlap
+    active_segments: dict[int, tuple[float, float, str, dict[str, Any]]] = {}
 
-                if spk_i != spk_k:
-                    later = (spk_i, si) if si > sk else (spk_k, sk)
-                    earlier = (spk_k, sk) if si > sk else (spk_i, si)
-                    if 0.0 <= (later[1] - earlier[1]) <= interruption_gap_sec:
-                        by_speaker.setdefault(later[0], {"overlap_sec": 0.0, "interruptions": 0})["interruptions"] += 1
-                        interruptions.append(
-                            {
-                                "at": float(later[1]),
-                                "interrupter": later[0],
-                                "interrupted": earlier[0],
-                                "overlap_sec": float(overlap),
-                            }
-                        )
+    for _, event_type, idx in events:
+        if event_type == 0:  # end event
+            active_segments.pop(idx, None)
+            continue
+
+        seg_start, seg_end, seg_speaker, _ = normalized[idx]
+
+        for other_idx, other_seg in active_segments.items():
+            other_start, other_end, other_speaker, _ = other_seg
+            overlap_start = seg_start if seg_start >= other_start else other_start
+            overlap_end = seg_end if seg_end <= other_end else other_end
+            overlap = overlap_end - overlap_start
+            if overlap < min_overlap_sec:
+                continue
+
+            overlap_total += overlap
+            for speaker in (seg_speaker, other_speaker):
+                slot = by_speaker.setdefault(
+                    speaker, {"overlap_sec": 0.0, "interruptions": 0}
+                )
+                slot["overlap_sec"] = float(slot["overlap_sec"]) + overlap
+
+            if seg_speaker != other_speaker:
+                if seg_start > other_start:
+                    later_speaker, later_time = seg_speaker, seg_start
+                    earlier_speaker, earlier_time = other_speaker, other_start
+                else:
+                    later_speaker, later_time = other_speaker, other_start
+                    earlier_speaker, earlier_time = seg_speaker, seg_start
+
+                if 0.0 <= (later_time - earlier_time) <= interruption_gap_sec:
+                    slot = by_speaker.setdefault(
+                        later_speaker, {"overlap_sec": 0.0, "interruptions": 0}
+                    )
+                    slot["interruptions"] += 1
+                    interruptions.append(
+                        {
+                            "at": float(later_time),
+                            "interrupter": later_speaker,
+                            "interrupted": earlier_speaker,
+                            "overlap_sec": float(overlap),
+                        }
+                    )
+
+        active_segments[idx] = normalized[idx]
 
     return {
         "overlap_total_sec": float(overlap_total),
