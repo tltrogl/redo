@@ -33,39 +33,38 @@ def run_preprocess(
 
     # Compute preprocessing config signature early
     state.pp_sig = compute_pp_signature(pipeline.pp_conf)
-    
+
     # Try to load cached preprocessed audio first
     state.audio_sha16 = compute_audio_sha16_from_file(state.input_audio_path)
     if state.audio_sha16:
         pipeline.checkpoints.seed_file_hash(state.input_audio_path, state.audio_sha16)
-        
+
         cache_root = pipeline.cache_root
         cache_dir = cache_root / state.audio_sha16
         cache_dir.mkdir(parents=True, exist_ok=True)
         state.cache_dir = cache_dir
-        
+
         preproc_cache_path = cache_dir / "preprocessed.npz"
         if preproc_cache_path.exists():
             try:
                 cached = np.load(preproc_cache_path, allow_pickle=True)
                 cached_sig = str(cached.get("pp_signature", ""))
-                
+
                 if cached_sig == state.pp_sig:
                     state.y = cached["audio"].astype(np.float32)
                     state.sr = int(cached["sample_rate"])
                     state.duration_s = float(cached["duration_s"])
-                    
+
                     # Reconstruct health if present
                     if "health" in cached:
                         health_dict = cached["health"].item()
                         from ...pipeline.preprocess import AudioHealth
+
                         state.health = AudioHealth(**health_dict)
                     else:
                         state.health = None
-                    
-                    guard.progress(
-                        f"loaded cached preprocessed audio {_fmt_hms(state.duration_s)}"
-                    )
+
+                    guard.progress(f"loaded cached preprocessed audio {_fmt_hms(state.duration_s)}")
                     pipeline.corelog.event(
                         "preprocess",
                         "cache_hit",
@@ -73,7 +72,7 @@ def run_preprocess(
                         cache_path=str(preproc_cache_path),
                     )
                     guard.done(duration_s=state.duration_s)
-                    
+
                     # Still need to load diar/tx caches
                     _load_diar_tx_caches(pipeline, state, cache_dir, guard)
                     return
@@ -93,7 +92,6 @@ def run_preprocess(
                     except OSError:
                         pass
 
-    
     # No cache or cache invalid - do actual preprocessing
     result = pipeline.pre.process_file(state.input_audio_path)
     state.y = np.asarray(result.audio, dtype=np.float32)
@@ -108,14 +106,13 @@ def run_preprocess(
         snr_db=float(getattr(result.health, "snr_db", 0.0)) if result.health else None,
     )
     guard.done(duration_s=state.duration_s)
-    
+
     # Save preprocessed audio to cache
     if not state.audio_sha16:
         state.audio_sha16 = compute_audio_sha16(state.y)
         if state.audio_sha16:
             pipeline.checkpoints.seed_file_hash(state.input_audio_path, state.audio_sha16)
 
-    
     pipeline.checkpoints.create_checkpoint(
         state.input_audio_path,
         ProcessingStage.AUDIO_PREPROCESSING,
@@ -123,7 +120,7 @@ def run_preprocess(
         progress=5.0,
         file_hash=state.audio_sha16,
     )
-    
+
     cache_root = pipeline.cache_root
     if not state.audio_sha16:
         cache_dir = cache_root / "nohash"
@@ -131,7 +128,7 @@ def run_preprocess(
         cache_dir = cache_root / state.audio_sha16
     cache_dir.mkdir(parents=True, exist_ok=True)
     state.cache_dir = cache_dir
-    
+
     # Save preprocessed audio to cache
     preproc_cache_path = cache_dir / "preprocessed.npz"
     try:
@@ -148,7 +145,7 @@ def run_preprocess(
                 "is_chunked": getattr(state.health, "is_chunked", False),
                 "chunk_info": getattr(state.health, "chunk_info", None),
             }
-        
+
         np.savez_compressed(
             preproc_cache_path,
             audio=state.y,
@@ -164,15 +161,19 @@ def run_preprocess(
             "warn",
             message=f"failed to save cache: {exc}",
         )
-    
+
     # Load diar/tx caches
     _load_diar_tx_caches(pipeline, state, cache_dir, guard)
 
 
 def _load_diar_tx_caches(
-    pipeline: AudioAnalysisPipelineV2, state: PipelineState, cache_dir: Path, guard: StageGuard | None = None
+    pipeline: AudioAnalysisPipelineV2,
+    state: PipelineState,
+    cache_dir: Path,
+    guard: StageGuard | None = None,
 ) -> None:
     """Load diarization and transcription caches."""
+
     # Use corelog when no StageGuard is available
     def _progress(message: str) -> None:
         try:
@@ -183,6 +184,7 @@ def _load_diar_tx_caches(
         except Exception:
             # Logging must never fail the pipeline
             pass
+
     diar_path = cache_dir / "diar.json"
     tx_path = cache_dir / "tx.json"
 

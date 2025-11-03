@@ -197,9 +197,7 @@ class _SileroWrapper:
                 return False
             if not _torch_repo_cached():
                 if override is not True and not _can_reach_host("github.com", timeout=3.0):
-                    logger.info(
-                        "Silero VAD TorchHub repo not cached and GitHub unreachable"
-                    )
+                    logger.info("Silero VAD TorchHub repo not cached and GitHub unreachable")
                     return False
             timeout_env = os.getenv("SILERO_TORCH_LOAD_TIMEOUT")
             try:
@@ -242,6 +240,7 @@ class _SileroWrapper:
             try:
                 onnx_path = os.getenv("SILERO_VAD_ONNX_PATH")
                 if not onnx_path:
+                    logger.warning("SILERO_VAD_ONNX_PATH not set, falling back to model discovery")
                     candidate_paths = list(iter_model_subpaths("silero_vad.onnx"))
                     candidate_paths.extend(list(iter_model_subpaths(Path("silero") / "vad.onnx")))
                     for root in MODEL_ROOTS:
@@ -388,7 +387,7 @@ class _SileroWrapper:
         # Create batch of windows with context
         windows = np.zeros((batch_size, context_size + chunk_size), dtype=np.float32)
         context = np.zeros((batch_size, context_size), dtype=np.float32)
-        
+
         for i in range(num_chunks):
             offset = i * chunk_size
             chunk = audio[offset : offset + chunk_size]
@@ -409,11 +408,11 @@ class _SileroWrapper:
             feeds[self._onnx_sr_name] = np.full(batch_size, sr, dtype=np.int64)
 
         ort_outs = self.session.run(None, feeds)
-        if not isinstance(ort_outs, (list, tuple)) or not ort_outs:
+        if not isinstance(ort_outs, list | tuple) or not ort_outs:
             return []
 
         logits = np.asarray(ort_outs[0], dtype=np.float32)
-        
+
         # Process logits (batch_size, 2) or (batch_size,)
         if logits.ndim == 1:
             logits = logits.reshape(-1, 1)
@@ -425,14 +424,14 @@ class _SileroWrapper:
         else:
             # Sigmoid
             probs = 1.0 / (1.0 + np.exp(-logits.reshape(-1)))
-        
+
         chunk_probs = np.clip(probs, 0.0, 1.0)[:num_chunks]
 
         # Convert probs to segments
         chunk_duration = chunk_size / float(sr)
         total_duration = orig_samples / float(sr)
         speech_mask = chunk_probs > self.threshold
-        
+
         segments: list[tuple[float, float]] = []
         start_idx: int | None = None
         for idx, flag in enumerate(speech_mask):
@@ -796,7 +795,7 @@ class SpeakerDiarizer:
         self._last_turns = []
         if wav is None or wav.size == 0:
             return []
-        
+
         # Ensure mono 16kHz
         if wav.ndim > 1:
             wav = np.mean(wav, axis=0)
@@ -805,25 +804,25 @@ class SpeakerDiarizer:
             sr = self.config.target_sr
         else:
             wav = wav.astype(np.float32)
-        
+
         # Step 1: VAD (now batched)
         speech_regions = self.vad.detect(
             wav, sr, self.config.vad_min_speech_sec, self.config.vad_min_silence_sec
         )
-        
+
         if not speech_regions and self.config.allow_energy_vad_fallback:
             logger.info("Using energy VAD fallback")
             speech_regions = _energy_vad_fallback(
                 wav, sr, self.config.energy_gate_db, self.config.energy_hop_sec
             )
-        
+
         if not speech_regions:
             logger.warning("No speech detected by VAD")
             return []
-        
+
         # Step 2: Extract embeddings (now batched)
         windows = self._extract_embedding_windows_batched(wav, sr, speech_regions)
-        
+
         if len(windows) < 2:
             turn = {
                 "start": speech_regions[0][0],
@@ -833,13 +832,13 @@ class SpeakerDiarizer:
                 "embedding": windows[0]["embedding"] if windows else None,
             }
             return [turn]
-        
+
         # Step 3: Cluster
         embeddings = [w["embedding"] for w in windows if w["embedding"] is not None]
         if not embeddings:
             logger.warning("No valid embeddings extracted")
             return []
-        
+
         try:
             X = np.vstack(embeddings)
             if self.config.speaker_limit:
@@ -859,18 +858,18 @@ class SpeakerDiarizer:
         except Exception as e:
             logger.error(f"Clustering failed: {e}")
             labels = np.zeros(len(embeddings), dtype=int)
-        
+
         # Attach labels
         for w, label in zip(windows, labels, strict=False):
             w["speaker"] = f"Speaker_{label + 1}"
-        
+
         # Step 4: Build continuous segments
         turns = self._build_continuous_segments(windows, speech_regions)
-        
+
         # Step 5: Post-process
         turns = self._merge_short_gaps(turns)
         turns = self._assign_speaker_names(turns)
-        
+
         self._last_turns = turns
         return [self._turn_to_dict(t) for t in turns]
 
@@ -881,7 +880,7 @@ class SpeakerDiarizer:
         # Collect ALL audio clips first
         clips = []
         window_meta = []
-        
+
         for start_sec, end_sec in speech_regions:
             if end_sec - start_sec < self.config.min_embedtable_sec:
                 continue
@@ -892,26 +891,28 @@ class SpeakerDiarizer:
                     start_idx = int(cursor * sr)
                     end_idx = int(win_end * sr)
                     clips.append(wav[start_idx:end_idx])
-                    window_meta.append({'start': cursor, 'end': win_end})
+                    window_meta.append({"start": cursor, "end": win_end})
                 cursor += self.config.embed_shift_sec
-        
+
         # ONE batch call for ALL clips
         if clips:
             embeddings = self.ecapa.embed_batch(clips, sr)
         else:
             embeddings = []
-        
+
         # Map back to windows
         windows = []
         for meta, emb in zip(window_meta, embeddings):
-            windows.append({
-                'start': meta['start'],
-                'end': meta['end'],
-                'embedding': emb,
-                'speaker': None,
-                'region_idx': len(windows)
-            })
-        
+            windows.append(
+                {
+                    "start": meta["start"],
+                    "end": meta["end"],
+                    "embedding": emb,
+                    "speaker": None,
+                    "region_idx": len(windows),
+                }
+            )
+
         logger.info(f"Extracted {len(windows)} embeddings in single batch")
         return windows
 
@@ -923,7 +924,7 @@ class SpeakerDiarizer:
         """Build continuous speaker segments from clustered windows."""
         if not windows:
             return []
-        
+
         segments = []
         for region_start, region_end in speech_regions:
             region_windows = []
@@ -946,9 +947,9 @@ class SpeakerDiarizer:
                     )
             if not region_windows:
                 continue
-            
+
             region_windows.sort(key=lambda x: x["start"])
-            
+
             events = []
             for w in region_windows:
                 events.append(
@@ -961,7 +962,7 @@ class SpeakerDiarizer:
                 )
                 events.append({"time": w["end"], "type": "end", "speaker": w["speaker"]})
             events.sort(key=lambda x: (x["time"], 0 if x["type"] == "end" else 1))
-            
+
             active_speakers = {}
             current_time = region_start
             for event in events:
@@ -999,13 +1000,13 @@ class SpeakerDiarizer:
                                 embedding=speaker_embedding,
                             )
                         )
-                
+
                 if event["type"] == "start":
                     active_speakers[event["speaker"]] = event_time
                 else:
                     active_speakers.pop(event["speaker"], None)
                 current_time = event_time
-            
+
             if active_speakers and current_time < region_end:
                 span_votes = {}
                 for w in region_windows:
@@ -1037,10 +1038,10 @@ class SpeakerDiarizer:
                             embedding=speaker_embedding,
                         )
                     )
-        
+
         if not segments:
             return []
-        
+
         # Merge adjacent same-speaker segments
         merged = [segments[0]]
         for seg in segments[1:]:

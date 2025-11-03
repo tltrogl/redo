@@ -1,12 +1,11 @@
 import csv
+from collections import defaultdict
 from pathlib import Path
-from statistics import mean
-from collections import Counter, defaultdict
 
-from diaremot.summaries.conversation_analysis import analyze_conversation_flow
-from diaremot.summaries.narrative_builder import build_narrative
 from diaremot.pipeline.outputs import write_narrative_report
+from diaremot.summaries.conversation_analysis import analyze_conversation_flow
 from diaremot.summaries.html_summary_generator import HTMLSummaryGenerator
+from diaremot.summaries.narrative_builder import build_narrative
 from diaremot.summaries.pdf_summary_generator import PDFSummaryGenerator
 
 base = Path(r'D:\Audio\outs\troglin')

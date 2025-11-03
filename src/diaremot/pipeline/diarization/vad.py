@@ -86,6 +86,7 @@ class SileroVAD:
             try:
                 onnx_path = os.getenv("SILERO_VAD_ONNX_PATH")
                 if not onnx_path:
+                    logger.warning("SILERO_VAD_ONNX_PATH not set, falling back to model discovery")
                     candidate_paths = list(iter_model_subpaths("silero_vad.onnx"))
                     candidate_paths.extend(list(iter_model_subpaths(Path("silero") / "vad.onnx")))
                     for root in MODEL_ROOTS:

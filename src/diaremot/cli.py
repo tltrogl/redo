@@ -55,19 +55,23 @@ def core_resume(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _core().resume(*args, **kwargs)
 
 
-def core_run_pipeline(*args: Any, **kwargs: Any) -> dict[str, Any]:\n
+def core_run_pipeline(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    return _core().run_pipeline(*args, **kwargs)
+
+
 # ------------------------------------------------------------
 # New convenience subcommands: core and enrich
 # ------------------------------------------------------------
 
+
 def _common_overrides(
-    speaker_limit: Optional[int],
+    speaker_limit: int | None,
     vad_backend: str,
-    vad_threshold: Optional[float],
-    vad_min_speech_sec: Optional[float],
-    vad_min_silence_sec: Optional[float],
-    vad_speech_pad_sec: Optional[float],
-    asr_cpu_threads: Optional[int],
+    vad_threshold: float | None,
+    vad_min_speech_sec: float | None,
+    vad_min_silence_sec: float | None,
+    vad_speech_pad_sec: float | None,
+    asr_cpu_threads: int | None,
 ) -> dict[str, Any]:
     overrides: dict[str, Any] = {
         "speaker_limit": speaker_limit,
@@ -86,18 +90,26 @@ def _common_overrides(
     return overrides
 
 
-@app.command(help="Core pass: preprocess → diarize → ASR; skips enrichment (affect/SED) by default.")
+@app.command(
+    help="Core pass: preprocess → diarize → ASR; skips enrichment (affect/SED) by default."
+)
 def core(
     input: Path = typer.Argument(..., exists=True, readable=True, help="Input audio file"),
-    outdir: Optional[Path] = typer.Option(None, help="Output directory (defaults to <parent>/outs/<stem>)"),
-    model_root: Optional[Path] = typer.Option(None, help="Primary model root (overrides DIAREMOT_MODEL_DIR)"),
-    speaker_limit: Optional[int] = typer.Option(4, help="Bound the number of speakers (None to disable)"),
+    outdir: Path | None = typer.Option(
+        None, help="Output directory (defaults to <parent>/outs/<stem>)"
+    ),
+    model_root: Path | None = typer.Option(
+        None, help="Primary model root (overrides DIAREMOT_MODEL_DIR)"
+    ),
+    speaker_limit: int | None = typer.Option(
+        4, help="Bound the number of speakers (None to disable)"
+    ),
     vad_backend: str = typer.Option("onnx", help="VAD backend", case_sensitive=False),
-    vad_threshold: Optional[float] = typer.Option(0.22, help="Silero VAD threshold (0-1)"),
-    vad_min_speech_sec: Optional[float] = typer.Option(0.25, help="Minimum speech duration (s)"),
-    vad_min_silence_sec: Optional[float] = typer.Option(0.25, help="Minimum silence duration (s)"),
-    vad_speech_pad_sec: Optional[float] = typer.Option(0.20, help="Pad around detected speech (s)"),
-    asr_cpu_threads: Optional[int] = typer.Option(None, help="CPU threads for ASR backend"),
+    vad_threshold: float | None = typer.Option(0.22, help="Silero VAD threshold (0-1)"),
+    vad_min_speech_sec: float | None = typer.Option(0.25, help="Minimum speech duration (s)"),
+    vad_min_silence_sec: float | None = typer.Option(0.25, help="Minimum silence duration (s)"),
+    vad_speech_pad_sec: float | None = typer.Option(0.20, help="Pad around detected speech (s)"),
+    asr_cpu_threads: int | None = typer.Option(None, help="CPU threads for ASR backend"),
 ):
     _apply_model_root(model_root)
     target_out = outdir or _default_outdir_for_input(input)
@@ -107,18 +119,32 @@ def core(
     }
     overrides.update(
         _common_overrides(
-            speaker_limit, vad_backend, vad_threshold, vad_min_speech_sec, vad_min_silence_sec, vad_speech_pad_sec, asr_cpu_threads
+            speaker_limit,
+            vad_backend,
+            vad_threshold,
+            vad_min_speech_sec,
+            vad_min_silence_sec,
+            vad_speech_pad_sec,
+            asr_cpu_threads,
         )
     )
     manifest = core_run_pipeline(str(input), str(target_out), config=overrides)
     typer.echo(_make_json_safe(manifest))
 
 
-@app.command(help="Enrichment pass: reuse caches to run paralinguistics/affect/SED and regenerate reports.")
+@app.command(
+    help="Enrichment pass: reuse caches to run paralinguistics/affect/SED and regenerate reports."
+)
 def enrich(
-    input: Path = typer.Argument(..., exists=True, readable=True, help="Input audio file (same as core pass)"),
-    outdir: Optional[Path] = typer.Option(None, help="Output directory (defaults to <parent>/outs/<stem>_enrich)"),
-    model_root: Optional[Path] = typer.Option(None, help="Primary model root (overrides DIAREMOT_MODEL_DIR)"),
+    input: Path = typer.Argument(
+        ..., exists=True, readable=True, help="Input audio file (same as core pass)"
+    ),
+    outdir: Path | None = typer.Option(
+        None, help="Output directory (defaults to <parent>/outs/<stem>_enrich)"
+    ),
+    model_root: Path | None = typer.Option(
+        None, help="Primary model root (overrides DIAREMOT_MODEL_DIR)"
+    ),
     enable_sed: bool = typer.Option(True, help="Enable background SED during enrichment"),
     no_affect: bool = typer.Option(False, help="Disable affect/intent during enrichment"),
 ):
@@ -215,9 +241,7 @@ def _parse_min_dur_map(value: str | None) -> dict[str, float] | None:
             return {}
         for part in parts:
             if "=" not in part:
-                raise ValueError(
-                    "sed_min_dur must be JSON or comma-separated key=value entries"
-                )
+                raise ValueError("sed_min_dur must be JSON or comma-separated key=value entries")
             key, raw_val = part.split("=", 1)
             mapping[key.strip()] = float(raw_val)
         return mapping
@@ -461,9 +485,7 @@ def run(
         0.15, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
-    clustering_backend: str = typer.Option(
-        "ahc", help="Clustering backend: 'ahc' or 'spectral'."
-    ),
+    clustering_backend: str = typer.Option("ahc", help="Clustering backend: 'ahc' or 'spectral'."),
     min_speakers: int | None = typer.Option(
         None, help="Minimum speakers (for spectral clustering)."
     ),
@@ -984,4 +1006,3 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     app()
-

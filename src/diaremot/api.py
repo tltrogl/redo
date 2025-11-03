@@ -7,7 +7,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -29,7 +29,7 @@ def _pipeline_available() -> bool:
 
 
 @app.get("/")
-def root() -> Dict[str, Any]:
+def root() -> dict[str, Any]:
     """Basic service metadata."""
     return {
         "service": "diaremot2-on",
@@ -67,8 +67,8 @@ def _save_upload(upload: UploadFile, target_path: Path) -> None:
         shutil.copyfileobj(upload.file, target)
 
 
-def _build_config(out_dir: Path) -> Dict[str, Any]:
-    overrides: Dict[str, Any] = {
+def _build_config(out_dir: Path) -> dict[str, Any]:
+    overrides: dict[str, Any] = {
         "log_dir": str(out_dir / "logs"),
         "cache_root": str(out_dir / ".cache"),
         "ignore_tx_cache": True,
@@ -134,7 +134,7 @@ async def process_audio(
             )
 
         # Default: JSON response with manifest and QC summary if present.
-        response: Dict[str, Any] = {
+        response: dict[str, Any] = {
             "status": "success",
             "filename": audio.filename,
             "result": result,

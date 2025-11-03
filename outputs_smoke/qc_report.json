@@ -1,0 +1,105 @@
+{
+  "run_id": "20251102-193820-1461a2",
+  "file_id": "diaremot_smoke_input.wav",
+  "schema_version": "2.0.0",
+  "stage_timings_ms": {
+    "dependency_check": 6.052255630493164,
+    "preprocess": 40063.53163719177,
+    "background_sed": 1659.825086593628,
+    "diarize": 3653.092861175537,
+    "transcribe": 151797.8959083557,
+    "paralinguistics": 3023.641586303711,
+    "affect_and_assemble": 15.988588333129883,
+    "overlap_interruptions": 50.10199546813965,
+    "conversation_analysis": 19.59371566772461,
+    "speaker_rollups": 17.614364624023438
+  },
+  "stage_counts": {
+    "dependency_check": {
+      "skipped": 1
+    },
+    "preprocess": {
+      "duration_s": 3
+    },
+    "diarize": {
+      "turns": 2,
+      "speakers_est": 2
+    },
+    "transcribe": {
+      "segments": 1
+    },
+    "paralinguistics": {
+      "count": 1
+    },
+    "affect_and_assemble": {
+      "segments": 1
+    },
+    "speaker_rollups": {
+      "count": 1
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "failures": [],
+  "models": {
+    "preprocessor": "AudioPreprocessor",
+    "diarizer": "SpeakerDiarizer",
+    "transcriber": "Transcriber",
+    "affect": "NoneType"
+  },
+  "config_snapshot": {
+    "target_sr": 16000,
+    "noise_reduction": false,
+    "enable_sed": true,
+    "registry_path": "D:/dia/diaremot2-on/speaker_registry.json",
+    "ahc_distance_threshold": 0.14,
+    "whisper_model": "tiny.en",
+    "beam_size": 1,
+    "temperature": 0.0,
+    "no_speech_threshold": 0.2,
+    "intent_labels": null,
+    "affect_backend": "onnx",
+    "affect_text_model_dir": null,
+    "affect_ser_model_dir": null,
+    "affect_vad_model_dir": null,
+    "affect_intent_model_dir": null,
+    "affect_analyzer_threads": null,
+    "text_emotion_model": null,
+    "disable_affect": true,
+    "background_sed": {
+      "top": [
+        {
+          "label": "Sine wave",
+          "score": 0.49806302785873413
+        },
+        {
+          "label": "Busy signal",
+          "score": 0.11741375923156738
+        },
+        {
+          "label": "Dial tone",
+          "score": 0.05540958046913147
+        }
+      ],
+      "dominant_label": "Sine wave",
+      "noise_score": 0.10677880048751831,
+      "enabled": true
+    }
+  },
+  "audio_health": {
+    "snr_db": 13.105500801942835,
+    "silence_ratio": 0.005,
+    "clipping_detected": false,
+    "dynamic_range_db": 22.062964257904643
+  },
+  "counts": {
+    "turns": 2,
+    "segments": 1
+  },
+  "voice_quality_summary": {
+    "vq_jitter_pct_avg": 0.0002529821257290956,
+    "vq_shimmer_db_avg": 0.00030742537846332313,
+    "vq_hnr_db_avg": 77.65505577711421,
+    "vq_cpps_db_avg": 75.65505577711421
+  }
+}
