@@ -102,10 +102,6 @@ class Transcriber:
                 return await result
             return result
 
-        result = engine.transcribe_segments(audio, sr, diar_list)
-        if inspect.isawaitable(result):
-            return await result
-
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
