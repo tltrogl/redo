@@ -42,7 +42,7 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
    - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
 6. **paralinguistics** – Voice quality and prosody extraction
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
-8. **overlap_interruptions** – Turn-taking and interruption pattern analysis
+8. **overlap_interruptions** – Turn-taking and interruption pattern analysis (sweep-line \(\mathcal{O}(n \log n)\) boundary sweep)
 9. **conversation_analysis** – Flow metrics and speaker dominance
 10. **speaker_rollups** – Per-speaker statistical summaries
 11. **outputs** – Generate CSV, JSON, HTML, PDF reports
@@ -88,7 +88,7 @@ Audio File (WAV/MP3/M4A)
 [7] affect_and_assemble → Audio (VAD+SER8) + Text (GoEmotions+BART-MNLI) + SED context
     ↓ {segments_final: 39 columns per segment}
     ↓
-[8] overlap_interruptions → Detect overlaps + classify interruptions
+[8] overlap_interruptions → Detect overlaps + classify interruptions with sweep-line \(\mathcal{O}(n \log n)\) analytics
     ↓ {overlap_stats, per_speaker_interrupts}
     ↓
 [9] conversation_analysis → Turn-taking + dominance + flow metrics
