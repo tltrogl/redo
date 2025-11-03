@@ -55,7 +55,84 @@ def core_resume(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _core().resume(*args, **kwargs)
 
 
-def core_run_pipeline(*args: Any, **kwargs: Any) -> dict[str, Any]:
+def core_run_pipeline(*args: Any, **kwargs: Any) -> dict[str, Any]:\n
+# ------------------------------------------------------------
+# New convenience subcommands: core and enrich
+# ------------------------------------------------------------
+
+def _common_overrides(
+    speaker_limit: Optional[int],
+    vad_backend: str,
+    vad_threshold: Optional[float],
+    vad_min_speech_sec: Optional[float],
+    vad_min_silence_sec: Optional[float],
+    vad_speech_pad_sec: Optional[float],
+    asr_cpu_threads: Optional[int],
+) -> dict[str, Any]:
+    overrides: dict[str, Any] = {
+        "speaker_limit": speaker_limit,
+        "vad_backend": vad_backend,
+    }
+    if vad_threshold is not None:
+        overrides["vad_threshold"] = vad_threshold
+    if vad_min_speech_sec is not None:
+        overrides["vad_min_speech_sec"] = vad_min_speech_sec
+    if vad_min_silence_sec is not None:
+        overrides["vad_min_silence_sec"] = vad_min_silence_sec
+    if vad_speech_pad_sec is not None:
+        overrides["vad_speech_pad_sec"] = vad_speech_pad_sec
+    if asr_cpu_threads is not None and asr_cpu_threads > 0:
+        overrides["cpu_threads"] = int(asr_cpu_threads)
+    return overrides
+
+
+@app.command(help="Core pass: preprocess → diarize → ASR; skips enrichment (affect/SED) by default.")
+def core(
+    input: Path = typer.Argument(..., exists=True, readable=True, help="Input audio file"),
+    outdir: Optional[Path] = typer.Option(None, help="Output directory (defaults to <parent>/outs/<stem>)"),
+    model_root: Optional[Path] = typer.Option(None, help="Primary model root (overrides DIAREMOT_MODEL_DIR)"),
+    speaker_limit: Optional[int] = typer.Option(4, help="Bound the number of speakers (None to disable)"),
+    vad_backend: str = typer.Option("onnx", help="VAD backend", case_sensitive=False),
+    vad_threshold: Optional[float] = typer.Option(0.22, help="Silero VAD threshold (0-1)"),
+    vad_min_speech_sec: Optional[float] = typer.Option(0.25, help="Minimum speech duration (s)"),
+    vad_min_silence_sec: Optional[float] = typer.Option(0.25, help="Minimum silence duration (s)"),
+    vad_speech_pad_sec: Optional[float] = typer.Option(0.20, help="Pad around detected speech (s)"),
+    asr_cpu_threads: Optional[int] = typer.Option(None, help="CPU threads for ASR backend"),
+):
+    _apply_model_root(model_root)
+    target_out = outdir or _default_outdir_for_input(input)
+    overrides = {
+        "disable_affect": True,
+        "enable_sed": False,
+    }
+    overrides.update(
+        _common_overrides(
+            speaker_limit, vad_backend, vad_threshold, vad_min_speech_sec, vad_min_silence_sec, vad_speech_pad_sec, asr_cpu_threads
+        )
+    )
+    manifest = core_run_pipeline(str(input), str(target_out), config=overrides)
+    typer.echo(_make_json_safe(manifest))
+
+
+@app.command(help="Enrichment pass: reuse caches to run paralinguistics/affect/SED and regenerate reports.")
+def enrich(
+    input: Path = typer.Argument(..., exists=True, readable=True, help="Input audio file (same as core pass)"),
+    outdir: Optional[Path] = typer.Option(None, help="Output directory (defaults to <parent>/outs/<stem>_enrich)"),
+    model_root: Optional[Path] = typer.Option(None, help="Primary model root (overrides DIAREMOT_MODEL_DIR)"),
+    enable_sed: bool = typer.Option(True, help="Enable background SED during enrichment"),
+    no_affect: bool = typer.Option(False, help="Disable affect/intent during enrichment"),
+):
+    _apply_model_root(model_root)
+    default_out = _default_outdir_for_input(input)
+    target_out = outdir or (default_out.parent / f"{default_out.name}_enrich")
+    overrides = {
+        "enable_sed": bool(enable_sed),
+        "disable_affect": bool(no_affect),
+        # Prefer caches; do not ignore tx cache
+        "ignore_tx_cache": False,
+    }
+    manifest = core_run_pipeline(str(input), str(target_out), config=overrides)
+    typer.echo(_make_json_safe(manifest))
     return _core().run_pipeline(*args, **kwargs)
 
 
@@ -907,3 +984,4 @@ def main() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     app()
+
