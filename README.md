@@ -39,7 +39,7 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 1. **dependency_check** – Validate runtime dependencies and model availability
 2. **preprocess** – Audio resampling and loudness alignment with optional denoising plus auto-chunking for long files
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
-4. **diarize** – Speaker segmentation with adaptive VAD tuning and silhouette/dominance-based single-speaker collapse
+4. **diarize** – Speaker segmentation with adaptive VAD tuning, VAD flip diagnostics for stability checks, and silhouette/dominance-based single-speaker collapse
 5. **transcribe** – Speech-to-text with intelligent batching
    - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
 6. **paralinguistics** – Voice quality and prosody extraction
