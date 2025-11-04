@@ -12,6 +12,16 @@
 
 - Continue profiling the affect bundle for additional \(\mathcal{O}(n^2)\) hot spots (e.g., emotion cross-correlation).
 - Evaluate batching opportunities for voice-quality feature extraction once current CPU telemetry stabilises.
+
+## Affect memory reuse
+
+- `affect.run` now hands each segment a `_SegmentAudioWindow` that reuses the
+  shared PCM buffer through zero-copy NumPy slices and memory views, so
+  adjacent segments no longer allocate duplicate waveform arrays.【F:src/diaremot/pipeline/stages/affect.py†L22-L115】
+- `_affect_unified` normalises incoming audio lazily, accepting memoryviews,
+  iterables, and custom view objects without forcing materialisation. Downstream
+  analyzers therefore reuse the same float32 buffer while still supporting
+  streaming clients.【F:src/diaremot/pipeline/core/affect_mixin.py†L9-L60】
 ## Shared spectral analysis in preprocessing
 
 The preprocess chain now caches the short-time Fourier transform magnitude

@@ -742,6 +742,17 @@ Audio Input
 [Output Generation] → CSV, JSON, HTML, PDF
 ```
 
+### Affect memory windows (v2.2.1)
+
+- The affect stage now slices the shared waveform through lightweight
+  ``SegmentAudioWindow`` views instead of materialising new NumPy arrays for
+  every transcript segment. Long-form jobs reuse the same buffer across VAD,
+  speech emotion, and intent analyzers, trimming peak RSS when processing
+  multi-hour meetings.
+- Pipeline hooks such as ``_affect_unified`` accept any buffer-compatible
+  iterable (including ``memoryview`` objects and generators), so advanced
+  callers can stream audio chunks without forcing intermediate copies.
+
 ### Adaptive VAD Tuning
 
 Pipeline automatically adjusts VAD threshold based on audio characteristics:

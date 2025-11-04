@@ -2,11 +2,39 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 import numpy as np
 
 from ..outputs import default_affect
+
+
+def _normalize_waveform_input(wav: Any) -> np.ndarray | None:
+    """Convert arbitrary audio buffers into NumPy without needless copies."""
+
+    if wav is None:
+        return None
+
+    if isinstance(wav, np.ndarray):
+        return wav.astype(np.float32, copy=False)
+
+    if isinstance(wav, memoryview):
+        return np.frombuffer(wav, dtype=np.float32)
+
+    as_array = getattr(wav, "as_array", None)
+    if callable(as_array):
+        arr = as_array(copy=False)
+        if isinstance(arr, np.ndarray):
+            return arr.astype(np.float32, copy=False)
+
+    if hasattr(wav, "__array__"):
+        return np.asarray(wav, dtype=np.float32)
+
+    if isinstance(wav, Iterable):
+        return np.fromiter((float(value) for value in wav), dtype=np.float32)
+
+    return np.asarray(wav, dtype=np.float32)
 
 
 class AffectMixin:
@@ -22,10 +50,11 @@ class AffectMixin:
         except Exception:  # pragma: no cover - defensive
             return "neutral-status"
 
-    def _affect_unified(self, wav: np.ndarray, sr: int, text: str) -> dict[str, Any]:
+    def _affect_unified(self, wav: Any, sr: int, text: str) -> dict[str, Any]:
         try:
+            normalized = _normalize_waveform_input(wav)
             if hasattr(self.affect, "analyze"):
-                res = self.affect.analyze(wav=wav, sr=sr, text=text)
+                res = self.affect.analyze(wav=normalized, sr=sr, text=text)
                 if getattr(self.affect, "issues", None):
                     for issue in self.affect.issues:
                         if issue not in self.stats.issues:
