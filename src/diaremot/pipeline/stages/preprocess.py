@@ -185,7 +185,7 @@ def _load_diar_tx_caches(
 
 
 def _load_preprocessed_cache(
-    pipeline: "AudioAnalysisPipelineV2",
+    pipeline: AudioAnalysisPipelineV2,
     state: PipelineState,
     cache_dir: Path,
     guard: StageGuard,
@@ -298,7 +298,7 @@ def _load_preprocessed_cache(
 
 
 def _write_preprocessed_cache(
-    pipeline: "AudioAnalysisPipelineV2",
+    pipeline: AudioAnalysisPipelineV2,
     state: PipelineState,
     cache_dir: Path,
 ) -> None:
