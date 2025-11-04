@@ -45,7 +45,7 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 6. **paralinguistics** – Voice quality and prosody extraction
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
 8. **overlap_interruptions** – Turn-taking and interruption pattern analysis (sweep-line \(\mathcal{O}(n \log n)\) boundary sweep)
-9. **conversation_analysis** – Flow metrics and speaker dominance
+9. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation
 10. **speaker_rollups** – Per-speaker statistical summaries
 11. **outputs** – Generate CSV, JSON, HTML, PDF reports
 
