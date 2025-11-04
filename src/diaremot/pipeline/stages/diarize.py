@@ -122,7 +122,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         guard.done(turns=turn_count, speakers_est=speakers_est)
     else:
         try:
-            turns = pipeline.diar.diarize_audio(state.y, state.sr) or []
+            diarization_turns = pipeline.diar.diarize_audio(state.y, state.sr)
         except (
             RuntimeError,
             ValueError,
@@ -138,6 +138,8 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 ),
             )
             turns = []
+        else:
+            turns = diarization_turns or []
         if not turns:
             pipeline.corelog.stage("diarize", "warn", message="Diarizer returned 0 turns; using fallback")
             turns = [_fallback_turn(duration_s)]

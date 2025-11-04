@@ -40,6 +40,8 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 2. **preprocess** – Audio resampling and loudness alignment with optional denoising plus auto-chunking for long files
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
 4. **diarize** – Speaker segmentation with adaptive VAD tuning and silhouette/dominance-based single-speaker collapse
+   - The stage now wraps `pipeline.diar.diarize_audio` in a guarded try/except so transient ONNX/runtime errors fall back to the
+     single-speaker assumption instead of bubbling a load-time exception.
 5. **transcribe** – Speech-to-text with intelligent batching
    - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
 6. **paralinguistics** – Voice quality and prosody extraction
