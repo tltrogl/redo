@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import subprocess
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from ..logging_utils import StageGuard
 from ..pipeline_checkpoint_system import ProcessingStage
@@ -26,32 +29,73 @@ def _fallback_turn(duration_s: float) -> dict[str, Any]:
     }
 
 
-def _jsonable_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+def _prepare_turn_cache(
+    turns: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], np.ndarray | None]:
+    json_turns: list[dict[str, Any]] = []
+    embeddings: list[np.ndarray] = []
+
     for turn in turns:
         try:
             tcopy = dict(turn)
         except (TypeError, ValueError, AttributeError):
             continue
-        emb = tcopy.get("embedding")
-        try:
-            import numpy as _np
 
-            if isinstance(emb, _np.ndarray):
-                tcopy["embedding"] = emb.tolist()
-            elif hasattr(emb, "tolist"):
-                tcopy["embedding"] = emb.tolist()
-            elif emb is not None and not isinstance(emb, list | float | int | str | bool):
-                tcopy["embedding"] = None
-        except (
-            ImportError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ):
-            tcopy["embedding"] = None
-        out.append(tcopy)
-    return out
+        emb = tcopy.pop("embedding", None)
+        if emb is not None:
+            try:
+                vec = np.asarray(emb, dtype=np.float32)
+                if vec.ndim == 1:
+                    embeddings.append(vec)
+                    tcopy["embedding_idx"] = len(embeddings) - 1
+            except Exception:
+                # Ignore malformed embeddings
+                pass
+
+        json_turns.append(tcopy)
+
+    if not embeddings:
+        return json_turns, None
+
+    try:
+        return json_turns, np.stack(embeddings, axis=0)
+    except ValueError:
+        # Embeddings with mismatched shapes - fall back to no embedding cache
+        return json_turns, None
+
+
+def _rehydrate_embeddings(
+    cache_dir: Path | None, turns: list[dict[str, Any]] | None
+) -> list[dict[str, Any]]:
+    if not cache_dir or not turns:
+        return turns or []
+
+    emb_path = cache_dir / "diar_embeddings.npz"
+    if not emb_path.exists():
+        for turn in turns:
+            turn.pop("embedding_idx", None)
+        return turns
+
+    try:
+        with np.load(emb_path) as data:
+            embeddings = data.get("embeddings")
+            if embeddings is None:
+                embeddings = data.get("arr_0")
+    except Exception:
+        for turn in turns:
+            turn.pop("embedding_idx", None)
+        return turns
+
+    for turn in turns:
+        idx = turn.pop("embedding_idx", None)
+        if idx is None:
+            continue
+        try:
+            turn["embedding"] = embeddings[int(idx)].astype(np.float32, copy=False)
+        except Exception:
+            turn["embedding"] = None
+
+    return turns
 
 
 def _speaker_metrics(turns: list[dict[str, Any]]) -> tuple[int, int]:
@@ -102,6 +146,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         guard.done(turns=turn_count, speakers_est=speakers_est)
     elif state.resume_diar and state.diar_cache:
         turns = state.diar_cache.get("turns", []) or []
+        turns = _rehydrate_embeddings(state.cache_dir, turns)
         if not turns:
             pipeline.corelog.stage(
                 "diarize",
@@ -122,7 +167,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         guard.done(turns=turn_count, speakers_est=speakers_est)
     else:
         try:
-            turns = pipeline.diar.diarize_audio(state.y, state.sr) or []
+        turns = pipeline.diar.diarize_audio(state.y, state.sr) or []
         except (
             RuntimeError,
             ValueError,
@@ -154,21 +199,31 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
 
         if state.cache_dir:
             try:
-                atomic_write_json(
-                    state.cache_dir / "diar.json",
-                    {
-                        "version": pipeline.cache_version,
-                        "audio_sha16": state.audio_sha16,
-                        "pp_signature": state.pp_sig,
-                        "turns": _jsonable_turns(turns),
-                        "saved_at": time.time(),
-                    },
-                )
+                turns_json, embeddings = _prepare_turn_cache(turns)
+                payload = {
+                    "version": pipeline.cache_version,
+                    "audio_sha16": state.audio_sha16,
+                    "pp_signature": state.pp_sig,
+                    "turns": turns_json,
+                    "saved_at": time.time(),
+                }
+                atomic_write_json(state.cache_dir / "diar.json", payload)
+                if embeddings is not None:
+                    np.savez_compressed(
+                        state.cache_dir / "diar_embeddings.npz",
+                        embeddings=embeddings,
+                    )
             except OSError as exc:
                 pipeline.corelog.stage(
                     "diarize",
                     "warn",
                     message=f"[cache] diar.json write failed: {exc}. Ensure cache directory is writable.",
+                )
+            except Exception as exc:  # pragma: no cover - cache best effort
+                pipeline.corelog.stage(
+                    "diarize",
+                    "warn",
+                    message=f"[cache] diar embedding write failed: {exc}",
                 )
 
     if not turns:
