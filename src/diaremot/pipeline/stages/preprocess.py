@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,53 +46,8 @@ def run_preprocess(
         cache_dir.mkdir(parents=True, exist_ok=True)
         state.cache_dir = cache_dir
 
-        preproc_cache_path = cache_dir / "preprocessed.npz"
-        if preproc_cache_path.exists():
-            try:
-                cached = np.load(preproc_cache_path, allow_pickle=True)
-                cached_sig = str(cached.get("pp_signature", ""))
-
-                if cached_sig == state.pp_sig:
-                    state.y = cached["audio"].astype(np.float32)
-                    state.sr = int(cached["sample_rate"])
-                    state.duration_s = float(cached["duration_s"])
-
-                    # Reconstruct health if present
-                    if "health" in cached:
-                        health_dict = cached["health"].item()
-                        from ...pipeline.preprocess import AudioHealth
-
-                        state.health = AudioHealth(**health_dict)
-                    else:
-                        state.health = None
-
-                    guard.progress(f"loaded cached preprocessed audio {_fmt_hms(state.duration_s)}")
-                    pipeline.corelog.event(
-                        "preprocess",
-                        "cache_hit",
-                        duration_s=state.duration_s,
-                        cache_path=str(preproc_cache_path),
-                    )
-                    guard.done(duration_s=state.duration_s)
-
-                    # Still need to load diar/tx caches
-                    _load_diar_tx_caches(pipeline, state, cache_dir, guard)
-                    return
-                else:
-                    guard.progress("cache exists but config changed, re-preprocessing")
-            except Exception as exc:
-                pipeline.corelog.stage(
-                    "preprocess",
-                    "warn",
-                    message=f"failed to load cache: {exc}",
-                )
-                try:
-                    preproc_cache_path.unlink(missing_ok=True)
-                except TypeError:  # Python <3.8 compatibility
-                    try:
-                        preproc_cache_path.unlink()
-                    except OSError:
-                        pass
+        if _load_preprocessed_cache(pipeline, state, cache_dir, guard):
+            return
 
     # No cache or cache invalid - do actual preprocessing
     result = pipeline.pre.process_file(state.input_audio_path)
@@ -130,31 +87,11 @@ def run_preprocess(
     state.cache_dir = cache_dir
 
     # Save preprocessed audio to cache
-    preproc_cache_path = cache_dir / "preprocessed.npz"
     try:
-        health_dict = None
-        if state.health:
-            health_dict = {
-                "snr_db": state.health.snr_db,
-                "clipping_detected": state.health.clipping_detected,
-                "silence_ratio": state.health.silence_ratio,
-                "rms_db": state.health.rms_db,
-                "est_lufs": state.health.est_lufs,
-                "dynamic_range_db": state.health.dynamic_range_db,
-                "floor_clipping_ratio": state.health.floor_clipping_ratio,
-                "is_chunked": getattr(state.health, "is_chunked", False),
-                "chunk_info": getattr(state.health, "chunk_info", None),
-            }
-
-        np.savez_compressed(
-            preproc_cache_path,
-            audio=state.y,
-            sample_rate=state.sr,
-            duration_s=state.duration_s,
-            pp_signature=state.pp_sig,
-            health=health_dict,
+        _write_preprocessed_cache(pipeline, state, cache_dir)
+        guard.progress(
+            f"saved cache to {(cache_dir / 'preprocessed_audio.npy').as_posix()}"
         )
-        guard.progress(f"saved cache to {preproc_cache_path}")
     except Exception as exc:
         pipeline.corelog.stage(
             "preprocess",
@@ -245,6 +182,166 @@ def _load_diar_tx_caches(
         state.tx_cache = None
         state.resume_diar = False
         state.resume_tx = False
+
+
+def _load_preprocessed_cache(
+    pipeline: "AudioAnalysisPipelineV2",
+    state: PipelineState,
+    cache_dir: Path,
+    guard: StageGuard,
+) -> bool:
+    """Load cached preprocessing artefacts if available and matching."""
+
+    meta_path = cache_dir / "preprocessed.meta.json"
+    audio_path = cache_dir / "preprocessed_audio.npy"
+    legacy_path = cache_dir / "preprocessed.npz"
+
+    def _matches(meta: dict[str, object] | None) -> bool:
+        return bool(meta) and meta.get("pp_signature") == state.pp_sig
+
+    if meta_path.exists() and audio_path.exists():
+        meta = read_json_safe(meta_path)
+        if not _matches(meta):
+            return False
+
+        try:
+            audio = np.load(audio_path, mmap_mode="r")
+        except ValueError:
+            audio = np.load(audio_path)
+
+        state.y = (
+            audio
+            if audio.dtype == np.float32
+            else audio.astype(np.float32, copy=False)
+        )
+        state.sr = int(meta.get("sample_rate", 0) or 0)
+        state.duration_s = float(meta.get("duration_s", 0.0) or 0.0)
+
+        health_dict = meta.get("health") if isinstance(meta, dict) else None
+        if isinstance(health_dict, dict):
+            from ...pipeline.preprocess import AudioHealth
+
+            state.health = AudioHealth(**health_dict)
+        else:
+            state.health = None
+
+        guard.progress(
+            f"loaded cached preprocessed audio {_fmt_hms(state.duration_s)}"
+        )
+        pipeline.corelog.event(
+            "preprocess",
+            "cache_hit",
+            duration_s=state.duration_s,
+            cache_path=str(audio_path),
+        )
+        guard.done(duration_s=state.duration_s)
+        _load_diar_tx_caches(pipeline, state, cache_dir, guard)
+        return True
+
+    if legacy_path.exists():
+        try:
+            with np.load(legacy_path, allow_pickle=True) as cached:
+                cached_sig = str(cached.get("pp_signature", ""))
+                if cached_sig != state.pp_sig:
+                    return False
+
+                audio = cached["audio"].astype(np.float32)
+                state.y = audio
+                state.sr = int(cached["sample_rate"])
+                state.duration_s = float(cached["duration_s"])
+
+                if "health" in cached:
+                    health_dict = cached["health"].item()
+                    from ...pipeline.preprocess import AudioHealth
+
+                    state.health = AudioHealth(**health_dict)
+                else:
+                    state.health = None
+
+            guard.progress(
+                f"loaded cached preprocessed audio {_fmt_hms(state.duration_s)}"
+            )
+            pipeline.corelog.event(
+                "preprocess",
+                "cache_hit",
+                duration_s=state.duration_s,
+                cache_path=str(legacy_path),
+            )
+            guard.done(duration_s=state.duration_s)
+
+            try:
+                _write_preprocessed_cache(pipeline, state, cache_dir)
+                legacy_path.unlink(missing_ok=True)
+            except Exception as exc:  # pragma: no cover - best effort
+                pipeline.corelog.stage(
+                    "preprocess",
+                    "warn",
+                    message=f"legacy cache upgrade failed: {exc}",
+                )
+
+            _load_diar_tx_caches(pipeline, state, cache_dir, guard)
+            return True
+        except Exception as exc:
+            pipeline.corelog.stage(
+                "preprocess",
+                "warn",
+                message=f"failed to load legacy cache: {exc}",
+            )
+            try:
+                legacy_path.unlink(missing_ok=True)
+            except TypeError:
+                try:
+                    legacy_path.unlink()
+                except OSError:
+                    pass
+    return False
+
+
+def _write_preprocessed_cache(
+    pipeline: "AudioAnalysisPipelineV2",
+    state: PipelineState,
+    cache_dir: Path,
+) -> None:
+    """Persist preprocessing artefacts using a memory-mappable layout."""
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    audio_path = cache_dir / "preprocessed_audio.npy"
+    meta_path = cache_dir / "preprocessed.meta.json"
+
+    y = np.asarray(state.y, dtype=np.float32)
+    with tempfile.NamedTemporaryFile(dir=cache_dir, suffix=".npy", delete=False) as tmp:
+        np.save(tmp, y)
+        tmp.flush()
+        os.fsync(tmp.fileno())
+        tmp_path = Path(tmp.name)
+
+    os.replace(tmp_path, audio_path)
+
+    health_dict = None
+    if state.health:
+        health_dict = {
+            "snr_db": state.health.snr_db,
+            "clipping_detected": state.health.clipping_detected,
+            "silence_ratio": state.health.silence_ratio,
+            "rms_db": state.health.rms_db,
+            "est_lufs": state.health.est_lufs,
+            "dynamic_range_db": state.health.dynamic_range_db,
+            "floor_clipping_ratio": state.health.floor_clipping_ratio,
+            "is_chunked": getattr(state.health, "is_chunked", False),
+            "chunk_info": getattr(state.health, "chunk_info", None),
+        }
+
+    meta_payload = {
+        "version": pipeline.cache_version,
+        "audio_sha16": state.audio_sha16,
+        "pp_signature": state.pp_sig,
+        "sample_rate": state.sr,
+        "duration_s": state.duration_s,
+        "dtype": "float32",
+        "shape": list(y.shape),
+        "health": health_dict,
+    }
+    atomic_write_json(meta_path, meta_payload)
 
 
 def run_background_sed(
