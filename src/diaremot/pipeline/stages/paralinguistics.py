@@ -18,6 +18,7 @@ __all__ = ["run"]
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     metrics: dict[int, dict[str, object]] = {}
     if not pipeline.stats.config_snapshot.get("transcribe_failed"):
+        state.ensure_audio()
         wav = np.asarray(state.y, dtype=np.float32)
         tmp_metrics = pipeline._extract_paraling(wav, state.sr, state.norm_tx)
         if isinstance(tmp_metrics, dict):

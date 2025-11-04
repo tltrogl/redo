@@ -32,6 +32,8 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 
 `chain.py` now threads a cached spectral magnitude (`SpectralFrameStats`) through the upward gain and compression stages so both reuse the same STFT work. This removes a redundant FFT per clip while unit tests confirm the shared path is numerically identical to the legacy double-FFT flow.
 
+**2025-03 update:** long-form preprocessing streams chunks straight from ffmpeg/soundfile without first materialising the full waveform. Processed samples are stitched into a memory-mapped `.npy` artifact that downstream stages load lazily via `PipelineState.ensure_audio()`, keeping peak memory usage bounded even on multi-hour recordings.
+
 ---
 
 ## 11-Stage Processing Pipeline

@@ -4,17 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import tempfile
-import time
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import soundfile as sf
 
-from .io import get_audio_duration, is_uncompressed_pcm, probe_audio_metadata
+from .io import get_audio_duration, probe_audio_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +20,7 @@ __all__ = [
     "create_audio_chunks",
     "merge_chunked_audio",
     "cleanup_chunks",
+    "ChunkedMemmapAssembler",
 ]
 
 
@@ -34,7 +32,7 @@ class ChunkInfo:
     duration: float
     overlap_start: float
     overlap_end: float
-    temp_path: str
+    temp_path: str | None = None
 
 
 def create_audio_chunks(
@@ -42,22 +40,17 @@ def create_audio_chunks(
     config,
     *,
     duration: float | None = None,
-    info: sf.Info | None = None,
+    info=None,
 ) -> list[ChunkInfo]:
-    """Create overlapping chunks on disk for long recordings."""
+    """Plan overlapping chunks for long recordings without decoding upfront."""
 
-    logger.info("[chunks] Creating audio chunks for long file: %s", audio_path)
+    logger.info("[chunks] Planning audio chunks for long file: %s", audio_path)
 
     if duration is None or duration <= 0:
         duration = get_audio_duration(audio_path, info=info)
 
     if info is None:
         _, info = probe_audio_metadata(audio_path)
-
-    if info and info.samplerate:
-        sr = int(info.samplerate)
-    else:
-        sr = int(getattr(config, "target_sr", 16000))
 
     logger.info(
         "[chunks] Audio duration: %.1f minutes; threshold=%s min; size=%s min; overlap=%ss",
@@ -69,12 +62,6 @@ def create_audio_chunks(
 
     chunk_duration = config.chunk_size_minutes * 60.0
     overlap_duration = config.chunk_overlap_seconds
-
-    if config.chunk_temp_dir:
-        temp_dir = Path(config.chunk_temp_dir)
-        temp_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        temp_dir = Path(tempfile.mkdtemp(prefix="audio_chunks_"))
 
     chunks: list[ChunkInfo] = []
     chunk_id = 0
@@ -93,86 +80,6 @@ def create_audio_chunks(
         else:
             actual_end = end_time
 
-        temp_chunk_raw = None
-        try:
-            t0 = time.time()
-            temp_chunk_raw = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-            temp_chunk_raw.close()
-
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-i",
-                audio_path,
-                "-ss",
-                str(actual_start),
-                "-t",
-                str(actual_end - actual_start),
-                "-ac",
-                "1",
-                "-ar",
-                str(sr),
-                "-loglevel",
-                "quiet",
-                temp_chunk_raw.name,
-            ]
-
-            result = subprocess.run(cmd, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            if result.returncode == 0:
-                chunk_audio, _ = sf.read(temp_chunk_raw.name, dtype="float32")
-                if chunk_audio.ndim > 1:
-                    chunk_audio = np.mean(chunk_audio, axis=1)
-                chunk_audio = chunk_audio.astype(np.float32)
-                logger.info(
-                    "[chunks] Extracted chunk %s via ffmpeg in %.2fs (%.1fs→%.1fs)",
-                    chunk_id,
-                    time.time() - t0,
-                    actual_start,
-                    actual_end,
-                )
-            else:
-                raise subprocess.CalledProcessError(result.returncode, cmd)
-        except (
-            subprocess.CalledProcessError,
-            subprocess.TimeoutExpired,
-            FileNotFoundError,
-        ):
-            if info and is_uncompressed_pcm(info):
-                logger.debug(
-                    "ffmpeg chunk extraction failed; reading PCM chunk via soundfile for chunk %s",
-                    chunk_id,
-                )
-                frames_start = int(round(actual_start * sr))
-                frames_end = int(round(actual_end * sr))
-                frames = max(frames_end - frames_start, 0)
-                with sf.SoundFile(audio_path) as snd:
-                    snd.seek(frames_start)
-                    chunk_audio = snd.read(frames, dtype="float32", always_2d=False)
-                if chunk_audio.ndim > 1:
-                    chunk_audio = np.mean(chunk_audio, axis=1)
-                chunk_audio = chunk_audio.astype(np.float32)
-                logger.info(
-                    "[chunks] Extracted chunk %s via soundfile in %.2fs (%.1fs→%.1fs)",
-                    chunk_id,
-                    time.time() - t0,
-                    actual_start,
-                    actual_end,
-                )
-            else:
-                raise RuntimeError(
-                    "ffmpeg chunk extraction failed and only PCM WAV/AIFF fallback is supported"
-                )
-        finally:
-            if temp_chunk_raw is not None:
-                try:
-                    os.unlink(temp_chunk_raw.name)
-                except Exception:
-                    pass
-
-        chunk_filename = f"chunk_{chunk_id:03d}_{int(start_time):04d}s-{int(end_time):04d}s.wav"
-        chunk_path = temp_dir / chunk_filename
-        sf.write(chunk_path, chunk_audio, sr)
-
         chunk_info = ChunkInfo(
             chunk_id=chunk_id,
             start_time=start_time,
@@ -180,17 +87,94 @@ def create_audio_chunks(
             duration=end_time - start_time,
             overlap_start=start_time - actual_start,
             overlap_end=actual_end - end_time,
-            temp_path=str(chunk_path),
+            temp_path=None,
         )
         chunks.append(chunk_info)
-
-        logger.info("[chunks] Saved chunk %s: %s (%.1fs)", chunk_id, chunk_filename, chunk_info.duration)
 
         start_time = end_time
         chunk_id += 1
 
-    logger.info("[chunks] Created %s chunks in %s", len(chunks), temp_dir)
+    logger.info("[chunks] Planned %s chunks", len(chunks))
     return chunks
+
+
+class ChunkedMemmapAssembler:
+    """Utility to assemble processed chunks into a contiguous memmap."""
+
+    def __init__(self, chunks: list[ChunkInfo], target_sr: int):
+        self.target_sr = int(target_sr)
+        max_end = max((c.end_time + c.overlap_end) for c in chunks) if chunks else 0.0
+        # Allocate slightly more to account for rounding during resampling.
+        total_samples = int(np.ceil(max_end * self.target_sr)) + self.target_sr
+        total_samples = max(total_samples, 1)
+        tmp = tempfile.NamedTemporaryFile(suffix=".npy", delete=False)
+        self.path = Path(tmp.name)
+        tmp.close()
+        self.mem = np.lib.format.open_memmap(
+            self.path,
+            mode="w+",
+            dtype=np.float32,
+            shape=(total_samples,),
+        )
+        self.mem[:] = 0.0
+        self.max_written = 0
+
+    def write(self, audio: np.ndarray, chunk: ChunkInfo) -> None:
+        audio = np.asarray(audio, dtype=np.float32)
+        expected_start = int(round(chunk.start_time * self.target_sr))
+        expected_end = int(round(chunk.end_time * self.target_sr))
+        expected_len = max(expected_end - expected_start, 0)
+
+        trim_start = int(round(chunk.overlap_start * self.target_sr))
+        trim_end = int(round(chunk.overlap_end * self.target_sr))
+
+        if trim_start > 0:
+            audio = audio[trim_start:]
+        if trim_end > 0:
+            audio = audio[:-trim_end] if trim_end <= audio.shape[0] else np.zeros(0, dtype=np.float32)
+
+        if expected_len and audio.shape[0] != expected_len:
+            if audio.shape[0] > expected_len:
+                audio = audio[:expected_len]
+            else:
+                audio = np.pad(audio, (0, expected_len - audio.shape[0]), mode="constant")
+
+        if expected_start + audio.shape[0] > self.mem.shape[0]:
+            raise RuntimeError("Chunk assembler overflow; increase allocation margin")
+
+        end_idx = expected_start + audio.shape[0]
+        if audio.size:
+            self.mem[expected_start:end_idx] = audio
+        self.max_written = max(self.max_written, end_idx)
+
+    def finalize(self) -> tuple[np.memmap, Path, int]:
+        original_len = self.mem.shape[0]
+        self.mem.flush()
+        total = max(int(self.max_written), 0)
+        del self.mem
+        src = np.lib.format.open_memmap(self.path, mode="r", dtype=np.float32)
+        if 0 <= total < original_len:
+            tmp = tempfile.NamedTemporaryFile(suffix=".npy", delete=False)
+            tmp.close()
+            if total > 0:
+                trimmed = np.lib.format.open_memmap(
+                    tmp.name,
+                    mode="w+",
+                    dtype=np.float32,
+                    shape=(total,),
+                )
+                trimmed[:] = src[:total]
+                trimmed.flush()
+                del trimmed
+            else:
+                np.save(tmp.name, np.zeros(0, dtype=np.float32))
+            del src
+            os.replace(tmp.name, self.path)
+            mem = np.lib.format.open_memmap(self.path, mode="r", dtype=np.float32)
+        else:
+            mem = src
+        view = mem[:total] if total else mem[:0]
+        return view, self.path, total
 
 
 def merge_chunked_audio(chunks: list[tuple[np.ndarray, ChunkInfo]], target_sr: int) -> np.ndarray:
@@ -230,6 +214,8 @@ def cleanup_chunks(chunks: Iterable[ChunkInfo]) -> None:
     failed_cleanups: list[Path] = []
 
     for chunk in chunk_list:
+        if not chunk.temp_path:
+            continue
         chunk_path = Path(chunk.temp_path)
         if chunk_path.exists():
             temp_dirs.add(chunk_path.parent)
