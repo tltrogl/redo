@@ -32,6 +32,8 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 
 `chain.py` now threads a cached spectral magnitude (`SpectralFrameStats`) through the upward gain and compression stages so both reuse the same STFT work. This removes a redundant FFT per clip while unit tests confirm the shared path is numerically identical to the legacy double-FFT flow.
 
+**2025-03 update:** long-form preprocessing streams chunks straight from ffmpeg/soundfile without first materialising the full waveform. Processed samples are stitched into a memory-mapped `.npy` artifact that downstream stages load lazily via `PipelineState.ensure_audio()`, keeping peak memory usage bounded even on multi-hour recordings.
+
 ---
 
 ## 11-Stage Processing Pipeline
@@ -743,6 +745,17 @@ Audio Input
     ↓
 [Output Generation] → CSV, JSON, HTML, PDF
 ```
+
+### Affect memory windows (v2.2.1)
+
+- The affect stage now slices the shared waveform through lightweight
+  audio window views instead of materializing new NumPy arrays for
+  every transcript segment. Long-form jobs reuse the same buffer across VAD,
+  speech emotion, and intent analyzers, trimming peak RSS when processing
+  multi-hour meetings.
+- Pipeline hooks such as ``_affect_unified`` accept any buffer-compatible
+  iterable (including ``memoryview`` objects and generators), so advanced
+  callers can stream audio chunks without forcing intermediate copies.
 
 ### Adaptive VAD Tuning
 

@@ -87,19 +87,31 @@ class AudioHealth:
 class PreprocessResult:
     """Structured result emitted by the preprocessing stack."""
 
-    audio: np.ndarray
+    audio: np.ndarray | None
     sample_rate: int
     health: AudioHealth | None
     duration_s: float
     is_chunked: bool = False
     chunk_details: dict[str, Any] | None = None
+    audio_path: str | None = None
+    num_samples: int | None = None
 
     def to_tuple(self) -> tuple[np.ndarray, int, AudioHealth | None]:
         """Return the legacy tuple representation (audio, sr, health)."""
 
-        return self.audio, self.sample_rate, self.health
+        audio = self.audio
+        if audio is None and self.audio_path:
+            audio = np.load(self.audio_path, mmap_mode="r")
+            if audio.dtype != np.float32:
+                audio = audio.astype(np.float32)
+            if self.num_samples is not None:
+                audio = audio[: self.num_samples]
+        if audio is None:
+            audio = np.zeros(0, dtype=np.float32)
+        return audio, self.sample_rate, self.health
 
     def __iter__(self):
         """Allow unpacking ``PreprocessResult`` like the historical tuple."""
 
-        yield from (self.audio, self.sample_rate, self.health)
+        audio, sr, health = self.to_tuple()
+        yield from (audio, sr, health)

@@ -314,4 +314,5 @@ def process_array(y: np.ndarray, sr: int, config: PreprocessConfig) -> Preproces
         health=health,
         duration_s=float(duration_s),
         is_chunked=False,
+        num_samples=int(len(y_final)),
     )

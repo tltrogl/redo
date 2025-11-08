@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import math
 from bisect import bisect_left
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +20,94 @@ if TYPE_CHECKING:
     from ..orchestrator import AudioAnalysisPipelineV2
 
 __all__ = ["run"]
+
+
+@dataclass(slots=True)
+class _SegmentAudioWindow:
+    """Lightweight view into a shared waveform buffer.
+
+    The class keeps a cached NumPy slice and reuses a shared ``memoryview`` so
+    that downstream analyzers can access contiguous audio without allocating a
+    fresh array for every segment. Callers may request either the NumPy view via
+    :meth:`as_array` or iterate over chunked ``memoryview`` slices using
+    :meth:`iter_chunks`.
+    """
+
+    _source: np.ndarray
+    _memory: memoryview | None
+    start: int
+    end: int
+    _cached: np.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        total = int(self._source.shape[0])
+        if not (0 <= self.start <= total and 0 <= self.end <= total):
+            raise ValueError(f"Invalid range [{self.start}, {self.end}) for array of length {total}")
+        if self.end < self.start:
+            raise ValueError(f"end ({self.end}) cannot be less than start ({self.start})")
+
+    def __len__(self) -> int:  # pragma: no cover - trivial
+        return self.end - self.start
+
+    def is_empty(self) -> bool:
+        return self.end <= self.start
+
+    def as_array(self, *, dtype: np.dtype | None = None, copy: bool = False) -> np.ndarray:
+        """Return a NumPy view of the window, avoiding copies when possible."""
+
+        if dtype is None:
+            dtype = np.float32
+        if self._cached is None:
+            self._cached = self._source[self.start : self.end]
+
+        view = self._cached
+        if dtype is not None and view.dtype != dtype:
+            view = view.astype(dtype, copy=False)
+
+        if copy:
+            return np.array(view, dtype=dtype or view.dtype, copy=True)
+        return view
+
+    def as_memoryview(self) -> memoryview | None:
+        """Return a zero-copy ``memoryview`` into the underlying audio buffer."""
+
+        if self._memory is None or self.is_empty():
+            return None
+        return self._memory[self.start : self.end]
+
+    def iter_chunks(self, chunk_size: int) -> Iterator[memoryview]:
+        """Iterate over the window in equally sized ``memoryview`` chunks."""
+
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be > 0")
+        buffer = self.as_memoryview()
+        if buffer is None:
+            return iter(())
+        return (buffer[offset : offset + chunk_size] for offset in range(0, len(self), chunk_size))
+
+    def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:  # pragma: no cover - exercised implicitly
+        return self.as_array(dtype=dtype, copy=False)
+
+
+class _SegmentAudioFactory:
+    """Factory that hands out shared audio windows for affect analysis."""
+
+    __slots__ = ("_source", "_memory")
+
+    def __init__(self, source: np.ndarray) -> None:
+        if isinstance(source, np.ndarray):
+            self._source = source
+        else:  # pragma: no cover - defensive
+            self._source = np.asarray(source, dtype=np.float32)
+        if self._source.ndim != 1:
+            raise ValueError(f"Expected 1D audio array, got shape {self._source.shape}")
+        self._memory = memoryview(self._source) if self._source.size else None
+
+    def segment(self, start: int, end: int) -> _SegmentAudioWindow:
+        return _SegmentAudioWindow(self._source, self._memory, start, end)
+
+    def empty(self) -> _SegmentAudioWindow:
+        return _SegmentAudioWindow(self._source, self._memory, 0, 0)
 
 
 def _estimate_snr_db_from_noise(noise_score: Any) -> float | None:
@@ -113,15 +203,17 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     timeline_events = _load_timeline_events(sed_payload)
     timeline_index = _build_timeline_index(timeline_events)
 
+    audio_windows = _SegmentAudioFactory(state.y)
+
     for idx, seg in enumerate(state.norm_tx):
         start = float(seg.get("start") or 0.0)
         end = float(seg.get("end") or start)
         i0 = int(start * state.sr)
         i1 = int(end * state.sr)
-        clip = state.y[max(0, i0) : max(0, i1)] if len(state.y) > 0 else np.array([])
+        clip_window = audio_windows.segment(max(0, i0), max(0, i1))
         text = seg.get("text") or ""
 
-        aff = pipeline._affect_unified(clip, state.sr, text)
+        aff = pipeline._affect_unified(clip_window, state.sr, text)
         pm = state.para_metrics.get(idx, {})
 
         duration_s = _coerce_positive_float(pm.get("duration_s"))
