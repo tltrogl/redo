@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
+import pytest
+
+
+PipelineState: type | None = None
+asr = None
 
 
 class _FakeOrtSession:
@@ -20,68 +26,55 @@ class _FakeOrtSession:
         return [SimpleNamespace(name="output")]
 
 
-sys.modules.setdefault(
-    "onnxruntime",
-    SimpleNamespace(
-        InferenceSession=_FakeOrtSession,
-        SessionOptions=lambda: SimpleNamespace(
-            intra_op_num_threads=0,
-            inter_op_num_threads=0,
-            graph_optimization_level=None,
+@pytest.fixture(scope="module", autouse=True)
+def _stub_dependencies() -> None:
+    patch = pytest.MonkeyPatch()
+
+    patch.setitem(
+        sys.modules,
+        "onnxruntime",
+        SimpleNamespace(
+            InferenceSession=_FakeOrtSession,
+            SessionOptions=lambda: SimpleNamespace(
+                intra_op_num_threads=0,
+                inter_op_num_threads=0,
+                graph_optimization_level=None,
+            ),
+            GraphOptimizationLevel=SimpleNamespace(ORT_ENABLE_ALL=0),
+            get_available_providers=lambda: ["CPUExecutionProvider"],
         ),
-        GraphOptimizationLevel=SimpleNamespace(ORT_ENABLE_ALL=0),
-        get_available_providers=lambda: ["CPUExecutionProvider"],
-    ),
-)
+    )
 
-sys.modules.setdefault(
-    "librosa",
-    SimpleNamespace(
-        feature=SimpleNamespace(
-            melspectrogram=lambda *args, **kwargs: np.zeros((1, 1))  # noqa: ANN001
+    patch.setitem(
+        sys.modules,
+        "librosa",
+        SimpleNamespace(
+            feature=SimpleNamespace(
+                melspectrogram=lambda *args, **kwargs: np.zeros((1, 1))  # noqa: ANN001
+            ),
+            power_to_db=lambda *args, **kwargs: np.zeros((1, 1)),  # noqa: ANN001
         ),
-        power_to_db=lambda *args, **kwargs: np.zeros((1, 1)),  # noqa: ANN001
-    ),
-)
+    )
 
-for mod in [
-    "scipy",
-    "scipy.signal",
-    "soundfile",
-    "torchaudio",
-    "torch",
-    "numba",
-    "sklearn",
-    "webrtcvad",
-]:
-    sys.modules.setdefault(mod, ModuleType(mod))
+    for mod in [
+        "scipy",
+        "scipy.signal",
+        "soundfile",
+        "torchaudio",
+        "torch",
+        "numba",
+        "sklearn",
+        "webrtcvad",
+    ]:
+        patch.setitem(sys.modules, mod, ModuleType(mod))
 
-def _noop(*args, **kwargs):  # type: ignore[arg-type]
-    return None
+    global asr, PipelineState
+    asr = importlib.import_module("diaremot.pipeline.stages.asr")
+    PipelineState = importlib.import_module("diaremot.pipeline.stages.base").PipelineState
 
-stage_stub_funcs = {
-    "affect": ["run"],
-    "dependency_check": ["run"],
-    "diarize": ["run"],
-    "paralinguistics": ["run"],
-    "summaries": [
-        "run_overlap",
-        "run_conversation",
-        "run_speaker_rollups",
-        "run_outputs",
-    ],
-}
+    yield
 
-for stage_mod, funcs in stage_stub_funcs.items():
-    full_name = f"diaremot.pipeline.stages.{stage_mod}"
-    module = sys.modules.setdefault(full_name, ModuleType(full_name))
-    for func in funcs:
-        if not hasattr(module, func):
-            setattr(module, func, _noop)
-
-from diaremot.pipeline.stages import asr
-from diaremot.pipeline.stages.base import PipelineState
-
+    patch.undo()
 
 class _GuardStub:
     def __init__(self) -> None:
@@ -182,6 +175,7 @@ class _PipelineStub:
 
 
 def _build_state(tmp_path: Path) -> PipelineState:
+    assert PipelineState is not None
     state = PipelineState(input_audio_path="input.wav", out_dir=tmp_path)
     state.y = np.zeros(3200, dtype=np.float32)
     state.sr = 16000
