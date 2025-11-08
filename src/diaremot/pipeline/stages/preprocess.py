@@ -205,9 +205,25 @@ def _load_preprocessed_cache(
             return False
 
         try:
-            audio = np.load(audio_path, mmap_mode="r")
-        except ValueError:
-            audio = np.load(audio_path)
+            try:
+                audio = np.load(audio_path, mmap_mode="r")
+            except ValueError:
+                audio = np.load(audio_path)
+        except Exception as exc:  # pragma: no cover - corruption recovery
+            pipeline.corelog.stage(
+                "preprocess",
+                "warn",
+                message=f"failed to load preprocessed audio cache: {exc}",
+            )
+            for corrupted_path in (audio_path, meta_path):
+                try:
+                    corrupted_path.unlink(missing_ok=True)
+                except TypeError:
+                    try:
+                        corrupted_path.unlink()
+                    except OSError:
+                        pass
+            return False
 
         state.y = (
             audio
