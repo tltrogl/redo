@@ -167,7 +167,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         guard.done(turns=turn_count, speakers_est=speakers_est)
     else:
         try:
-        turns = pipeline.diar.diarize_audio(state.y, state.sr) or []
+            turns = pipeline.diar.diarize_audio(state.y, state.sr) or []
         except (
             RuntimeError,
             ValueError,
