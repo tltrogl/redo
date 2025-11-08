@@ -68,9 +68,9 @@ where the FFT is among the most expensive CPU steps.
 
 ## Transcription resume fast path
 
-- The ASR stage short-circuits immediately when a matching `tx.json` cache is
-  present, bypassing the turn-to-segment reconstruction that previously ran on
-  every invocation.【F:src/diaremot/pipeline/stages/asr.py†L52-L120】
+- The ASR stage stores only per-segment digests in `tx.json` and cross-checks
+  them against the transcription checkpoint before trusting cached text,
+  guarding against cache corruption without sacrificing resume speed.【F:src/diaremot/pipeline/stages/asr.py†L52-L211】
 - Fresh transcriptions keep the asynchronous execution path but reuse a single
-  normalisation routine, eliminating duplicated per-segment conversions when
-  writing caches.【F:src/diaremot/pipeline/stages/asr.py†L122-L193】
+  normalisation routine when writing caches, so per-segment payloads are hashed
+  once and shared across outputs.【F:src/diaremot/pipeline/stages/asr.py†L132-L211】

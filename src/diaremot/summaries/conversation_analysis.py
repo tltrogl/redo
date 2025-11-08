@@ -1,9 +1,14 @@
 """Conversation flow analysis and metrics calculation with robust error handling."""
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
+
+try:  # pragma: no cover - import guard behaviour is exercised via tests
+    import pandas as pd
+except Exception:  # noqa: S110 - broad except to gracefully fall back when pandas is unavailable
+    pd = None  # type: ignore[assignment]
 
 
 @dataclass
@@ -34,120 +39,28 @@ def analyze_conversation_flow(
         except (TypeError, ValueError):
             segs = segments  # Use original order if sorting fails
 
-        # 1. Speaker participation with safe division
-        speaker_times = {}
-        total_speech_time = 0.0
-
-        for seg in segs:
-            try:
-                spk = seg.get("speaker_id") or seg.get("speaker") or "Unknown"
-                start = float(seg.get("start", 0) or 0)
-                end = float(seg.get("end", 0) or 0)
-                duration = max(0.0, end - start)  # Ensure non-negative
-
-                speaker_times[spk] = speaker_times.get(spk, 0.0) + duration
-                total_speech_time += duration
-            except (TypeError, ValueError):
-                # Skip malformed segments
-                continue
-
-        # Ensure we have valid data
-        if not speaker_times or total_speech_time <= 0:
+        sanitized = list(_sanitize_segments(segs))
+        if not sanitized:
             return _empty_metrics()
 
-        # Dominance percentages with safe division
-        dominance = {}
-        for spk, time in speaker_times.items():
-            try:
-                dominance[spk] = (time / total_speech_time) * 100.0
-            except ZeroDivisionError:
-                dominance[spk] = 0.0
+        analysis = None
+        if pd is not None:
+            analysis = _analyze_conversation_flow_vectorized(sanitized, total_duration_sec)
 
-        # Turn-taking balance (entropy) with safety checks
-        balance = 0.0
-        if len(speaker_times) > 1 and total_speech_time > 0:
-            try:
-                probs = [t / total_speech_time for t in speaker_times.values()]
-                # Filter out zero probabilities
-                probs = [p for p in probs if p > 0]
-                if probs:
-                    entropy = -sum(p * np.log2(p) for p in probs)
-                    max_entropy = np.log2(len(probs))
-                    balance = entropy / max_entropy if max_entropy > 0 else 0.0
-            except (ValueError, ZeroDivisionError):
-                balance = 0.0
+        if analysis is None:
+            analysis = _analyze_conversation_flow_fallback(sanitized, total_duration_sec)
 
-        # 2. Turn-taking dynamics with interruption tracking
-        turns = []
-        prev_speaker = None
-        prev_end = 0.0
-        interrupts: dict[str, int] = {}
+        if analysis is None:
+            return _empty_metrics()
 
-        for seg in segs:
-            try:
-                current_speaker = seg.get("speaker_id") or seg.get("speaker") or "Unknown"
-                start = float(seg.get("start", 0) or 0)
-                end = float(seg.get("end", 0) or 0)
-                duration = max(0.0, end - start)
-
-                if current_speaker != prev_speaker and duration > 0:
-                    turns.append(
-                        {
-                            "speaker": current_speaker,
-                            "start": start,
-                            "end": end,
-                            "duration": duration,
-                        }
-                    )
-                if prev_speaker is not None and start < prev_end:
-                    interrupts[current_speaker] = interrupts.get(current_speaker, 0) + 1
-                prev_speaker = current_speaker
-                prev_end = end
-            except (TypeError, ValueError):
-                continue
-
-        # Turn statistics with safety checks
-        turn_durations = [t["duration"] for t in turns if t.get("duration", 0) > 0]
-        avg_turn_duration = np.mean(turn_durations) if turn_durations else 0.0
-
-        # Safe division for turns per minute
-        try:
-            duration_minutes = total_duration_sec / 60.0
-            turns_per_min = len(turns) / duration_minutes if duration_minutes > 0 else 0.0
-        except ZeroDivisionError:
-            turns_per_min = 0.0
-
-        # Interruption rate per minute
-        try:
-            interrupt_rate = (
-                sum(interrupts.values()) / duration_minutes if duration_minutes > 0 else 0.0
-            )
-            interrupts_per_speaker = {
-                spk: (cnt / duration_minutes if duration_minutes > 0 else 0.0)
-                for spk, cnt in interrupts.items()
-            }
-        except Exception:
-            interrupt_rate = 0.0
-            interrupts_per_speaker = {}
-
-        # 3. Response latencies with bounds checking
-        response_times = []
-        for i in range(1, len(turns)):
-            try:
-                prev_end = turns[i - 1]["end"]
-                curr_start = turns[i]["start"]
-                latency = curr_start - prev_end
-                # Only include reasonable response times (0-5 seconds)
-                if 0 <= latency <= 5.0:
-                    response_times.append(latency)
-            except (KeyError, TypeError, ValueError):
-                continue
-
-        response_stats = {
-            "avg_sec": float(np.mean(response_times)) if response_times else 0.0,
-            "median_sec": float(np.median(response_times)) if response_times else 0.0,
-            "count": len(response_times),
-        }
+        balance = analysis["turn_taking_balance"]
+        dominance = analysis["speaker_dominance"]
+        avg_turn_duration = analysis["avg_turn_duration_sec"]
+        turns_per_min = analysis["conversation_pace_turns_per_min"]
+        interrupt_rate = analysis["interruption_rate_per_min"]
+        interrupts_per_speaker = analysis["interruptions_per_speaker"]
+        response_stats = analysis["response_latency_stats"]
+        total_speech_time = analysis["total_speech_time"]
 
         # 4. Topic coherence with error handling
         coherence = _calculate_topic_coherence(segs)
@@ -182,6 +95,231 @@ def analyze_conversation_flow(
         # Fallback to empty metrics on any error
         print(f"Warning: conversation analysis failed: {e}")
         return _empty_metrics()
+
+
+def _sanitize_segments(segs: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
+    """Yield sanitized segment records with numeric bounds."""
+
+    for seg in segs:
+        try:
+            speaker = seg.get("speaker_id") or seg.get("speaker") or "Unknown"
+            start = float(seg.get("start", 0) or 0)
+            end = float(seg.get("end", 0) or 0)
+            duration = max(0.0, end - start)
+            arousal_val = seg.get("arousal", 0) or 0.0
+            try:
+                arousal = float(arousal_val)
+            except (TypeError, ValueError):
+                arousal = 0.0
+            yield {
+                "speaker": str(speaker),
+                "start": start,
+                "end": end,
+                "duration": duration,
+                "arousal": arousal,
+                "text": seg.get("text", ""),
+            }
+        except (TypeError, ValueError):
+            continue
+
+
+def _analyze_conversation_flow_vectorized(
+    sanitized: list[dict[str, Any]], total_duration_sec: float
+) -> dict[str, Any] | None:
+    """Vectorised metric computation using pandas."""
+
+    if pd is None or not sanitized:
+        return None
+
+    df = pd.DataFrame.from_records(sanitized)
+    if df.empty:
+        return None
+
+    durations = df["duration"].astype(float)
+    total_speech_time = float(durations.sum())
+    if total_speech_time <= 0:
+        return None
+
+    speaker_totals = df.groupby("speaker")["duration"].sum()
+    dominance = (
+        speaker_totals.div(total_speech_time)
+        .mul(100.0)
+        .astype(float)
+        .to_dict()
+    )
+
+    balance = 0.0
+    if len(speaker_totals) > 1:
+        probs = speaker_totals.div(total_speech_time)
+        probs = probs[probs > 0]
+        if not probs.empty:
+            entropy = float(-(probs * np.log2(probs)).sum())
+            max_entropy = np.log2(len(probs))
+            balance = float(entropy / max_entropy) if max_entropy > 0 else 0.0
+
+    df = df.assign(duration=durations)
+    prev_end = df["end"].shift(fill_value=0.0)
+    prev_speaker = df["speaker"].shift()
+    overlap_mask = prev_speaker.notna() & (df["start"] < prev_end)
+    interrupt_counts = (
+        df.loc[overlap_mask, "speaker"].value_counts().astype(float).to_dict()
+    )
+
+    duration_minutes = total_duration_sec / 60.0 if total_duration_sec > 0 else 0.0
+    if duration_minutes > 0:
+        interrupt_rate = sum(interrupt_counts.values()) / duration_minutes
+        interrupts_per_speaker = {
+            spk: count / duration_minutes for spk, count in interrupt_counts.items()
+        }
+    else:
+        interrupt_rate = 0.0
+        interrupts_per_speaker = {
+            spk: 0.0 for spk in interrupt_counts.keys()
+        }
+
+    turn_mask = (
+        (df.index == df.index[0]) | (df["speaker"] != df["speaker"].shift())
+    ) & (df["duration"] > 0)
+    turns_df = df.loc[turn_mask, ["speaker", "start", "end", "duration"]]
+
+    avg_turn_duration = float(turns_df["duration"].mean()) if not turns_df.empty else 0.0
+    turn_count = int(len(turns_df))
+    if duration_minutes > 0:
+        turns_per_min = turn_count / duration_minutes
+    else:
+        turns_per_min = 0.0
+
+    latencies = turns_df["start"] - turns_df["end"].shift()
+    latencies = latencies[latencies.notna()]
+    latency_window = latencies[(latencies >= 0.0) & (latencies <= 5.0)]
+    response_stats = {
+        "avg_sec": float(latency_window.mean()) if not latency_window.empty else 0.0,
+        "median_sec": float(latency_window.median()) if not latency_window.empty else 0.0,
+        "count": int(len(latency_window)),
+    }
+
+    return {
+        "turn_taking_balance": float(balance),
+        "speaker_dominance": {str(k): float(v) for k, v in dominance.items()},
+        "avg_turn_duration_sec": float(avg_turn_duration),
+        "conversation_pace_turns_per_min": float(turns_per_min),
+        "interruption_rate_per_min": float(interrupt_rate),
+        "interruptions_per_speaker": {
+            str(k): float(v) for k, v in interrupts_per_speaker.items()
+        },
+        "response_latency_stats": response_stats,
+        "total_speech_time": float(total_speech_time),
+    }
+
+
+def _analyze_conversation_flow_fallback(
+    sanitized: list[dict[str, Any]], total_duration_sec: float
+) -> dict[str, Any] | None:
+    """Fallback implementation mirroring the legacy per-segment logic."""
+
+    speaker_times: dict[str, float] = {}
+    total_speech_time = 0.0
+    for seg in sanitized:
+        speaker = seg["speaker"]
+        duration = seg["duration"]
+        speaker_times[speaker] = speaker_times.get(speaker, 0.0) + duration
+        total_speech_time += duration
+
+    if not speaker_times or total_speech_time <= 0:
+        return None
+
+    dominance: dict[str, float] = {}
+    for spk, time in speaker_times.items():
+        try:
+            dominance[spk] = (time / total_speech_time) * 100.0
+        except ZeroDivisionError:
+            dominance[spk] = 0.0
+
+    balance = 0.0
+    if len(speaker_times) > 1 and total_speech_time > 0:
+        try:
+            probs = [t / total_speech_time for t in speaker_times.values()]
+            probs = [p for p in probs if p > 0]
+            if probs:
+                entropy = -sum(p * np.log2(p) for p in probs)
+                max_entropy = np.log2(len(probs))
+                balance = entropy / max_entropy if max_entropy > 0 else 0.0
+        except (ValueError, ZeroDivisionError):
+            balance = 0.0
+
+    turns: list[dict[str, float]] = []
+    prev_speaker: str | None = None
+    prev_end = 0.0
+    interrupts: dict[str, int] = {}
+    for seg in sanitized:
+        current_speaker = seg["speaker"]
+        start = seg["start"]
+        end = seg["end"]
+        duration = seg["duration"]
+
+        if current_speaker != prev_speaker and duration > 0:
+            turns.append(
+                {
+                    "speaker": current_speaker,
+                    "start": start,
+                    "end": end,
+                    "duration": duration,
+                }
+            )
+        if prev_speaker is not None and start < prev_end:
+            interrupts[current_speaker] = interrupts.get(current_speaker, 0) + 1
+        prev_speaker = current_speaker
+        prev_end = end
+
+    turn_durations = [t["duration"] for t in turns if t.get("duration", 0) > 0]
+    avg_turn_duration = float(np.mean(turn_durations)) if turn_durations else 0.0
+
+    try:
+        duration_minutes = total_duration_sec / 60.0
+        turns_per_min = len(turns) / duration_minutes if duration_minutes > 0 else 0.0
+    except ZeroDivisionError:
+        turns_per_min = 0.0
+        duration_minutes = 0.0
+
+    try:
+        interrupt_rate = (
+            sum(interrupts.values()) / duration_minutes if duration_minutes > 0 else 0.0
+        )
+        interrupts_per_speaker = {
+            spk: (cnt / duration_minutes if duration_minutes > 0 else 0.0)
+            for spk, cnt in interrupts.items()
+        }
+    except Exception:
+        interrupt_rate = 0.0
+        interrupts_per_speaker = {}
+
+    response_times = []
+    for i in range(1, len(turns)):
+        try:
+            prev_end_val = turns[i - 1]["end"]
+            curr_start = turns[i]["start"]
+            latency = curr_start - prev_end_val
+            if 0 <= latency <= 5.0:
+                response_times.append(latency)
+        except (KeyError, TypeError, ValueError):
+            continue
+
+    response_stats = {
+        "avg_sec": float(np.mean(response_times)) if response_times else 0.0,
+        "median_sec": float(np.median(response_times)) if response_times else 0.0,
+        "count": len(response_times),
+    }
+
+    return {
+        "turn_taking_balance": float(balance),
+        "speaker_dominance": dominance,
+        "avg_turn_duration_sec": float(avg_turn_duration),
+        "conversation_pace_turns_per_min": float(turns_per_min),
+        "interruption_rate_per_min": float(interrupt_rate),
+        "interruptions_per_speaker": interrupts_per_speaker,
+        "response_latency_stats": response_stats,
+        "total_speech_time": float(total_speech_time),
+    }
 
 
 def _calculate_topic_coherence(segments: list[dict[str, Any]]) -> float:
