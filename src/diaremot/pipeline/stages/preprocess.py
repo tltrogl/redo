@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Sequence
 
 import numpy as np
 
@@ -344,6 +344,34 @@ def _write_preprocessed_cache(
     atomic_write_json(meta_path, meta_payload)
 
 
+def _persist_timeline_events(
+    cache_dir: Path,
+    events: Sequence[Any],
+    existing_path: str | os.PathLike[str] | None = None,
+) -> Path | None:
+    """Persist timeline events to a dedicated JSON file.
+
+    Returns the concrete path if any events were written. When ``existing_path``
+    is provided the payload is rewritten in place to upgrade legacy caches.
+    """
+
+    if not events:
+        return None
+
+    if existing_path:
+        events_path = Path(existing_path)
+        try:
+            events_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+    else:
+        events_path = cache_dir / "sed.timeline_events.json"
+
+    payload = {"events": list(events)}
+    atomic_write_json(events_path, payload)
+    return events_path
+
+
 def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
@@ -373,10 +401,34 @@ def run_background_sed(
         )
         if matches:
             sed_info = cached.get("sed_info") or {}
+            events = sed_info.pop("timeline_events", None)
+            if events and cache_dir is not None:
+                events_path = None
+                try:
+                    events_path = _persist_timeline_events(cache_dir, events)
+                except Exception as exc:  # pragma: no cover - best effort upgrade
+                    pipeline.corelog.stage(
+                        "background_sed",
+                        "warn",
+                        message=f"failed to upgrade cached SED events: {exc}",
+                    )
+                sed_info["timeline_event_count"] = len(events)
+                if events_path is not None:
+                    sed_info["timeline_events_path"] = str(events_path)
+                else:
+                    sed_info.pop("timeline_events_path", None)
+                cached["sed_info"] = sed_info
+                try:
+                    atomic_write_json(sed_cache_path, cached)
+                except Exception:
+                    pipeline.corelog.stage(
+                        "background_sed",
+                        "warn",
+                        message="failed to rewrite upgraded SED cache payload",
+                    )
+            sed_info.pop("timeline_events", None)
+            sed_info.setdefault("timeline_event_count", 0)
             snapshot = dict(sed_info)
-            events = snapshot.pop("timeline_events", None)
-            if events is not None:
-                snapshot["timeline_event_count"] = len(events)
             pipeline.stats.config_snapshot["background_sed"] = snapshot
             state.sed_info = sed_info
             guard.done()
@@ -475,10 +527,29 @@ def run_background_sed(
                 if artifacts is not None:
                     sed_info["timeline_csv"] = str(artifacts.csv)
                     sed_info["timeline_jsonl"] = str(artifacts.jsonl) if artifacts.jsonl else None
-                    sed_info["timeline_events"] = artifacts.events
                     sed_info["timeline_mode"] = tl_cfg["mode"]
                     if getattr(artifacts, "mode", None):
                         sed_info["timeline_inference_mode"] = artifacts.mode
+
+                    events = list(getattr(artifacts, "events", []) or [])
+                    if events:
+                        events_path = None
+                        try:
+                            events_path = _persist_timeline_events(cache_dir, events)
+                        except Exception as exc:  # pragma: no cover - best-effort cache
+                            pipeline.corelog.stage(
+                                "background_sed",
+                                "warn",
+                                message=f"failed to persist timeline events: {exc}",
+                            )
+                        sed_info["timeline_event_count"] = len(events)
+                        if events_path is not None:
+                            sed_info["timeline_events_path"] = str(events_path)
+                        else:
+                            sed_info.pop("timeline_events_path", None)
+                    else:
+                        sed_info["timeline_event_count"] = 0
+                        sed_info.pop("timeline_events_path", None)
             except Exception as exc:  # pragma: no cover - runtime dependent
                 pipeline.corelog.stage(
                     "background_sed",
@@ -487,10 +558,9 @@ def run_background_sed(
                 )
 
         sed_info.setdefault("enabled", True)
+        sed_info.pop("timeline_events", None)
+        sed_info.setdefault("timeline_event_count", 0)
         snapshot = dict(sed_info)
-        events = snapshot.pop("timeline_events", None)
-        if events is not None:
-            snapshot["timeline_event_count"] = len(events)
         pipeline.stats.config_snapshot["background_sed"] = snapshot
         state.sed_info = sed_info
         try:
