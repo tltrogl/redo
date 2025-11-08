@@ -745,7 +745,7 @@ Audio Input
 ### Affect memory windows (v2.2.1)
 
 - The affect stage now slices the shared waveform through lightweight
-  ``SegmentAudioWindow`` views instead of materialising new NumPy arrays for
+  audio window views instead of materializing new NumPy arrays for
   every transcript segment. Long-form jobs reuse the same buffer across VAD,
   speech emotion, and intent analyzers, trimming peak RSS when processing
   multi-hour meetings.
