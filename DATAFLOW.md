@@ -196,7 +196,8 @@ PipelineState:
       "enabled": bool,                               # True if ran
       "timeline_csv": str?,                          # Path if generated
       "timeline_jsonl": str?,                        # Path if generated
-      "timeline_events": list?,                      # Event list
+      "timeline_event_count": int?,                  # Number of timeline events persisted
+      "timeline_events_path": str?,                  # JSON file with full event payload
     }
 ```
 
@@ -260,7 +261,7 @@ PipelineState:
    - Run Faster-Whisper ASR via the scheduler's async workers
    - Extract text, word timestamps, confidence (log prob)
 4. Normalize output format
-5. Save to cache (tx.json)
+5. Save lightweight cache (tx.json) containing segment digests
 
 **Output:**
 ```python
@@ -288,7 +289,17 @@ PipelineState:
   "version": str,          # Cache version
   "audio_sha16": str,      # Audio hash
   "pp_signature": str,     # Preprocessing signature
-  "segments": list[dict],  # Transcribed segments (norm_tx format)
+  "segment_count": int,    # Number of segments persisted
+  "segments": [
+    {
+      "digest": str,        # Blake2s digest of the normalized segment payload
+      "start": float,       # Segment start (seconds)
+      "end": float,         # Segment end (seconds)
+      "speaker_id": str?,   # Speaker identifier
+      "speaker_name": str?, # Speaker display name
+    },
+    ...
+  ],
   "saved_at": float        # Unix timestamp
 }
 ```

@@ -106,7 +106,12 @@ def write_segments_jsonl(path: Path, segments: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         for segment in segments:
-            handle.write(json.dumps(segment, ensure_ascii=False) + "\n")
+            clean = {
+                key: value
+                for key, value in (segment or {}).items()
+                if not (isinstance(key, str) and key.startswith("_"))
+            }
+            handle.write(json.dumps(clean, ensure_ascii=False) + "\n")
 
 
 def write_timeline_csv(path: Path, segments: list[dict[str, Any]]) -> None:
