@@ -171,24 +171,25 @@ def decode_audio_segment(
             data = soxr.resample(data, sr_in, target_sr)
         return np.asarray(data, dtype=np.float32)
 
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-ss",
-        str(start),
-        "-i",
-        str(source),
-        "-ac",
-        "1" if mono else "2",
-        "-ar",
-        str(target_sr),
-        "-f",
-        "f32le",
-        "-loglevel",
-        "quiet",
-    ]
+    cmd = ["ffmpeg", "-y", "-i", str(source)]
+    if start > 0.0:
+        # Place -ss after the input to request sample-accurate seeking so
+        # successive streamed chunks align without drift.
+        cmd.extend(["-ss", str(start)])
     if seg_duration is not None and seg_duration > 0:
         cmd.extend(["-t", str(seg_duration)])
+    cmd.extend(
+        [
+            "-ac",
+            "1" if mono else "2",
+            "-ar",
+            str(target_sr),
+            "-f",
+            "f32le",
+            "-loglevel",
+            "quiet",
+        ]
+    )
     cmd.append("pipe:1")
 
     try:
