@@ -19,6 +19,7 @@ PCM_FALLBACK_SUBTYPES = {"PCM", "FLOAT", "DOUBLE"}
 __all__ = [
     "PCM_FORMATS",
     "safe_load_audio",
+    "decode_audio_segment",
     "probe_audio_metadata",
     "get_audio_duration",
 ]
@@ -130,6 +131,94 @@ def safe_load_audio(path: str, target_sr: int, mono: bool = True) -> tuple[np.nd
         ) from exc
     except RuntimeError as exc:
         raise RuntimeError(f"Cannot decode audio file {p} via ffmpeg: {exc}") from exc
+
+
+def decode_audio_segment(
+    path: str,
+    target_sr: int,
+    *,
+    mono: bool = True,
+    start: float = 0.0,
+    duration: float | None = None,
+    info: sf.Info | None = None,
+) -> np.ndarray:
+    """Decode a bounded segment from an audio file into float32 samples."""
+
+    source = Path(path)
+    if info is None:
+        try:
+            info = sf.info(source)
+        except Exception:
+            info = None
+
+    start = max(0.0, float(start))
+    seg_duration = None if duration is None else max(0.0, float(duration))
+
+    if info and is_uncompressed_pcm(info):
+        with sf.SoundFile(source) as snd:
+            sr_in = int(snd.samplerate)
+            frames_start = int(round(start * sr_in))
+            snd.seek(max(0, frames_start))
+            frames = None
+            if seg_duration is not None:
+                frames = int(round(seg_duration * sr_in))
+            data = snd.read(frames, dtype="float32", always_2d=False)
+        if data.ndim > 1:
+            data = np.mean(data, axis=1)
+        if sr_in != target_sr:
+            import soxr  # Local import to avoid dependency at import time
+
+            data = soxr.resample(data, sr_in, target_sr)
+        return np.asarray(data, dtype=np.float32)
+
+    cmd = ["ffmpeg", "-y", "-i", str(source)]
+    if start > 0.0:
+        # Place -ss after the input to request sample-accurate seeking so
+        # successive streamed chunks align without drift.
+        cmd.extend(["-ss", str(start)])
+    if seg_duration is not None and seg_duration > 0:
+        cmd.extend(["-t", str(seg_duration)])
+    cmd.extend(
+        [
+            "-ac",
+            "1" if mono else "2",
+            "-ar",
+            str(target_sr),
+            "-f",
+            "f32le",
+            "-loglevel",
+            "quiet",
+        ]
+    )
+    cmd.append("pipe:1")
+
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except FileNotFoundError as exc:
+        raise RuntimeError("ffmpeg is required to decode compressed audio containers") from exc
+
+    assert proc.stdout is not None
+    chunk = bytearray()
+    while True:
+        buf = proc.stdout.read(65536)
+        if not buf:
+            break
+        chunk.extend(buf)
+
+    stderr_data = b""
+    if proc.stderr is not None:
+        stderr_data = proc.stderr.read()
+
+    ret = proc.wait()
+    if ret != 0:
+        stderr_text = stderr_data.decode(errors="ignore")
+        raise RuntimeError(f"ffmpeg segment decode failed: {stderr_text}")
+
+    if len(chunk) % 4 != 0:
+        chunk = chunk[: len(chunk) - (len(chunk) % 4)]
+
+    audio = np.frombuffer(chunk, dtype="<f4")
+    return audio.astype(np.float32, copy=False)
 
 
 def get_audio_duration(path: str, info: sf.Info | None = None) -> float:

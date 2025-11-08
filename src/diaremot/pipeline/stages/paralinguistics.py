@@ -33,6 +33,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         guard.done(count=0)
         return
 
+    state.ensure_audio()
     audio = state.y
     if isinstance(audio, np.ndarray):
         wav_view = audio

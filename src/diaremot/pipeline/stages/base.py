@@ -44,6 +44,26 @@ class PipelineState:
     dependency_summary: dict[str, Any] | None = None
     tuning_summary: dict[str, Any] = field(default_factory=dict)
     tuning_history: list[dict[str, Any]] = field(default_factory=list)
+    preprocessed_audio_path: Path | None = None
+    preprocessed_num_samples: int | None = None
+
+    def ensure_audio(self) -> np.ndarray:
+        """Ensure the in-memory waveform is populated, loading from cache if needed."""
+
+        if isinstance(self.y, np.memmap) and self.y.size > 0:
+            return self.y
+
+        if self.y.size == 0 and self.preprocessed_audio_path:
+            try:
+                audio = np.load(self.preprocessed_audio_path, mmap_mode="r")
+            except ValueError:
+                audio = np.load(self.preprocessed_audio_path)
+            if self.preprocessed_num_samples is not None:
+                audio = audio[: self.preprocessed_num_samples]
+            if audio.dtype != np.float32:
+                audio = audio.astype(np.float32, copy=False)
+            self.y = audio
+        return self.y
 
 
 StageRunner = Callable[["AudioAnalysisPipelineV2", PipelineState, Any], None]

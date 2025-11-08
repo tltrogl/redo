@@ -113,6 +113,8 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     timeline_events = _load_timeline_events(sed_payload)
     timeline_index = _build_timeline_index(timeline_events)
 
+    state.ensure_audio()
+
     for idx, seg in enumerate(state.norm_tx):
         start = float(seg.get("start") or 0.0)
         end = float(seg.get("end") or start)

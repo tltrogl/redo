@@ -214,6 +214,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
 
     tx_out: list[Any] = []
     async_enabled = False
+    state.ensure_audio()
     try:
         async_enabled = bool(
             getattr(pipeline.pipeline_config, "enable_async_transcription", False)
