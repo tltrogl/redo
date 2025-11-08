@@ -110,6 +110,12 @@ def core(
     vad_min_silence_sec: float | None = typer.Option(0.25, help="Minimum silence duration (s)"),
     vad_speech_pad_sec: float | None = typer.Option(0.20, help="Pad around detected speech (s)"),
     asr_cpu_threads: int | None = typer.Option(None, help="CPU threads for ASR backend"),
+    async_transcription: bool = typer.Option(
+        False,
+        "--async-asr",
+        help="Enable asynchronous transcription engine",
+        is_flag=True,
+    ),
 ):
     _apply_model_root(model_root)
     target_out = outdir or _default_outdir_for_input(input)
@@ -128,6 +134,7 @@ def core(
             asr_cpu_threads,
         )
     )
+    overrides["enable_async_transcription"] = bool(async_transcription)
     manifest = core_run_pipeline(str(input), str(target_out), config=overrides)
     typer.echo(_make_json_safe(manifest))
 
@@ -498,6 +505,12 @@ def run(
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("int8", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
+    async_asr: bool = typer.Option(
+        False,
+        "--async-asr",
+        help="Enable asynchronous transcription engine.",
+        is_flag=True,
+    ),
     language: str | None = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     ignore_tx_cache: bool = typer.Option(
@@ -646,6 +659,7 @@ def run(
         "language": language,
         "language_mode": language_mode,
         "ignore_tx_cache": ignore_tx_cache,
+        "enable_async_transcription": bool(async_asr),
         "quiet": quiet,
         "disable_affect": disable_affect,
         "affect_backend": affect_backend,

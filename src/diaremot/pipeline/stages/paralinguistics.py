@@ -17,10 +17,32 @@ __all__ = ["run"]
 
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     metrics: dict[int, dict[str, object]] = {}
-    if not pipeline.stats.config_snapshot.get("transcribe_failed"):
-        wav = np.asarray(state.y, dtype=np.float32)
-        tmp_metrics = pipeline._extract_paraling(wav, state.sr, state.norm_tx)
-        if isinstance(tmp_metrics, dict):
-            metrics = tmp_metrics
     state.para_metrics = metrics
+
+    config = pipeline.stats.config_snapshot
+    upstream_failed = bool(config.get("transcribe_failed")) or bool(
+        config.get("preprocess_failed")
+    )
+    if upstream_failed:
+        guard.progress("skip: upstream stage reported a failure")
+        guard.done(count=0)
+        return
+
+    if not state.norm_tx:
+        guard.progress("skip: no transcript segments available")
+        guard.done(count=0)
+        return
+
+    state.ensure_audio()
+    audio = state.y
+    if isinstance(audio, np.ndarray):
+        wav_view = audio
+    else:
+        wav_view = np.asarray(audio, dtype=np.float32)
+
+    tmp_metrics = pipeline._extract_paraling(wav_view, state.sr, state.norm_tx)
+    if isinstance(tmp_metrics, dict):
+        metrics = tmp_metrics
+        state.para_metrics = metrics
+
     guard.done(count=len(metrics))

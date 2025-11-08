@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Mapping
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from dataclasses import fields as dataclass_fields
 from importlib import metadata as importlib_metadata
+import os
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +65,7 @@ class PipelineConfig:
     language: str | None = None
     language_mode: str = "auto"
     ignore_tx_cache: bool = False
+    enable_async_transcription: bool = False
     quiet: bool = False
     disable_affect: bool = False
     affect_backend: str = "onnx"
@@ -180,6 +184,7 @@ class PipelineConfig:
         else:
             raise ValueError("enable_sed must be a boolean value")
         self.enable_sed = bool(self.enable_sed)
+        self.enable_async_transcription = bool(self.enable_async_transcription)
         _ensure_numeric_range("vad_threshold", self.vad_threshold, ge=0.0, le=1.0)
         _ensure_numeric_range("temperature", self.temperature, ge=0.0, le=1.0)
         _ensure_numeric_range("no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0)
@@ -302,7 +307,11 @@ __all__ = [
     "verify_dependencies",
     "diagnostics",
     "dependency_health_summary",
+    "clear_dependency_summary_cache",
 ]
+
+
+_DEPENDENCY_SUMMARY_CACHE: dict[str, dict[str, Any]] | None = None
 
 
 def build_pipeline_config(
@@ -335,27 +344,55 @@ def build_pipeline_config(
     return validated.model_dump(mode="python")
 
 
+def _collect_dependency_status(
+    mod: str, min_ver: str
+) -> tuple[str, str, Any, str | None, Exception | None, Exception | None]:
+    import_error: Exception | None = None
+    metadata_error: Exception | None = None
+    module = None
+    try:
+        module = __import__(mod.replace("-", "_"))
+    except Exception as exc:  # pragma: no cover - defensive import guard
+        import_error = exc
+
+    version: str | None = None
+    if module is not None:
+        try:
+            version = importlib_metadata.version(mod)
+        except importlib_metadata.PackageNotFoundError:
+            version = getattr(module, "__version__", None)
+        except Exception as exc:  # pragma: no cover - metadata failure
+            metadata_error = exc
+
+    return mod, min_ver, module, version, import_error, metadata_error
+
+
 def _iter_dependency_status() -> Iterator[
     tuple[str, str, Any, str | None, Exception | None, Exception | None]
 ]:
-    for mod, min_ver in CORE_DEPENDENCY_REQUIREMENTS.items():
-        import_error: Exception | None = None
-        metadata_error: Exception | None = None
-        module = None
-        try:
-            module = __import__(mod.replace("-", "_"))
-        except Exception as exc:  # pragma: no cover - defensive import guard
-            import_error = exc
+    items = list(CORE_DEPENDENCY_REQUIREMENTS.items())
+    if not items:
+        return
 
-        version: str | None = None
-        if module is not None:
-            try:
-                version = importlib_metadata.version(mod)
-            except importlib_metadata.PackageNotFoundError:
-                version = getattr(module, "__version__", None)
-            except Exception as exc:  # pragma: no cover - metadata failure
-                metadata_error = exc
-        yield mod, min_ver, module, version, import_error, metadata_error
+    max_workers = min(len(items), max(1, (os.cpu_count() or 1)))
+
+    if max_workers <= 1:
+        for mod, min_ver in items:
+            yield _collect_dependency_status(mod, min_ver)
+        return
+
+    modules, min_versions = zip(*items)
+
+    try:
+        with ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="depcheck",
+        ) as executor:
+            for result in executor.map(_collect_dependency_status, modules, min_versions):
+                yield result
+    except Exception:  # pragma: no cover - executor startup failure fallback
+        for mod, min_ver in items:
+            yield _collect_dependency_status(mod, min_ver)
 
 
 def _verify_core_dependencies(require_versions: bool = False) -> tuple[bool, list[str]]:
@@ -393,7 +430,17 @@ def _verify_core_dependencies(require_versions: bool = False) -> tuple[bool, lis
     return (len(issues) == 0), issues
 
 
-def dependency_health_summary() -> dict[str, dict[str, Any]]:
+def dependency_health_summary(
+    *, use_cache: bool = True, refresh: bool = False
+) -> dict[str, dict[str, Any]]:
+    global _DEPENDENCY_SUMMARY_CACHE
+
+    if refresh:
+        _DEPENDENCY_SUMMARY_CACHE = None
+
+    if use_cache and _DEPENDENCY_SUMMARY_CACHE is not None:
+        return deepcopy(_DEPENDENCY_SUMMARY_CACHE)
+
     summary: dict[str, dict[str, Any]] = {}
 
     for (
@@ -433,7 +480,16 @@ def dependency_health_summary() -> dict[str, dict[str, Any]]:
 
         summary[mod] = entry
 
+    if use_cache:
+        _DEPENDENCY_SUMMARY_CACHE = summary
+        return deepcopy(summary)
+
     return summary
+
+
+def clear_dependency_summary_cache() -> None:
+    global _DEPENDENCY_SUMMARY_CACHE
+    _DEPENDENCY_SUMMARY_CACHE = None
 
 
 def verify_dependencies(strict: bool = False) -> tuple[bool, list[str]]:
@@ -449,6 +505,6 @@ def diagnostics(require_versions: bool = False) -> dict[str, Any]:
     return {
         "ok": ok,
         "issues": issues,
-        "summary": dependency_health_summary(),
+        "summary": dependency_health_summary(refresh=True),
         "strict_versions": require_versions,
     }

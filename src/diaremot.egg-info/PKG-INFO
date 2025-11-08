@@ -64,6 +64,12 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - **AGENTS.md** - Setup guide for autonomous agents
 - **CLOUD_BUILD_GUIDE.md** - Cloud deployment instructions
 
+
+### Preprocessing architecture
+The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with focused modules for configuration (`config.py`), disk I/O (`io.py`), chunk lifecycle management (`chunking.py`), denoising primitives (`denoise.py`), and the signal chain (`chain.py`). The legacy `audio_preprocessing.py` module remains as a façade so existing imports continue to work. A standalone CLI for manual runs is available at `scripts/preprocess_audio.py`.
+
+`chain.py` now threads a cached spectral magnitude (`SpectralFrameStats`) through the upward gain and compression stages so both reuse the same STFT work. This removes a redundant FFT per clip while unit tests confirm the shared path is numerically identical to the legacy double-FFT flow.
+
 ---
 
 ## 11-Stage Processing Pipeline
@@ -73,6 +79,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
 4. **diarize** – Speaker segmentation with adaptive VAD tuning and silhouette/dominance-based single-speaker collapse
 5. **transcribe** – Speech-to-text with intelligent batching
+   - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
 6. **paralinguistics** – Voice quality and prosody extraction
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
 8. **overlap_interruptions** – Turn-taking and interruption pattern analysis
@@ -92,6 +99,9 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - The paralinguistics stack is now a proper package under `src/diaremot/affect/paralinguistics/`,
   splitting configuration, audio/voice quality primitives, aggregate analytics, benchmarking, and
   the CLI into focused modules while preserving the legacy `extract` API for pipeline callers.
+- Transcription has been modularised under `src/diaremot/pipeline/transcription/`, with
+  `transcription_module.py` acting as a lightweight `Transcriber` façade that delegates backend
+  detection, batching heuristics, and transcript redistribution to dedicated modules.
 
 ### Data Flow Diagram
 
@@ -134,6 +144,7 @@ Output Files:
   • segments.jsonl
   • timeline.csv
   • diarized_transcript_readable.txt
+  • conversation_report.md
   • summary.html
   • summary.pdf
   • qc_report.json
@@ -160,6 +171,11 @@ Output Files:
 - **Quality Flags**: low confidence, VAD instability, error flags
 
 **`diarized_transcript_readable.txt`** - Plain-text transcript with diarized turns, human-friendly timestamps, VAD stability, top sound events, dominant intent, and affect snapshot (valence/arousal/dominance + emotion hint).
+
+**`conversation_report.md`** - Narrative summary for quick human review
+- Executive one-pager covering duration, dominant voices, and pacing
+- Emotion brief with top detected emotions and aggregate valence/arousal
+- Interaction insights (balance, interruptions, coherence) + potential risk flags
 
 **`summary.html`** - Interactive HTML report (generated when HTML dependencies are available)
 - Quick Take overview
@@ -385,7 +401,7 @@ with the full CPU pipeline:
 ```bash
 PYTHONPATH=src \
   HF_HOME=./.cache \
-  python -m diaremot.cli smoke \
+  diaremot smoke \
     --outdir /tmp/smoke_test \
     --model-root ./models \
     --enable-affect
@@ -593,44 +609,43 @@ When ONNX models are unavailable, system auto-downloads from:
 ### Basic Commands
 
 ```bash
-# Standard processing (int8 ASR default)
-python -m diaremot.cli run --input audio.wav --outdir outputs/
+# Standard processing (int8 ASR default; defaults to audio/<file> → audio/outs/<stem>)
+diaremot run sample1.mp3
+
+# Helper wrapper (auto-sets threads/env on the VM)
+bash scripts/diaremot_run.sh run audio/sample1.mp3
 
 # Fast mode (int8 quantization)
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
-    --asr-compute-type int8
+diaremot run sample1.mp3 --asr-compute-type int8
 
 # Override VAD tuning
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
+diaremot run sample1.mp3 \
     --vad-threshold 0.30 \
     --vad-min-speech-sec 0.80 \
     --ahc-distance-threshold 0.12
 
 # Use preset profile
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
-    --profile fast
+diaremot run sample1.mp3 --profile fast
 
 # Disable optional stages
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
-    --disable-sed \
-    --disable-affect
+diaremot run sample1.mp3 --disable-sed --disable-affect
 
 # Resume from checkpoint
-python -m diaremot.cli resume --input audio.wav --outdir outputs/
+diaremot resume --input audio/sample1.mp3
 
 # Clear cache before run
-python -m diaremot.cli run --input audio.wav --outdir outputs/ \
-    --clear-cache
+diaremot run sample1.mp3 --clear-cache
 
 # Run smoke test
-python -m diaremot.cli smoke --outdir outputs/
+diaremot smoke --outdir outputs/
 ```
 
 ### Key CLI Flags
 
 **Input/Output:**
 - `--input, -i` – Audio file path (WAV, MP3, M4A, FLAC)
-- `--outdir, -o` – Output directory
+- `--outdir, -o` – Output directory (defaults to <input parent>/outs/<input stem>)
+- `scripts/diaremot_run.sh` – Wrapper that activates `.balls`, detects vCPUs (via `nproc`), and sets `CT2_NUM_THREADS`/`OMP_NUM_THREADS`/`MKL_NUM_THREADS`. Accepts optional `--threads N`.
 
 **Performance:**
 - `--asr-compute-type` – `int8` (default) | `float32` | `int8_float16`
@@ -656,16 +671,16 @@ python -m diaremot.cli smoke --outdir outputs/
 
 ```bash
 # Default: Balanced speed/quality
-python -m diaremot.cli run -i audio.wav -o out/ --profile default
+diaremot run -i audio.wav -o out/ --profile default
 
 # Fast: Optimized for speed (int8, minimal features)
-python -m diaremot.cli run -i audio.wav -o out/ --profile fast
+diaremot run -i audio.wav -o out/ --profile fast
 
 # Accurate: Maximum quality (float32, all features)
-python -m diaremot.cli run -i audio.wav -o out/ --profile accurate
+diaremot run -i audio.wav -o out/ --profile accurate
 
 # Offline: No model downloads, use local only
-python -m diaremot.cli run -i audio.wav -o out/ --profile offline
+diaremot run -i audio.wav -o out/ --profile offline
 ```
 
 ### Programmatic API
@@ -834,7 +849,7 @@ SEGMENT_COLUMNS = [
 
 ```bash
 # Quick validation with generated audio
-python -m diaremot.cli smoke --outdir /tmp/smoke_test
+diaremot smoke --outdir /tmp/smoke_test
 
 # Verify outputs
 ls /tmp/smoke_test/diarized_transcript_with_emotion.csv
@@ -907,33 +922,33 @@ print('✓ All models present' if not missing else f'Missing models: {missing}')
 **Poor diarization results**
 ```bash
 # Try adjusting VAD threshold
-python -m diaremot.cli run -i audio.wav -o out/ --vad-threshold 0.25
+diaremot run -i audio.wav -o out/ --vad-threshold 0.25
 
 # Increase AHC distance threshold for fewer speakers
-python -m diaremot.cli run -i audio.wav -o out/ --ahc-distance-threshold 0.20
+diaremot run -i audio.wav -o out/ --ahc-distance-threshold 0.20
 
 # Add more speech padding
-python -m diaremot.cli run -i audio.wav -o out/ --vad-speech-pad-sec 0.30
+diaremot run -i audio.wav -o out/ --vad-speech-pad-sec 0.30
 ```
 
 **Slow processing**
 ```bash
 # Use int8 quantization
-python -m diaremot.cli run -i audio.wav -o out/ --asr-compute-type int8
+diaremot run -i audio.wav -o out/ --asr-compute-type int8
 
 # Disable optional stages
-python -m diaremot.cli run -i audio.wav -o out/ \
+diaremot run -i audio.wav -o out/ \
     --disable-sed --disable-affect
 
 # Use fast profile
-python -m diaremot.cli run -i audio.wav -o out/ --profile fast
+diaremot run -i audio.wav -o out/ --profile fast
 ```
 
 **Memory issues with long files**
 ```bash
 # Auto-chunking activates at 30 minutes
 # Force smaller chunks:
-python -m diaremot.cli run -i long_audio.wav -o out/ \
+diaremot run -i long_audio.wav -o out/ \
     --chunk-threshold-minutes 15.0 \
     --chunk-size-minutes 10.0 \
     --chunk-overlap-seconds 20.0
@@ -962,7 +977,7 @@ rm -rf .cache/hf/
 rm -rf .cache/torch/
 
 # Use CLI flag
-python -m diaremot.cli run -i audio.wav -o out/ --clear-cache
+diaremot run -i audio.wav -o out/ --clear-cache
 ```
 
 ---
@@ -1054,14 +1069,20 @@ redo/
 │       │   ├── audio_pipeline_core.py
 │       │   ├── orchestrator.py
 │       │   ├── speaker_diarization.py
-│       │   ├── transcription_module.py
+│       │   ├── transcription/
+│       │   │   ├── backends.py       # Backend detection & environment guards
+│       │   │   ├── models.py         # Data classes & utilities
+│       │   │   ├── postprocess.py    # Transcript redistribution helpers
+│       │   │   └── scheduler.py      # Async engine & batching heuristics
+│       │   ├── transcription_module.py  # Transcriber façade delegating to package
 │       │   ├── outputs.py           # CSV schema (39 columns)
 │       │   ├── config.py
 │       │   ├── runtime_env.py
 │       │   ├── pipeline_checkpoint_system.py
 │       │   └── ...
 │       ├── affect/
-│       │   ├── emotion_analyzer.py
+│       │   ├── analyzers/            # Text/Speech/VAD/Intent analyzers
+│       │   ├── emotion_analyzer.py   # Thin orchestrator over analyzers
 │       │   ├── emotion_analysis.py
 │       │   ├── paralinguistics.py
 │       │   ├── ser_onnx.py
@@ -1158,3 +1179,4 @@ Special thanks to the open-source ML community.
 **License:** MIT
 
 [![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/redo&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)
+

@@ -30,6 +30,10 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 ### Preprocessing architecture
 The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with focused modules for configuration (`config.py`), disk I/O (`io.py`), chunk lifecycle management (`chunking.py`), denoising primitives (`denoise.py`), and the signal chain (`chain.py`). The legacy `audio_preprocessing.py` module remains as a façade so existing imports continue to work. A standalone CLI for manual runs is available at `scripts/preprocess_audio.py`.
 
+`chain.py` now threads a cached spectral magnitude (`SpectralFrameStats`) through the upward gain and compression stages so both reuse the same STFT work. This removes a redundant FFT per clip while unit tests confirm the shared path is numerically identical to the legacy double-FFT flow.
+
+**2025-03 update:** long-form preprocessing streams chunks straight from ffmpeg/soundfile without first materialising the full waveform. Processed samples are stitched into a memory-mapped `.npy` artifact that downstream stages load lazily via `PipelineState.ensure_audio()`, keeping peak memory usage bounded even on multi-hour recordings.
+
 ---
 
 ## 11-Stage Processing Pipeline
@@ -38,12 +42,14 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 2. **preprocess** – Audio resampling and loudness alignment with optional denoising plus auto-chunking for long files
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
 4. **diarize** – Speaker segmentation with adaptive VAD tuning and silhouette/dominance-based single-speaker collapse
+   - The stage now wraps `pipeline.diar.diarize_audio` in a guarded try/except so transient ONNX/runtime errors fall back to the
+     single-speaker assumption instead of bubbling a load-time exception.
 5. **transcribe** – Speech-to-text with intelligent batching
    - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
-6. **paralinguistics** – Voice quality and prosody extraction
+6. **paralinguistics** – Voice quality and prosody extraction (skips automatically when transcription fails or no segments are available)
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
-8. **overlap_interruptions** – Turn-taking and interruption pattern analysis
-9. **conversation_analysis** – Flow metrics and speaker dominance
+8. **overlap_interruptions** – Turn-taking and interruption pattern analysis (sweep-line \(\mathcal{O}(n \log n)\) boundary sweep)
+9. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation
 10. **speaker_rollups** – Per-speaker statistical summaries
 11. **outputs** – Generate CSV, JSON, HTML, PDF reports
 
@@ -88,7 +94,7 @@ Audio File (WAV/MP3/M4A)
 [7] affect_and_assemble → Audio (VAD+SER8) + Text (GoEmotions+BART-MNLI) + SED context
     ↓ {segments_final: 39 columns per segment}
     ↓
-[8] overlap_interruptions → Detect overlaps + classify interruptions
+[8] overlap_interruptions → Detect overlaps + classify interruptions with sweep-line \(\mathcal{O}(n \log n)\) analytics
     ↓ {overlap_stats, per_speaker_interrupts}
     ↓
 [9] conversation_analysis → Turn-taking + dominance + flow metrics
@@ -294,6 +300,13 @@ export TOKENIZERS_PARALLELISM=false
 - Programmatic integrations can control this via `build_pipeline_config({... 'local_first': False ...})` when a remote-first run is desired.
 
 **IMPORTANT:** `local_first` controls search PRIORITY only. Downloaded models (especially faster-whisper) ALWAYS cache to `$HF_HOME/.cache/` - there is no way to disable caching. This is CTranslate2/HuggingFace default behavior.
+
+### ASR concurrency
+
+- Set `enable_async_transcription: true` in your pipeline configuration to run the non-blocking Faster-Whisper scheduler. The
+  ASR stage awaits all batches concurrently and emits segments in deterministic time order.
+- Use `--async-asr` when invoking `diaremot run` or `diaremot core` to enable the same behaviour from the CLI.
+- Leaving the flag disabled preserves the synchronous execution path for environments where lightweight scheduling is preferred.
 
 ### Model Search Paths
 
@@ -732,6 +745,17 @@ Audio Input
     ↓
 [Output Generation] → CSV, JSON, HTML, PDF
 ```
+
+### Affect memory windows (v2.2.1)
+
+- The affect stage now slices the shared waveform through lightweight
+  audio window views instead of materializing new NumPy arrays for
+  every transcript segment. Long-form jobs reuse the same buffer across VAD,
+  speech emotion, and intent analyzers, trimming peak RSS when processing
+  multi-hour meetings.
+- Pipeline hooks such as ``_affect_unified`` accept any buffer-compatible
+  iterable (including ``memoryview`` objects and generators), so advanced
+  callers can stream audio chunks without forcing intermediate copies.
 
 ### Adaptive VAD Tuning
 
