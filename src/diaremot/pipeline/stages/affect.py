@@ -40,10 +40,10 @@ class _SegmentAudioWindow:
 
     def __post_init__(self) -> None:
         total = int(self._source.shape[0])
-        start = max(0, min(int(self.start), total))
-        end = max(start, min(int(self.end), total))
-        self.start = start
-        self.end = end
+        if not (0 <= self.start <= total and 0 <= self.end <= total):
+            raise ValueError(f"Invalid range [{self.start}, {self.end}) for array of length {total}")
+        if self.end < self.start:
+            raise ValueError(f"end ({self.end}) cannot be less than start ({self.start})")
 
     def __len__(self) -> int:  # pragma: no cover - trivial
         return self.end - self.start
