@@ -196,7 +196,8 @@ PipelineState:
       "enabled": bool,                               # True if ran
       "timeline_csv": str?,                          # Path if generated
       "timeline_jsonl": str?,                        # Path if generated
-      "timeline_events": list?,                      # Event list
+      "timeline_event_count": int?,                  # Number of timeline events persisted
+      "timeline_events_path": str?,                  # JSON file with full event payload
     }
 ```
 
