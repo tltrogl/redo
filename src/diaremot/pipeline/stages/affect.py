@@ -191,6 +191,15 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "error_flags": seg.get("error_flags", ""),
         }
 
+        row["_affect_payload"] = {
+            "speech_top": speech_emotion.get("top"),
+            "speech_scores": speech_emotion.get("scores_8class"),
+            "text_full": text_emotions.get("full_28class"),
+            "text_top": text_emotions.get("top5"),
+            "intent_top": intent.get("top"),
+            "intent_top3": intent.get("top3"),
+        }
+
         events_top = []
         snr_db_sed = None
         if isinstance(sed_payload, dict) and sed_payload:
