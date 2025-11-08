@@ -111,6 +111,8 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     turns: list[dict[str, Any]] = []
     duration_s = state.duration_s
 
+    state.ensure_audio()
+
     if (
         state.resume_tx
         and not state.diar_cache

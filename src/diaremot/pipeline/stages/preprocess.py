@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
@@ -51,10 +52,19 @@ def run_preprocess(
 
     # No cache or cache invalid - do actual preprocessing
     result = pipeline.pre.process_file(state.input_audio_path)
-    state.y = np.asarray(result.audio, dtype=np.float32)
     state.sr = result.sample_rate
     state.health = result.health
     state.duration_s = float(result.duration_s)
+    state.preprocessed_num_samples = result.num_samples
+    if result.audio is not None:
+        audio = result.audio
+        if isinstance(audio, np.ndarray) and audio.dtype == np.float32:
+            state.y = audio
+        else:
+            state.y = np.asarray(audio, dtype=np.float32)
+    else:
+        state.y = np.array([], dtype=np.float32)
+    state.preprocessed_audio_path = Path(result.audio_path) if result.audio_path else None
     guard.progress(f"file duration {_fmt_hms(state.duration_s)}")
     pipeline.corelog.event(
         "preprocess",
@@ -88,7 +98,13 @@ def run_preprocess(
 
     # Save preprocessed audio to cache
     try:
-        _write_preprocessed_cache(pipeline, state, cache_dir)
+        _write_preprocessed_cache(
+            pipeline,
+            state,
+            cache_dir,
+            source_path=state.preprocessed_audio_path,
+            num_samples=result.num_samples,
+        )
         guard.progress(
             f"saved cache to {(cache_dir / 'preprocessed_audio.npy').as_posix()}"
         )
@@ -216,6 +232,12 @@ def _load_preprocessed_cache(
         )
         state.sr = int(meta.get("sample_rate", 0) or 0)
         state.duration_s = float(meta.get("duration_s", 0.0) or 0.0)
+        shape = meta.get("shape")
+        if isinstance(shape, list) and shape:
+            state.preprocessed_num_samples = int(shape[0])
+        else:
+            state.preprocessed_num_samples = int(state.y.shape[0])
+        state.preprocessed_audio_path = audio_path
 
         health_dict = meta.get("health") if isinstance(meta, dict) else None
         if isinstance(health_dict, dict):
@@ -249,6 +271,7 @@ def _load_preprocessed_cache(
                 state.y = audio
                 state.sr = int(cached["sample_rate"])
                 state.duration_s = float(cached["duration_s"])
+                state.preprocessed_num_samples = int(audio.shape[0])
 
                 if "health" in cached:
                     health_dict = cached["health"].item()
@@ -270,7 +293,13 @@ def _load_preprocessed_cache(
             guard.done(duration_s=state.duration_s)
 
             try:
-                _write_preprocessed_cache(pipeline, state, cache_dir)
+                _write_preprocessed_cache(
+                    pipeline,
+                    state,
+                    cache_dir,
+                    source_path=None,
+                    num_samples=int(state.y.shape[0]),
+                )
                 legacy_path.unlink(missing_ok=True)
             except Exception as exc:  # pragma: no cover - best effort
                 pipeline.corelog.stage(
@@ -301,6 +330,9 @@ def _write_preprocessed_cache(
     pipeline: "AudioAnalysisPipelineV2",
     state: PipelineState,
     cache_dir: Path,
+    *,
+    source_path: Path | None = None,
+    num_samples: int | None = None,
 ) -> None:
     """Persist preprocessing artefacts using a memory-mappable layout."""
 
@@ -308,14 +340,29 @@ def _write_preprocessed_cache(
     audio_path = cache_dir / "preprocessed_audio.npy"
     meta_path = cache_dir / "preprocessed.meta.json"
 
-    y = np.asarray(state.y, dtype=np.float32)
-    with tempfile.NamedTemporaryFile(dir=cache_dir, suffix=".npy", delete=False) as tmp:
-        np.save(tmp, y)
-        tmp.flush()
-        os.fsync(tmp.fileno())
-        tmp_path = Path(tmp.name)
+    target_path = audio_path
+    if source_path and source_path.exists():
+        if source_path.resolve() != target_path.resolve():
+            shutil.move(str(source_path), target_path)
+    else:
+        y = np.asarray(state.y, dtype=np.float32)
+        with tempfile.NamedTemporaryFile(dir=cache_dir, suffix=".npy", delete=False) as tmp:
+            np.save(tmp, y)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = Path(tmp.name)
 
-    os.replace(tmp_path, audio_path)
+        os.replace(tmp_path, target_path)
+        if num_samples is None:
+            num_samples = int(y.shape[0])
+
+    state.preprocessed_audio_path = target_path
+    if num_samples is None:
+        if state.preprocessed_num_samples is not None:
+            num_samples = int(state.preprocessed_num_samples)
+        else:
+            num_samples = int(state.y.shape[0]) if state.y.size else 0
+    state.preprocessed_num_samples = num_samples
 
     health_dict = None
     if state.health:
@@ -338,7 +385,7 @@ def _write_preprocessed_cache(
         "sample_rate": state.sr,
         "duration_s": state.duration_s,
         "dtype": "float32",
-        "shape": list(y.shape),
+        "shape": [int(num_samples)],
         "health": health_dict,
     }
     atomic_write_json(meta_path, meta_payload)
@@ -375,6 +422,7 @@ def _persist_timeline_events(
 def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
+    state.ensure_audio()
     if not state.audio_sha16:
         if state.y.size:
             state.audio_sha16 = compute_audio_sha16(state.y)
