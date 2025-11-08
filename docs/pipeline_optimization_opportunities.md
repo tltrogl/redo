@@ -33,3 +33,44 @@ transform for every clip.
 The change shaves roughly one STFT (and associated magnitude reduction)
 per clip during preprocessing, which is significant for long-form audio
 where the FFT is among the most expensive CPU steps.
+
+## Dependency health caching and concurrency
+
+- `dependency_health_summary` now memoises the computed dependency snapshot
+  between pipeline runs and returns defensive copies, so repeated workers no
+  longer re-import every dependency per file while still allowing explicit
+  refreshes when the environment changes.【F:src/diaremot/pipeline/config.py†L314-L487】
+- `_iter_dependency_status` fans out the metadata lookups through a bounded
+  thread pool, overlapping `importlib.metadata` fetches while maintaining
+  deterministic ordering and falling back to sequential enumeration if the
+  executor cannot start.【F:src/diaremot/pipeline/config.py†L347-L395】
+- The `diagnostics` helper now forces a refreshed summary before reporting so
+  interactive CLI checks continue to surface the latest dependency state even
+  when caching is enabled elsewhere in the pipeline.【F:src/diaremot/pipeline/config.py†L501-L509】
+
+## Preprocess cache streaming and upgrades
+
+- Preprocessed audio is now stored as a standalone float32 `.npy` file with
+  metadata in `preprocessed.meta.json`, allowing cache hits to memory-map PCM
+  without duplicating multi-hour clips in RAM.【F:src/diaremot/pipeline/stages/preprocess.py†L40-L222】
+- Legacy `.npz` caches are automatically upgraded the first time they are read,
+  so existing deployments benefit from the new layout without manual cleanup.
+- Cache writes atomically stream through a temporary file to avoid
+  partial artefacts when workers exit unexpectedly.【F:src/diaremot/pipeline/stages/preprocess.py†L224-L279】
+
+## Diarisation cache compaction
+
+- Cached diarisation turns now record embeddings in a separate
+  `diar_embeddings.npz` file and only persist lightweight timing/label data in
+  JSON, significantly reducing resume overhead for large meetings.【F:src/diaremot/pipeline/stages/diarize.py†L1-L209】
+- Resume paths rehydrate embeddings on demand, preserving downstream speaker
+  recognition behaviour while avoiding redundant JSON decoding.【F:src/diaremot/pipeline/stages/diarize.py†L82-L123】
+
+## Transcription resume fast path
+
+- The ASR stage short-circuits immediately when a matching `tx.json` cache is
+  present, bypassing the turn-to-segment reconstruction that previously ran on
+  every invocation.【F:src/diaremot/pipeline/stages/asr.py†L52-L120】
+- Fresh transcriptions keep the asynchronous execution path but reuse a single
+  normalisation routine, eliminating duplicated per-segment conversions when
+  writing caches.【F:src/diaremot/pipeline/stages/asr.py†L122-L193】
