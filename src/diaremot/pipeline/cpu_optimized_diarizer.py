@@ -42,6 +42,11 @@ class CPUOptimizedSpeakerDiarizer:
         self.config = config
         self.logger = logging.getLogger(__name__)
         self._last_segments: list[dict[str, Any]] = []
+        self._last_vad_stats: dict[str, float] = {
+            "vad_boundary_flips": 0.0,
+            "speech_regions": 0.0,
+            "analyzed_duration_sec": 0.0,
+        }
 
     # ------------------------------------------------------------------
     # Helpers
@@ -93,6 +98,11 @@ class CPUOptimizedSpeakerDiarizer:
 
             audio = audio.astype(np.float32, copy=False)
             segments: list[dict[str, Any]] = []
+            aggregated_vad = {
+                "vad_boundary_flips": 0.0,
+                "speech_regions": 0.0,
+                "analyzed_duration_sec": 0.0,
+            }
 
             for start, end in self._chunks(audio, sr):
                 chunk = audio[start:end]
@@ -102,6 +112,16 @@ class CPUOptimizedSpeakerDiarizer:
 
                 offset = start / sr
                 result = self.base_diarizer.diarize_audio(chunk, sr)
+                stats_getter = getattr(self.base_diarizer, "get_vad_statistics", None)
+                if callable(stats_getter):
+                    try:
+                        stats = stats_getter()
+                    except Exception:
+                        stats = None
+                    if isinstance(stats, dict):
+                        aggregated_vad["vad_boundary_flips"] += float(stats.get("vad_boundary_flips", 0.0))
+                        aggregated_vad["speech_regions"] += float(stats.get("speech_regions", 0.0))
+                        aggregated_vad["analyzed_duration_sec"] += float(stats.get("analyzed_duration_sec", 0.0))
                 # Robustly coerce segments to dictionaries and skip invalid items
                 if isinstance(result, Mapping):
                     result_iter = [result]
@@ -180,11 +200,17 @@ class CPUOptimizedSpeakerDiarizer:
                 segments = [s for s in segments if s["speaker"] in top]
 
             self._last_segments = segments
+            self._last_vad_stats = aggregated_vad
             return segments
         except Exception as e:  # pragma: no cover - fallback behaviour
             self.logger.warning(f"CPU-optimized diarization failed: {e}")
             duration = len(audio) / sr if audio is not None else 0.0
             self._last_segments = [{"start": 0.0, "end": duration, "speaker": "Speaker_1"}]
+            self._last_vad_stats = {
+                "vad_boundary_flips": 0.0,
+                "speech_regions": 0.0,
+                "analyzed_duration_sec": float(duration),
+            }
             return self._last_segments
 
     # ------------------------------------------------------------------
@@ -200,3 +226,8 @@ class CPUOptimizedSpeakerDiarizer:
             for s in self._last_segments
             if s.get("embedding") is not None
         ]
+
+    def get_vad_statistics(self) -> dict[str, float]:
+        """Expose aggregated VAD diagnostics from chunked runs."""
+
+        return dict(self._last_vad_stats)

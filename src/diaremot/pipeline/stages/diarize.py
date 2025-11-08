@@ -107,6 +107,40 @@ def _speaker_metrics(turns: list[dict[str, Any]]) -> tuple[int, int]:
     return len(speakers), len(turns)
 
 
+def _extract_vad_flips(stats: Any) -> float:
+    if not isinstance(stats, dict):
+        return 0.0
+    for key in ("vad_boundary_flips", "vad_flip_count", "vad_flips"):
+        if key in stats:
+            try:
+                return float(stats[key])
+            except (TypeError, ValueError):
+                continue
+    return 0.0
+
+
+def _coerce_vad_stats(stats: Any) -> dict[str, float]:
+    if not isinstance(stats, dict):
+        return {}
+    result: dict[str, float] = {}
+    for key in ("vad_boundary_flips", "speech_regions", "analyzed_duration_sec"):
+        if key in stats:
+            try:
+                result[key] = float(stats[key])
+            except (TypeError, ValueError):
+                continue
+    return result
+
+
+def _is_vad_unstable(vad_flips: float, duration_s: float) -> bool:
+    try:
+        flips = float(vad_flips)
+        minutes = max(1, int(duration_s / 60) or 1)
+    except (TypeError, ValueError):
+        return False
+    return (flips / minutes) > 60.0
+
+
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     turns: list[dict[str, Any]] = []
     duration_s = state.duration_s
@@ -156,18 +190,16 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 message="Cached diar.json has 0 turns; proceeding with fallback",
             )
             turns = [_fallback_turn(duration_s)]
-        vad_toggles = 0
-        try:
-            vad_toggles = sum(1 for t in turns if t.get("is_boundary_flip"))
-        except (TypeError, AttributeError):
-            vad_toggles = 0
-        state.vad_unstable = (vad_toggles / max(1, int(duration_s / 60) or 1)) > 60
+        cached_stats = _coerce_vad_stats(state.diar_cache.get("diagnostics"))
+        cached_flips = _extract_vad_flips(cached_stats)
+        state.vad_unstable = _is_vad_unstable(cached_flips, duration_s)
         speakers_est, turn_count = _speaker_metrics(turns)
         guard.progress(
             f"resume (diar cache) estimated {speakers_est} speakers across {turn_count} turns",
         )
         guard.done(turns=turn_count, speakers_est=speakers_est)
     else:
+        vad_stats: dict[str, float] = {}
         try:
             turns = pipeline.diar.diarize_audio(state.y, state.sr) or []
         except (
@@ -188,13 +220,14 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         if not turns:
             pipeline.corelog.stage("diarize", "warn", message="Diarizer returned 0 turns; using fallback")
             turns = [_fallback_turn(duration_s)]
-
-        vad_toggles = 0
-        try:
-            vad_toggles = sum(1 for t in turns if t.get("is_boundary_flip"))
-        except (TypeError, AttributeError):
-            vad_toggles = 0
-        state.vad_unstable = (vad_toggles / max(1, int(duration_s / 60) or 1)) > 60
+        stats_getter = getattr(pipeline.diar, "get_vad_statistics", None)
+        if callable(stats_getter):
+            try:
+                vad_stats = _coerce_vad_stats(stats_getter())
+            except Exception:
+                vad_stats = {}
+        flip_count = _extract_vad_flips(vad_stats)
+        state.vad_unstable = _is_vad_unstable(flip_count, duration_s)
         speakers_est, turn_count = _speaker_metrics(turns)
         guard.progress(f"estimated {speakers_est} speakers across {turn_count} turns")
         guard.done(turns=turn_count, speakers_est=speakers_est)
@@ -209,6 +242,8 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     "turns": turns_json,
                     "saved_at": time.time(),
                 }
+                if vad_stats:
+                    payload["diagnostics"] = vad_stats
                 atomic_write_json(state.cache_dir / "diar.json", payload)
                 if embeddings is not None:
                     np.savez_compressed(

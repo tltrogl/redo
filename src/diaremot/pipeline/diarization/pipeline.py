@@ -98,6 +98,11 @@ class SpeakerDiarizer:
             except Exception as exc:
                 logger.warning("Registry unavailable: %s", exc)
         self._last_turns: list[DiarizedTurn] = []
+        self._last_vad_stats: dict[str, float] = {
+            "vad_boundary_flips": 0.0,
+            "speech_regions": 0.0,
+            "analyzed_duration_sec": 0.0,
+        }
 
     def get_segment_embeddings(self) -> list[dict[str, Any]]:
         return [
@@ -106,8 +111,18 @@ class SpeakerDiarizer:
             if t.embedding is not None
         ]
 
+    def get_vad_statistics(self) -> dict[str, float]:
+        """Return diagnostics collected during the most recent VAD pass."""
+
+        return dict(self._last_vad_stats)
+
     def diarize_audio(self, wav: np.ndarray, sr: int) -> list[dict[str, Any]]:
         self._last_turns = []
+        self._last_vad_stats = {
+            "vad_boundary_flips": 0.0,
+            "speech_regions": 0.0,
+            "analyzed_duration_sec": 0.0,
+        }
         if wav is None or wav.size == 0:
             return []
         if wav.ndim > 1:
@@ -118,6 +133,7 @@ class SpeakerDiarizer:
         else:
             wav = wav.astype(np.float32)
         duration_sec = float(len(wav)) / float(sr or 1)
+        self._last_vad_stats["analyzed_duration_sec"] = duration_sec
         try:
             logger.info(
                 "[diarize] processing %.1f minutes of audio (sr=%d)", duration_sec / 60.0, sr
@@ -134,7 +150,12 @@ class SpeakerDiarizer:
             )
         if not speech_regions:
             logger.warning("No speech detected by VAD")
+            self._last_vad_stats["vad_boundary_flips"] = 0.0
+            self._last_vad_stats["speech_regions"] = 0.0
             return []
+        region_count = float(len(speech_regions))
+        self._last_vad_stats["speech_regions"] = region_count
+        self._last_vad_stats["vad_boundary_flips"] = region_count
         speech_total = sum(max(0.0, end - start) for start, end in speech_regions)
         try:
             coverage = (speech_total / duration_sec * 100.0) if duration_sec else 0.0
