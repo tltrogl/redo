@@ -552,10 +552,17 @@ PipelineState:
 2. Write JSONL segments
 3. Write timeline CSV
 4. Write human-readable transcript
-5. Generate HTML summary with interactivity
-6. Generate PDF summary (if wkhtmltopdf available)
-7. Write QC report with processing stats
-8. Write speaker summary CSV
+5. Persist analytics CSVs:
+   - `conversation_metrics.csv` (one row per run)
+   - `overlap_summary.csv`
+   - `interruptions_by_speaker.csv`
+   - `audio_health.csv`
+   - `background_sed_summary.csv`
+   - `moments_to_review.csv`
+6. Generate HTML summary with interactivity
+7. Generate PDF summary (if wkhtmltopdf available)
+8. Write QC report with processing stats
+9. Write speaker summary CSV
 
 **Output:**
 ```python
@@ -572,6 +579,12 @@ manifest: dict
       "summary_pdf": str,          # summary.pdf
       "qc_report": str,            # qc_report.json
       "speakers_summary": str,     # speakers_summary.csv
+      "conversation_metrics_csv": str,   # conversation_metrics.csv
+      "overlap_summary_csv": str,        # overlap_summary.csv
+      "interruptions_by_speaker_csv": str,  # interruptions_by_speaker.csv
+      "audio_health_csv": str,           # audio_health.csv
+      "background_sed_summary_csv": str, # background_sed_summary.csv
+      "moments_to_review_csv": str,      # moments_to_review.csv
       "events_timeline": str?,     # events_timeline.csv (if SED ran)
       "events_jsonl": str?,        # events.jsonl (if SED ran)
       "speaker_registry": str,     # speaker_registry.json
