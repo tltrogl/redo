@@ -7,6 +7,7 @@ import math
 from bisect import bisect_left
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -140,6 +141,41 @@ def _estimate_snr_db_from_noise(noise_score: Any) -> float | None:
     return snr
 
 
+def _load_timeline_events(sed_payload: dict[str, Any]) -> list[Any]:
+    """Load timeline events on demand from the SED payload."""
+
+    if not isinstance(sed_payload, dict):
+        return []
+
+    direct = sed_payload.get("timeline_events")
+    if isinstance(direct, list):
+        return direct
+
+    events_path = sed_payload.get("timeline_events_path")
+    if not events_path:
+        return []
+
+    try:
+        path_obj = Path(events_path)
+    except (TypeError, ValueError):
+        return []
+
+    try:
+        with path_obj.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return []
+
+    if isinstance(payload, dict):
+        data = payload.get("events")
+        if isinstance(data, list):
+            return data
+    elif isinstance(payload, list):
+        return payload
+
+    return []
+
+
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     segments_final: list[dict[str, Any]] = []
 
@@ -149,9 +185,22 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         return
 
     sed_payload = state.sed_info or {}
-    timeline_events = []
+    timeline_events: list[Any] = []
     if isinstance(sed_payload, dict):
-        timeline_events = sed_payload.get("timeline_events") or []
+        if isinstance(sed_payload.get("timeline_events"), list):
+            timeline_events = sed_payload["timeline_events"]
+        else:
+            path_hint = sed_payload.get("timeline_events_path")
+            if path_hint:
+                count = sed_payload.get("timeline_event_count")
+                should_load = True
+                if count is not None:
+                    try:
+                        should_load = int(count) > 0
+                    except (TypeError, ValueError):
+                        should_load = True
+                if should_load:
+                    timeline_events = _load_timeline_events(sed_payload)
     timeline_index = _build_timeline_index(timeline_events)
 
     audio_windows = _SegmentAudioFactory(state.y)
@@ -232,6 +281,15 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "vq_cpps_db": pm.get("vq_cpps_db"),
             "voice_quality_hint": pm.get("vq_note"),
             "error_flags": seg.get("error_flags", ""),
+        }
+
+        row["_affect_payload"] = {
+            "speech_top": speech_emotion.get("top"),
+            "speech_scores": speech_emotion.get("scores_8class"),
+            "text_full": text_emotions.get("full_28class"),
+            "text_top": text_emotions.get("top5"),
+            "intent_top": intent.get("top"),
+            "intent_top3": intent.get("top3"),
         }
 
         events_top = []
