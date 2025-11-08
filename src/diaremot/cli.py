@@ -43,7 +43,7 @@ def _core():
         return import_module("audio_pipeline_core")
 
 
-def core_build_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+def core_build_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     return _core().build_pipeline_config(overrides)
 
 
@@ -65,13 +65,13 @@ def core_run_pipeline(*args: Any, **kwargs: Any) -> dict[str, Any]:
 
 
 def _common_overrides(
-    speaker_limit: int | None,
+    speaker_limit: Optional[int],
     vad_backend: str,
-    vad_threshold: float | None,
-    vad_min_speech_sec: float | None,
-    vad_min_silence_sec: float | None,
-    vad_speech_pad_sec: float | None,
-    asr_cpu_threads: int | None,
+    vad_threshold: Optional[float],
+    vad_min_speech_sec: Optional[float],
+    vad_min_silence_sec: Optional[float],
+    vad_speech_pad_sec: Optional[float],
+    asr_cpu_threads: Optional[int],
 ) -> dict[str, Any]:
     overrides: dict[str, Any] = {
         "speaker_limit": speaker_limit,
@@ -95,21 +95,21 @@ def _common_overrides(
 )
 def core(
     input: Path = typer.Argument(..., exists=True, readable=True, help="Input audio file"),
-    outdir: Path | None = typer.Option(
+    outdir: Optional[Path] = typer.Option(
         None, help="Output directory (defaults to <parent>/outs/<stem>)"
     ),
-    model_root: Path | None = typer.Option(
+    model_root: Optional[Path] = typer.Option(
         None, help="Primary model root (overrides DIAREMOT_MODEL_DIR)"
     ),
-    speaker_limit: int | None = typer.Option(
+    speaker_limit: Optional[int] = typer.Option(
         4, help="Bound the number of speakers (None to disable)"
     ),
     vad_backend: str = typer.Option("onnx", help="VAD backend", case_sensitive=False),
-    vad_threshold: float | None = typer.Option(0.22, help="Silero VAD threshold (0-1)"),
-    vad_min_speech_sec: float | None = typer.Option(0.25, help="Minimum speech duration (s)"),
-    vad_min_silence_sec: float | None = typer.Option(0.25, help="Minimum silence duration (s)"),
-    vad_speech_pad_sec: float | None = typer.Option(0.20, help="Pad around detected speech (s)"),
-    asr_cpu_threads: int | None = typer.Option(None, help="CPU threads for ASR backend"),
+    vad_threshold: Optional[float] = typer.Option(0.22, help="Silero VAD threshold (0-1)"),
+    vad_min_speech_sec: Optional[float] = typer.Option(0.25, help="Minimum speech duration (s)"),
+    vad_min_silence_sec: Optional[float] = typer.Option(0.25, help="Minimum silence duration (s)"),
+    vad_speech_pad_sec: Optional[float] = typer.Option(0.20, help="Pad around detected speech (s)"),
+    asr_cpu_threads: Optional[int] = typer.Option(None, help="CPU threads for ASR backend"),
     async_transcription: bool = typer.Option(
         False,
         "--async-asr",
@@ -136,7 +136,7 @@ def core(
     )
     overrides["enable_async_transcription"] = bool(async_transcription)
     manifest = core_run_pipeline(str(input), str(target_out), config=overrides)
-    typer.echo(_make_json_safe(manifest))
+    typer.echo(json.dumps(_make_json_safe(manifest), indent=2))
 
 
 @app.command(
@@ -146,10 +146,10 @@ def enrich(
     input: Path = typer.Argument(
         ..., exists=True, readable=True, help="Input audio file (same as core pass)"
     ),
-    outdir: Path | None = typer.Option(
+    outdir: Optional[Path] = typer.Option(
         None, help="Output directory (defaults to <parent>/outs/<stem>_enrich)"
     ),
-    model_root: Path | None = typer.Option(
+    model_root: Optional[Path] = typer.Option(
         None, help="Primary model root (overrides DIAREMOT_MODEL_DIR)"
     ),
     enable_sed: bool = typer.Option(True, help="Enable background SED during enrichment"),
@@ -165,8 +165,8 @@ def enrich(
         "ignore_tx_cache": False,
     }
     manifest = core_run_pipeline(str(input), str(target_out), config=overrides)
-    typer.echo(_make_json_safe(manifest))
-    return _core().run_pipeline(*args, **kwargs)
+    typer.echo(json.dumps(_make_json_safe(manifest), indent=2))
+    return manifest
 
 
 BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
@@ -192,13 +192,13 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
-def _apply_model_root(model_root: Path | None) -> None:
+def _apply_model_root(model_root: Optional[Path]) -> None:
     if model_root is None:
         return
     set_primary_model_root(Path(model_root))
 
 
-def _load_profile(profile: str | None) -> dict[str, Any]:
+def _load_profile(profile: Optional[str]) -> dict[str, Any]:
     if not profile:
         return {}
 
@@ -221,7 +221,7 @@ def _load_profile(profile: str | None) -> dict[str, Any]:
     return data
 
 
-def _normalise_path(value: Path | None) -> str | None:
+def _normalise_path(value: Optional[Path]) -> Optional[str]:
     if value is None:
         return None
     return str(value.expanduser().resolve())
@@ -233,7 +233,7 @@ def _default_outdir_for_input(input_path: Path) -> Path:
     return base_dir / "outs" / expanded.stem
 
 
-def _parse_min_dur_map(value: str | None) -> dict[str, float] | None:
+def _parse_min_dur_map(value: Optional[str]) -> Optional[dict[str, float]]:
     if value is None:
         return None
     text = value.strip()
@@ -395,7 +395,7 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
     return overrides
 
 
-def _assemble_config(profile: str | None, cli_overrides: dict[str, Any]) -> dict[str, Any]:
+def _assemble_config(profile: Optional[str], cli_overrides: dict[str, Any]) -> dict[str, Any]:
     profile_overrides = _load_profile(profile)
     merged = _merge_configs(profile_overrides, _common_options(**cli_overrides))
     return core_build_config(merged)
@@ -405,7 +405,7 @@ def _generate_sample_audio(
     target: Path,
     duration: float,
     sample_rate: int,
-    ffmpeg_bin: str | None = None,
+    ffmpeg_bin: Optional[str] = None,
 ) -> str:
     """Generate a sine-wave sample clip for smoke testing."""
 
@@ -464,23 +464,23 @@ def _generate_sample_audio(
 
 @app.command()
 def run(
-    audio_file: str | None = typer.Argument(
+    audio_file: Optional[str] = typer.Argument(
         None,
         help="Optional audio file name relative to the default input directory ('audio/').",
     ),
-    input: Path | None = typer.Option(
+    input: Optional[Path] = typer.Option(
         None,
         "--input",
         "-i",
         help="Path to input audio file. If omitted, defaults to 'audio/<audio_file>' when an audio file argument is provided.",
     ),
-    outdir: Path | None = typer.Option(
+    outdir: Optional[Path] = typer.Option(
         None,
         "--outdir",
         "-o",
         help="Directory to write outputs. Defaults to '<input parent>/outs/<input stem>' when omitted.",
     ),
-    profile: str | None = typer.Option(
+    profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -491,12 +491,12 @@ def run(
     ahc_distance_threshold: float = typer.Option(
         0.15, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
+    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     clustering_backend: str = typer.Option("ahc", help="Clustering backend: 'ahc' or 'spectral'."),
-    min_speakers: int | None = typer.Option(
+    min_speakers: Optional[int] = typer.Option(
         None, help="Minimum speakers (for spectral clustering)."
     ),
-    max_speakers: int | None = typer.Option(
+    max_speakers: Optional[int] = typer.Option(
         None, help="Maximum speakers (for spectral clustering)."
     ),
     whisper_model: str = typer.Option(
@@ -511,7 +511,7 @@ def run(
         help="Enable asynchronous transcription engine.",
         is_flag=True,
     ),
-    language: str | None = typer.Option(None, help="Override ASR language"),
+    language: Optional[str] = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     ignore_tx_cache: bool = typer.Option(
         False,
@@ -532,16 +532,16 @@ def run(
         is_flag=True,
     ),
     affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Path | None = typer.Option(
+    affect_text_model_dir: Optional[Path] = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Path | None = typer.Option(
+    affect_intent_model_dir: Optional[Path] = typer.Option(
         None, help="Path to intent model directory."
     ),
-    affect_ser_model_dir: Path | None = typer.Option(
+    affect_ser_model_dir: Optional[Path] = typer.Option(
         None, help="Path to speech emotion model directory."
     ),
-    affect_vad_model_dir: Path | None = typer.Option(
+    affect_vad_model_dir: Optional[Path] = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -564,12 +564,12 @@ def run(
     sed_hop_sec: float = typer.Option(0.5, help="Timeline SED hop length (seconds)."),
     sed_enter: float = typer.Option(0.50, help="Timeline SED hysteresis enter threshold."),
     sed_exit: float = typer.Option(0.35, help="Timeline SED hysteresis exit threshold."),
-    sed_min_dur: str | None = typer.Option(
+    sed_min_dur: Optional[str] = typer.Option(
         None,
         help="JSON or comma list mapping collapsed labels to minimum event duration seconds.",
     ),
     sed_merge_gap: float = typer.Option(0.20, help="Merge SED events separated by <= gap seconds."),
-    sed_classmap: Path | None = typer.Option(
+    sed_classmap: Optional[Path] = typer.Option(
         None,
         help="Optional CSV mapping AudioSet labels to collapsed groups for timeline SED.",
     ),
@@ -579,7 +579,7 @@ def run(
         help="Write per-frame SED debug JSONL alongside events timeline.",
         is_flag=True,
     ),
-    chunk_enabled: bool | None = typer.Option(
+    chunk_enabled: Optional[bool] = typer.Option(
         None,
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
@@ -609,7 +609,7 @@ def run(
         help="Enable CPU optimised diarizer wrapper.",
         is_flag=True,
     ),
-    model_root: Path | None = typer.Option(
+    model_root: Optional[Path] = typer.Option(
         None,
         "--model-root",
         help="Override the primary models directory for this run.",
@@ -727,7 +727,7 @@ def smoke(
     outdir: Path = typer.Option(
         ..., "--outdir", "-o", help="Directory to write smoke test outputs."
     ),
-    profile: str | None = typer.Option(
+    profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Optional configuration profile ({', '.join(BUILTIN_PROFILES)} or path).",
@@ -740,7 +740,7 @@ def smoke(
         help="Include affect stages during the smoke test.",
         is_flag=True,
     ),
-    ffmpeg_bin: Path | None = typer.Option(
+    ffmpeg_bin: Optional[Path] = typer.Option(
         None,
         "--ffmpeg-bin",
         help="Explicit ffmpeg binary to synthesise the audio (defaults to PATH lookup).",
@@ -751,7 +751,7 @@ def smoke(
         help="Retain the generated sample WAV after the run completes.",
         is_flag=True,
     ),
-    model_root: Path | None = typer.Option(
+    model_root: Optional[Path] = typer.Option(
         None,
         "--model-root",
         help="Override the primary models directory for this smoke run.",
@@ -821,13 +821,13 @@ def smoke(
 @app.command()
 def resume(
     input: Path = typer.Option(..., "--input", "-i", help="Original input audio file."),
-    outdir: Path | None = typer.Option(
+    outdir: Optional[Path] = typer.Option(
         None,
         "--outdir",
         "-o",
         help="Output directory used in the previous run. Defaults to '<input parent>/outs/<input stem>'.",
     ),
-    profile: str | None = typer.Option(
+    profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -838,14 +838,14 @@ def resume(
     ahc_distance_threshold: float = typer.Option(
         0.15, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
+    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(
         str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("int8", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: str | None = typer.Option(None, help="Override ASR language"),
+    language: Optional[str] = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     quiet: bool = typer.Option(
         False,
@@ -860,16 +860,16 @@ def resume(
         is_flag=True,
     ),
     affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Path | None = typer.Option(
+    affect_text_model_dir: Optional[Path] = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Path | None = typer.Option(
+    affect_intent_model_dir: Optional[Path] = typer.Option(
         None, help="Path to intent model directory."
     ),
-    affect_ser_model_dir: Path | None = typer.Option(
+    affect_ser_model_dir: Optional[Path] = typer.Option(
         None, help="Path to speech emotion model directory."
     ),
-    affect_vad_model_dir: Path | None = typer.Option(
+    affect_vad_model_dir: Optional[Path] = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -881,7 +881,7 @@ def resume(
         help="Enable gentle noise reduction.",
         is_flag=True,
     ),
-    chunk_enabled: bool | None = typer.Option(
+    chunk_enabled: Optional[bool] = typer.Option(
         None,
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
@@ -911,7 +911,7 @@ def resume(
         help="Enable CPU optimised diarizer wrapper.",
         is_flag=True,
     ),
-    model_root: Path | None = typer.Option(
+    model_root: Optional[Path] = typer.Option(
         None,
         "--model-root",
         help="Override the primary models directory for this resume run.",
@@ -962,7 +962,6 @@ def resume(
         "vad_min_silence_sec": vad_min_silence_sec,
         "vad_speech_pad_sec": vad_speech_pad_sec,
         "vad_backend": vad_backend,
-        "enable_sed": enable_sed,
         "disable_energy_vad_fallback": disable_energy_vad_fallback,
         "energy_gate_db": energy_gate_db,
         "energy_hop_sec": energy_hop_sec,
@@ -988,7 +987,7 @@ def resume(
 
 @app.command()
 def diagnostics(
-    model_root: Path | None = typer.Option(
+    model_root: Optional[Path] = typer.Option(
         None,
         "--model-root",
         help="Override the primary models directory before diagnostics.",

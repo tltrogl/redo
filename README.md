@@ -606,6 +606,10 @@ diaremot run sample1.mp3 --disable-sed --disable-affect
 # Resume from checkpoint
 diaremot resume --input audio/sample1.mp3
 
+# Two-phase run: core pass then enrichment using cached diarization/ASR
+diaremot core audio/sample1.mp3 --outdir outputs/core_pass
+diaremot enrich audio/sample1.mp3 --outdir outputs/core_pass_enrich
+
 # Clear cache before run
 diaremot run sample1.mp3 --clear-cache
 
@@ -915,6 +919,10 @@ diaremot run -i audio.wav -o out/ --ahc-distance-threshold 0.20
 diaremot run -i audio.wav -o out/ --vad-speech-pad-sec 0.30
 ```
 
+> **Tip:** Strongly single-speaker clips (for example, the bundled `data/sample2.mp3`) may require a much higher agglomerative
+> distance threshold. Setting `--ahc-distance-threshold 0.9` yielded a natural single-speaker diarization without relying on
+> `--speaker-limit`; see [`docs/runs/sample2_pipeline_run.md`](docs/runs/sample2_pipeline_run.md) for the full tuning log.
+
 **Slow processing**
 ```bash
 # Use int8 quantization
@@ -936,6 +944,13 @@ diaremot run -i long_audio.wav -o out/ \
     --chunk-threshold-minutes 15.0 \
     --chunk-size-minutes 10.0 \
     --chunk-overlap-seconds 20.0
+```
+
+**`RuntimeError: Type not yet supported: <type> | None` when launching the CLI**
+```bash
+# Typer < 0.12 cannot introspect PEP 604 optional hints.
+# All bundled commands now annotate optionals with `typing.Optional[...]`.
+# If you add new CLI options, follow the same pattern or upgrade Typer.
 ```
 
 ### Debug Logging
