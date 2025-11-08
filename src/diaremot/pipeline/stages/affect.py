@@ -51,9 +51,11 @@ class _SegmentAudioWindow:
     def is_empty(self) -> bool:
         return self.end <= self.start
 
-    def as_array(self, *, dtype: np.dtype | None = np.float32, copy: bool = False) -> np.ndarray:
+    def as_array(self, *, dtype: np.dtype | None = None, copy: bool = False) -> np.ndarray:
         """Return a NumPy view of the window, avoiding copies when possible."""
 
+        if dtype is None:
+            dtype = np.float32
         if self._cached is None:
             self._cached = self._source[self.start : self.end]
 
@@ -96,7 +98,9 @@ class _SegmentAudioFactory:
             self._source = source
         else:  # pragma: no cover - defensive
             self._source = np.asarray(source, dtype=np.float32)
-        self._memory = memoryview(self._source) if self._source.ndim == 1 and self._source.size else None
+        if self._source.ndim != 1:
+            raise ValueError(f"Expected 1D audio array, got shape {self._source.shape}")
+        self._memory = memoryview(self._source) if self._source.size else None
 
     def segment(self, start: int, end: int) -> _SegmentAudioWindow:
         return _SegmentAudioWindow(self._source, self._memory, start, end)

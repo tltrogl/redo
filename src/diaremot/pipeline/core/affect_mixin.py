@@ -31,6 +31,8 @@ def _normalize_waveform_input(wav: Any) -> np.ndarray | None:
     if hasattr(wav, "__array__"):
         return np.asarray(wav, dtype=np.float32)
 
+    if isinstance(wav, str):
+        raise TypeError(f"Expected audio data, got string: {wav!r}")
     if isinstance(wav, Iterable):
         return np.fromiter((float(value) for value in wav), dtype=np.float32)
 
