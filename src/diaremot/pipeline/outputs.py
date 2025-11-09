@@ -413,9 +413,9 @@ def write_conversation_metrics_csv(
             payload = dict(metrics)
         else:
             payload = {
-                key: getattr(metrics, key)
+                key: attr
                 for key in dir(metrics)
-                if not key.startswith("_") and not callable(getattr(metrics, key))
+                if not key.startswith("_") and not callable((attr := getattr(metrics, key)))
             }
 
         for key in [
