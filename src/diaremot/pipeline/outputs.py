@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import csv
 import json
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from .logging_utils import RunStats, _make_json_safe
 
@@ -362,6 +363,336 @@ def write_speakers_summary(path: Path, rows: list[dict[str, Any]]) -> None:
             writer.writerow({key: row.get(key, None) for key in headers})
 
 
+def _safe_json(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        try:
+            return json.dumps(_make_json_safe(value), ensure_ascii=False, sort_keys=True)
+        except Exception:
+            return "{}"
+
+
+def write_conversation_metrics_csv(
+    path: Path,
+    metrics: Any,
+    *,
+    file_id: str | None = None,
+    duration_s: float | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = [
+        "file_id",
+        "turn_taking_balance",
+        "interruption_rate_per_min",
+        "avg_turn_duration_sec",
+        "conversation_pace_turns_per_min",
+        "silence_ratio",
+        "topic_coherence_score",
+        "duration_s",
+        "speaker_dominance_json",
+        "response_latency_stats_json",
+        "energy_flow_json",
+        "interruptions_per_speaker_json",
+    ]
+
+    row: dict[str, Any] = {key: None for key in headers}
+    row["file_id"] = file_id or ""
+    row["duration_s"] = duration_s
+    row["speaker_dominance_json"] = "{}"
+    row["response_latency_stats_json"] = "{}"
+    row["energy_flow_json"] = "[]"
+    row["interruptions_per_speaker_json"] = "{}"
+
+    if metrics is not None:
+        if is_dataclass(metrics):
+            payload = asdict(metrics)
+        elif isinstance(metrics, dict):
+            payload = dict(metrics)
+        else:
+            payload = {
+                key: attr
+                for key in dir(metrics)
+                if not key.startswith("_") and not callable((attr := getattr(metrics, key)))
+            }
+
+        for key in [
+            "turn_taking_balance",
+            "interruption_rate_per_min",
+            "avg_turn_duration_sec",
+            "conversation_pace_turns_per_min",
+            "silence_ratio",
+            "topic_coherence_score",
+        ]:
+            if key in payload:
+                row[key] = payload[key]
+
+        row["speaker_dominance_json"] = _safe_json(payload.get("speaker_dominance"))
+        row["response_latency_stats_json"] = _safe_json(
+            payload.get("response_latency_stats")
+        )
+        row["energy_flow_json"] = _safe_json(payload.get("energy_flow"))
+        row["interruptions_per_speaker_json"] = _safe_json(
+            payload.get("interruptions_per_speaker")
+        )
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        writer.writerow(row)
+
+
+def write_overlap_summary_csv(
+    path: Path,
+    overlap_stats: dict[str, Any] | None,
+    *,
+    file_id: str | None = None,
+    duration_s: float | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    total_sec = float(overlap_stats.get("overlap_total_sec", 0.0)) if overlap_stats else 0.0
+    ratio = float(overlap_stats.get("overlap_ratio", 0.0)) if overlap_stats else 0.0
+    ratio_pct = ratio * 100.0
+    normalized_ratio = None
+    if duration_s and duration_s > 0:
+        normalized_ratio = min(100.0, max(0.0, 100.0 * total_sec / duration_s))
+
+    headers = [
+        "file_id",
+        "overlap_total_sec",
+        "overlap_ratio",
+        "overlap_ratio_pct",
+        "conversation_duration_sec",
+        "overlap_vs_duration_pct",
+    ]
+    row = {
+        "file_id": file_id or "",
+        "overlap_total_sec": total_sec,
+        "overlap_ratio": ratio,
+        "overlap_ratio_pct": ratio_pct,
+        "conversation_duration_sec": duration_s,
+        "overlap_vs_duration_pct": normalized_ratio,
+    }
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        writer.writerow(row)
+
+
+def write_interruptions_csv(
+    path: Path,
+    per_speaker: dict[str, Any] | None,
+    *,
+    speaker_labels: dict[str, str] | None = None,
+    conv_metrics: Any = None,
+    file_id: str | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    rate_map: dict[str, Any] = {}
+    if conv_metrics is not None:
+        rate_payload: Any
+        if is_dataclass(conv_metrics):
+            rate_payload = asdict(conv_metrics).get("interruptions_per_speaker", {})
+        elif isinstance(conv_metrics, dict):
+            rate_payload = conv_metrics.get("interruptions_per_speaker", {})
+        else:
+            rate_payload = getattr(conv_metrics, "interruptions_per_speaker", {})
+        if isinstance(rate_payload, dict):
+            rate_map = {str(k): v for k, v in rate_payload.items()}
+
+    headers = [
+        "file_id",
+        "speaker_id",
+        "speaker_name",
+        "interruptions_made",
+        "interruptions_received",
+        "overlap_sec",
+        "interruptions_per_min",
+    ]
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+
+        if not per_speaker:
+            return
+
+        for speaker_id in sorted(per_speaker.keys(), key=str):
+            stats = per_speaker.get(speaker_id) or {}
+            sid = str(speaker_id)
+            row = {
+                "file_id": file_id or "",
+                "speaker_id": sid,
+                "speaker_name": (speaker_labels or {}).get(sid, ""),
+                "interruptions_made": stats.get("made", 0),
+                "interruptions_received": stats.get("received", 0),
+                "overlap_sec": stats.get("overlap_sec", 0.0),
+                "interruptions_per_min": rate_map.get(sid),
+            }
+            writer.writerow(row)
+
+
+def write_audio_health_csv(
+    path: Path,
+    health: Any,
+    *,
+    file_id: str | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = [
+        "file_id",
+        "snr_db",
+        "dynamic_range_db",
+        "silence_ratio",
+        "clipping_detected",
+        "rms_db",
+        "est_lufs",
+        "floor_clipping_ratio",
+        "is_chunked",
+    ]
+
+    row = {key: None for key in headers}
+    row["file_id"] = file_id or ""
+
+    if health is not None:
+        for key in [
+            "snr_db",
+            "dynamic_range_db",
+            "silence_ratio",
+            "clipping_detected",
+            "rms_db",
+            "est_lufs",
+            "floor_clipping_ratio",
+            "is_chunked",
+        ]:
+            if hasattr(health, key):
+                row[key] = getattr(health, key)
+            elif isinstance(health, dict) and key in health:
+                row[key] = health[key]
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        writer.writerow(row)
+
+
+def write_background_sed_summary_csv(
+    path: Path,
+    sed_info: dict[str, Any] | None,
+    *,
+    file_id: str | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = [
+        "file_id",
+        "enabled",
+        "noise_score",
+        "dominant_label",
+        "top_label",
+        "top_label_score",
+        "top_labels_json",
+        "timeline_event_count",
+        "timeline_csv",
+        "timeline_jsonl",
+        "timeline_mode",
+        "timeline_inference_mode",
+        "timeline_events_path",
+    ]
+
+    row: dict[str, Any] = {key: None for key in headers}
+    row["file_id"] = file_id or ""
+
+    if sed_info:
+        row["enabled"] = sed_info.get("enabled")
+        row["noise_score"] = sed_info.get("noise_score")
+        row["dominant_label"] = sed_info.get("dominant_label")
+        top = sed_info.get("top") or []
+        top_label = None
+        top_score = None
+        if isinstance(top, list) and top:
+            candidate = top[0]
+            if isinstance(candidate, dict):
+                top_label = candidate.get("label") or candidate.get("name")
+                top_score = candidate.get("score") or candidate.get("weight")
+            elif isinstance(candidate, (list, tuple)) and candidate:
+                top_label = candidate[0]
+                top_score = candidate[1] if len(candidate) > 1 else None
+        row["top_label"] = top_label
+        row["top_label_score"] = top_score
+        row["top_labels_json"] = _safe_json(top)
+        row["timeline_event_count"] = sed_info.get("timeline_event_count")
+        row["timeline_csv"] = sed_info.get("timeline_csv")
+        row["timeline_jsonl"] = sed_info.get("timeline_jsonl")
+        row["timeline_mode"] = sed_info.get("timeline_mode")
+        row["timeline_inference_mode"] = sed_info.get("timeline_inference_mode")
+        row["timeline_events_path"] = sed_info.get("timeline_events_path")
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        writer.writerow(row)
+
+
+def write_moments_csv(
+    path: Path,
+    moments: Iterable[dict[str, Any]] | None,
+    actions: Iterable[dict[str, Any]] | None,
+    *,
+    file_id: str | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = [
+        "file_id",
+        "kind",
+        "timestamp",
+        "speaker_id",
+        "speaker_name",
+        "arousal",
+        "intent",
+        "confidence",
+        "text",
+    ]
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+
+        def _write_rows(items: Iterable[dict[str, Any]], kind_override: str | None = None) -> None:
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                row = {
+                    "file_id": file_id or "",
+                    "kind": kind_override or item.get("type") or "moment",
+                    "timestamp": item.get("timestamp"),
+                    "speaker_id": item.get("speaker_id") or item.get("speaker"),
+                    "speaker_name": item.get("speaker_name"),
+                    "arousal": item.get("arousal"),
+                    "intent": item.get("intent"),
+                    "confidence": item.get("confidence"),
+                    "text": item.get("text") or item.get("description"),
+                }
+                writer.writerow(row)
+
+        if moments:
+            _write_rows(moments, kind_override="peak")
+        if actions:
+            _write_rows(actions, kind_override="action")
+
+
 __all__ = [
     "SEGMENT_COLUMNS",
     "default_affect",
@@ -373,4 +704,10 @@ __all__ = [
     "write_qc_report",
     "write_human_transcript",
     "write_speakers_summary",
+    "write_conversation_metrics_csv",
+    "write_overlap_summary_csv",
+    "write_interruptions_csv",
+    "write_audio_health_csv",
+    "write_background_sed_summary_csv",
+    "write_moments_csv",
 ]

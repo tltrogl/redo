@@ -165,6 +165,12 @@ Output Files:
 - **`timeline.csv`** – Simplified timeline for quick review
 - **`qc_report.json`** – Quality control metrics and processing diagnostics
 - **`summary.pdf`** – PDF version of HTML report (requires wkhtmltopdf and succeeds only when the dependency is installed)
+- **`conversation_metrics.csv`** – One-row summary of turn-taking balance, interruption rate, coherence, and latency metrics
+- **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration
+- **`interruptions_by_speaker.csv`** – Per-speaker interruption counts, received interruptions, and overlap seconds
+- **`audio_health.csv`** – Snapshot of preprocessing QA metrics (SNR, loudness, silence ratio, clipping flags)
+- **`background_sed_summary.csv`** – Ambient sound detection overview with dominant labels and timeline artifact references
+- **`moments_to_review.csv`** – High-arousal peaks and inferred action items with timestamps for rapid follow-up
 
 ---
 

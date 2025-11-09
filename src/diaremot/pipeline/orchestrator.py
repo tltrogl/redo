@@ -252,6 +252,21 @@ class AudioAnalysisPipelineV2(
             ),
         }
 
+        outputs.update(
+            {
+                "conversation_metrics_csv": str((outp / "conversation_metrics.csv").resolve()),
+                "overlap_summary_csv": str((outp / "overlap_summary.csv").resolve()),
+                "interruptions_by_speaker_csv": str(
+                    (outp / "interruptions_by_speaker.csv").resolve()
+                ),
+                "audio_health_csv": str((outp / "audio_health.csv").resolve()),
+                "background_sed_summary_csv": str(
+                    (outp / "background_sed_summary.csv").resolve()
+                ),
+                "moments_to_review_csv": str((outp / "moments_to_review.csv").resolve()),
+            }
+        )
+
         if state.sed_info:
             timeline_csv = state.sed_info.get("timeline_csv")
             if timeline_csv:
