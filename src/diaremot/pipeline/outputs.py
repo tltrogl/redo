@@ -448,8 +448,8 @@ def write_overlap_summary_csv(
     path: Path,
     overlap_stats: dict[str, Any] | None,
     *,
-    duration_s: float | None = None,
     file_id: str | None = None,
+    duration_s: float | None = None,
 ) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
