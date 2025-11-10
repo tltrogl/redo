@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any, Iterable
@@ -373,6 +374,68 @@ def _safe_json(value: Any) -> str:
             return "{}"
 
 
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        coerced = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(coerced):
+        return default
+    return coerced
+
+
+def _format_timestamp(seconds: float) -> str:
+    seconds = _coerce_float(seconds, 0.0)
+    if seconds < 0:
+        seconds = 0.0
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = seconds - hours * 3600 - minutes * 60
+    return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
+
+
+def _normalize_interruption_events(
+    events: Iterable[dict[str, Any]] | None,
+    speaker_labels: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    labels = speaker_labels or {}
+    for fallback_index, raw in enumerate(events or [], start=1):
+        if not isinstance(raw, dict):
+            continue
+
+        try:
+            index_val = int(raw.get("index", fallback_index))
+        except (TypeError, ValueError):
+            index_val = fallback_index
+
+        ts = _coerce_float(
+            raw.get("at", raw.get("timestamp_sec", raw.get("timestamp"))), 0.0
+        )
+        overlap_sec = _coerce_float(raw.get("overlap_sec"), 0.0)
+
+        interrupter = raw.get("interrupter", raw.get("interrupter_id"))
+        interrupter_id = "" if interrupter in (None, "") else str(interrupter)
+        interrupted = raw.get("interrupted", raw.get("interrupted_id"))
+        interrupted_id = "" if interrupted in (None, "") else str(interrupted)
+
+        normalized.append(
+            {
+                "index": index_val,
+                "timestamp_sec": ts,
+                "timestamp_hms": _format_timestamp(ts),
+                "interrupter_id": interrupter_id,
+                "interrupter_name": labels.get(interrupter_id, ""),
+                "interrupted_id": interrupted_id,
+                "interrupted_name": labels.get(interrupted_id, ""),
+                "overlap_sec": overlap_sec,
+            }
+        )
+
+    normalized.sort(key=lambda item: (item["timestamp_sec"], item["index"]))
+    return normalized
+
+
 def write_conversation_metrics_csv(
     path: Path,
     metrics: Any,
@@ -537,6 +600,61 @@ def write_interruptions_csv(
                 "interruptions_per_min": rate_map.get(sid),
             }
             writer.writerow(row)
+
+
+def write_interruption_events_csv(
+    path: Path,
+    events: Iterable[dict[str, Any]] | None,
+    *,
+    speaker_labels: dict[str, str] | None = None,
+    file_id: str | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = [
+        "file_id",
+        "index",
+        "timestamp_sec",
+        "timestamp_hms",
+        "interrupter_id",
+        "interrupter_name",
+        "interrupted_id",
+        "interrupted_name",
+        "overlap_sec",
+    ]
+
+    normalized = _normalize_interruption_events(events, speaker_labels=speaker_labels)
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        for item in normalized:
+            row = dict(item)
+            row["file_id"] = file_id or ""
+            writer.writerow(row)
+
+
+def write_interruption_events_json(
+    path: Path,
+    events: Iterable[dict[str, Any]] | None,
+    *,
+    speaker_labels: dict[str, str] | None = None,
+    file_id: str | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    normalized = _normalize_interruption_events(events, speaker_labels=speaker_labels)
+    payload = {
+        "file_id": file_id or "",
+        "count": len(normalized),
+        "events": normalized,
+    }
+
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
 
 def write_audio_health_csv(
@@ -707,6 +825,8 @@ __all__ = [
     "write_conversation_metrics_csv",
     "write_overlap_summary_csv",
     "write_interruptions_csv",
+    "write_interruption_events_csv",
+    "write_interruption_events_json",
     "write_audio_health_csv",
     "write_background_sed_summary_csv",
     "write_moments_csv",

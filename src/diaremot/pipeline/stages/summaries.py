@@ -26,6 +26,7 @@ __all__ = [
 def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     overlap_stats = {"overlap_total_sec": 0.0, "overlap_ratio": 0.0}
     per_speaker = {}
+    events: list[dict[str, str | float | int]] = []
     try:
         module = getattr(pipeline, "paralinguistics_module", None)
         if module and hasattr(module, "compute_overlap_and_interruptions"):
@@ -58,22 +59,46 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
             slot["made"] = made_val
             made_provided.add(key)
 
-        for item in overlap.get("interruptions", []) or []:
-            if not isinstance(item, dict):
-                continue
+        raw_events = overlap.get("interruptions") or []
+        if isinstance(raw_events, list):
+            for index, item in enumerate(raw_events, start=1):
+                if not isinstance(item, dict):
+                    continue
 
-            interrupter = item.get("interrupter")
-            if interrupter not in (None, ""):
-                key = str(interrupter)
-                slot = _ensure_entry(key)
-                if key not in made_provided:
-                    slot["made"] = int(slot.get("made", 0)) + 1
+                at_raw = item.get("at", 0.0)
+                try:
+                    at_val = float(at_raw)
+                except (TypeError, ValueError):
+                    at_val = 0.0
 
-            interrupted = item.get("interrupted")
-            if interrupted in (None, ""):
-                continue
-            slot = _ensure_entry(str(interrupted))
-            slot["received"] = int(slot.get("received", 0)) + 1
+                overlap_raw = item.get("overlap_sec", 0.0)
+                try:
+                    overlap_val = float(overlap_raw)
+                except (TypeError, ValueError):
+                    overlap_val = 0.0
+
+                interrupter = item.get("interrupter")
+                interrupted = item.get("interrupted")
+
+                event_record: dict[str, str | float | int] = {
+                    "index": index,
+                    "at": at_val,
+                    "overlap_sec": overlap_val,
+                    "interrupter": "" if interrupter in (None, "") else str(interrupter),
+                    "interrupted": "" if interrupted in (None, "") else str(interrupted),
+                }
+                events.append(event_record)
+
+                if interrupter not in (None, ""):
+                    key = str(interrupter)
+                    slot = _ensure_entry(key)
+                    if key not in made_provided:
+                        slot["made"] = int(slot.get("made", 0)) + 1
+
+                if interrupted in (None, ""):
+                    continue
+                slot = _ensure_entry(str(interrupted))
+                slot["received"] = int(slot.get("received", 0)) + 1
 
         per_speaker = per_speaker_map
     except (AttributeError, RuntimeError, ValueError) as exc:
@@ -82,8 +107,10 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
             "warn",
             message=f"skipped: {exc}. Install paralinguistics extras or validate overlap feature inputs.",
         )
+        events = []
     state.overlap_stats = overlap_stats
     state.per_speaker_interrupts = per_speaker
+    state.interruption_events = events
     guard.done()
 
 
@@ -155,6 +182,7 @@ def run_outputs(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
         state.turns,
         state.overlap_stats,
         state.per_speaker_interrupts,
+        state.interruption_events,
         state.conv_metrics,
         state.duration_s,
         state.sed_info,
