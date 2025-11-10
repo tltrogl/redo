@@ -103,7 +103,7 @@ Audio File (WAV/MP3/M4A)
 [9] conversation_analysis → Turn-taking + dominance + flow metrics
     ↓ {conv_metrics: ConversationMetrics}
     ↓
-[10] speaker_rollups → Aggregate per-speaker stats
+[10] speaker_rollups → Aggregate per-speaker stats (consumes per_speaker_interrupts for interruption metrics)
     ↓ {speakers_summary: [{speaker, duration, affect, voice_quality, ...}]}
     ↓
 [11] outputs → Write CSV/JSONL/HTML/PDF/QC reports

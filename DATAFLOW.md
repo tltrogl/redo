@@ -101,7 +101,7 @@ Input Audio File
 │   - Avg affect (valence, arousal, dominance)                 │
 │   - Emotion distributions                                    │
 │   - Voice quality averages                                   │
-│   - Interruption counts                                      │
+│   - Interruption counts (from per_speaker_interrupts payload)│
 │ Output: speakers_summary                                     │
 └─────────────────────────────────────────────────────────────┘
       ↓
@@ -519,7 +519,7 @@ PipelineState:
 ---
 
 ### Stage 10: speaker_rollups
-**Input:** `state.segments_final`, `state.per_speaker_interrupts`, `state.overlap_stats`  
+**Input:** `state.segments_final`, `state.per_speaker_interrupts`
 **Process:**
 1. For each speaker:
    - Sum total speaking time
