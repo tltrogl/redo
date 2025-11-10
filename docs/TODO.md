@@ -95,7 +95,7 @@ Purpose: a quick, editable checklist to drive the pipeline to a stable, fast sta
 - Why it matters: Early detection of regressions.
 - Do:
   - Warn if `speakers_est` ≫ unique speakers (e.g., est>50 and unique<10).
-  - Validate the CSV schema has 39 columns.
+  - Validate the CSV schema has 53 columns.
   - If Silero ONNX missing, fail‑soft and print `SILERO_VAD_ONNX_PATH` hint.
 
 ---

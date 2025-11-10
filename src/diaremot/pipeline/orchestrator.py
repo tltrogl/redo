@@ -231,6 +231,7 @@ class AudioAnalysisPipelineV2(
                     state.turns,
                     state.overlap_stats,
                     state.per_speaker_interrupts,
+                    state.interruption_events,
                     state.conv_metrics,
                     state.duration_s,
                     state.sed_info,
@@ -258,6 +259,12 @@ class AudioAnalysisPipelineV2(
                 "overlap_summary_csv": str((outp / "overlap_summary.csv").resolve()),
                 "interruptions_by_speaker_csv": str(
                     (outp / "interruptions_by_speaker.csv").resolve()
+                ),
+                "interruption_events_csv": str(
+                    (outp / "interruption_events.csv").resolve()
+                ),
+                "interruption_events_json": str(
+                    (outp / "interruption_events.json").resolve()
                 ),
                 "audio_health_csv": str((outp / "audio_health.csv").resolve()),
                 "background_sed_summary_csv": str(

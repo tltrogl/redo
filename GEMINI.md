@@ -96,7 +96,7 @@ PIPELINE_STAGES = [
 - ~40 fields total
 
 **CSV Schema:** `src/diaremot/pipeline/outputs.py::SEGMENT_COLUMNS`
-- **39 columns** (fixed order, contractual)
+- **53 columns** (fixed order, contractual)
 - Modifications require migration + version bump
 - Fields: temporal, speaker, content, affect, voice quality, prosody, context, flags
 
@@ -230,7 +230,7 @@ src/diaremot/
 │   │   └── summaries.py                # Stages 8-11
 │   │
 │   ├── orchestrator.py                 # Stage execution controller
-│   ├── outputs.py                      # SEGMENT_COLUMNS (40 cols)
+│   ├── outputs.py                      # SEGMENT_COLUMNS (53 cols)
 │   ├── config.py                       # PipelineConfig schema
 │   ├── audio_pipeline_core.py          # Main pipeline API
 │   ├── diarization/                    # Modular diarization runtime
@@ -540,7 +540,7 @@ print(f'Schema OK: {len(SEGMENT_COLUMNS)} columns')
 | 4. diarize | `y, sr` | `turns` (start, end, speaker, speaker_name) |
 | 5. transcribe | `turns, y, sr` | `norm_tx` (text, asr_logprob_avg, snr_db) |
 | 6. paralinguistics | `norm_tx, y, sr` | `para_map` (wpm, f0, vq_*, pause_*) |
-| 7. affect_and_assemble | `norm_tx, para_map, sed_info, y, sr` | `segments_final` (39 columns) |
+| 7. affect_and_assemble | `norm_tx, para_map, sed_info, y, sr` | `segments_final` (53 columns) |
 | 8. overlap_interruptions | `segments_final` | `overlap_stats, per_speaker_interrupts` |
 | 9. conversation_analysis | `segments_final, overlap_stats` | `conv_metrics` |
 | 10. speaker_rollups | `segments_final, interrupts` | `speakers_summary` |
@@ -559,7 +559,7 @@ print(f'Schema OK: {len(SEGMENT_COLUMNS)} columns')
 ### Output Files
 
 **Primary:**
-- `diarized_transcript_with_emotion.csv` - 39 columns, all segment data
+- `diarized_transcript_with_emotion.csv` - 53 columns, all segment data
 - `segments.jsonl` - Same data, JSONL format
 - `summary.html` - Interactive HTML report
 

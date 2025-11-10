@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import math
 from bisect import bisect_left
-from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -29,8 +28,7 @@ class _SegmentAudioWindow:
     The class keeps a cached NumPy slice and reuses a shared ``memoryview`` so
     that downstream analyzers can access contiguous audio without allocating a
     fresh array for every segment. Callers may request either the NumPy view via
-    :meth:`as_array` or iterate over chunked ``memoryview`` slices using
-    :meth:`iter_chunks`.
+    :meth:`as_array` or a zero-copy :class:`memoryview` through :meth:`as_memoryview`.
     """
 
     _source: np.ndarray
@@ -75,16 +73,6 @@ class _SegmentAudioWindow:
             return None
         return self._memory[self.start : self.end]
 
-    def iter_chunks(self, chunk_size: int) -> Iterator[memoryview]:
-        """Iterate over the window in equally sized ``memoryview`` chunks."""
-
-        if chunk_size <= 0:
-            raise ValueError("chunk_size must be > 0")
-        buffer = self.as_memoryview()
-        if buffer is None:
-            return iter(())
-        return (buffer[offset : offset + chunk_size] for offset in range(0, len(self), chunk_size))
-
     def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:  # pragma: no cover - exercised implicitly
         return self.as_array(dtype=dtype, copy=False)
 
@@ -105,9 +93,6 @@ class _SegmentAudioFactory:
 
     def segment(self, start: int, end: int) -> _SegmentAudioWindow:
         return _SegmentAudioWindow(self._source, self._memory, start, end)
-
-    def empty(self) -> _SegmentAudioWindow:
-        return _SegmentAudioWindow(self._source, self._memory, 0, 0)
 
 
 def _estimate_snr_db_from_noise(noise_score: Any) -> float | None:
@@ -179,14 +164,42 @@ def _load_timeline_events(sed_payload: dict[str, Any]) -> list[Any]:
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     segments_final: list[dict[str, Any]] = []
 
-    if pipeline.stats.config_snapshot.get("transcribe_failed"):
+    config = pipeline.stats.config_snapshot
+    if bool(config.get("transcribe_failed")) or bool(config.get("preprocess_failed")):
+        guard.progress("skip: upstream stage reported a failure")
         state.segments_final = segments_final
         guard.done(segments=0)
         return
 
     sed_payload = state.sed_info or {}
+    noise_score = None
+    timeline_event_count = None
+    timeline_mode = None
+    timeline_inference_mode = None
+    timeline_events_path = None
     timeline_events: list[Any] = []
     if isinstance(sed_payload, dict):
+        noise_score = sed_payload.get("noise_score")
+        if noise_score is not None:
+            try:
+                noise_score = float(noise_score)
+            except (TypeError, ValueError):
+                pass
+        timeline_event_count = sed_payload.get("timeline_event_count")
+        if timeline_event_count is not None:
+            try:
+                timeline_event_count = int(timeline_event_count)
+            except (TypeError, ValueError):
+                pass
+        timeline_mode = sed_payload.get("timeline_mode")
+        if timeline_mode is not None:
+            timeline_mode = str(timeline_mode)
+        timeline_inference_mode = sed_payload.get("timeline_inference_mode")
+        if timeline_inference_mode is not None:
+            timeline_inference_mode = str(timeline_inference_mode)
+        timeline_events_path = sed_payload.get("timeline_events_path")
+        if timeline_events_path is not None:
+            timeline_events_path = str(timeline_events_path)
         if isinstance(sed_payload.get("timeline_events"), list):
             timeline_events = sed_payload["timeline_events"]
         else:
@@ -215,6 +228,33 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
 
         aff = pipeline._affect_unified(clip_window, state.sr, text)
         pm = state.para_metrics.get(idx, {})
+
+        tokens_payload = seg.get("asr_tokens")
+        if isinstance(tokens_payload, (list, tuple, set)):
+            tokens_payload = list(tokens_payload)
+        words_payload = seg.get("asr_words")
+        if isinstance(words_payload, (list, tuple, set)):
+            words_payload = list(words_payload)
+
+        if tokens_payload is None:
+            tokens_json = "[]"
+        else:
+            try:
+                tokens_json = json.dumps(tokens_payload, ensure_ascii=False)
+            except (TypeError, ValueError):
+                tokens_json = "[]"
+
+        if words_payload is None:
+            words_json = "[]"
+        else:
+            try:
+                words_json = json.dumps(words_payload, ensure_ascii=False)
+            except (TypeError, ValueError):
+                words_json = "[]"
+
+        voice_quality_hint = pm.get("vq_note")
+        if voice_quality_hint is not None:
+            voice_quality_hint = str(voice_quality_hint)
 
         duration_s = _coerce_positive_float(pm.get("duration_s"))
         if duration_s is None:
@@ -263,7 +303,17 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "low_confidence_ser": bool(speech_emotion.get("low_confidence_ser", False)),
             "vad_unstable": bool(state.vad_unstable),
             "affect_hint": aff.get("affect_hint", "neutral-status"),
+            "noise_tag": None,
+            "noise_score": noise_score,
+            "timeline_event_count": timeline_event_count,
+            "timeline_mode": timeline_mode,
+            "timeline_inference_mode": timeline_inference_mode,
+            "timeline_events_path": timeline_events_path,
             "asr_logprob_avg": seg.get("asr_logprob_avg"),
+            "asr_confidence": seg.get("asr_confidence"),
+            "asr_language": seg.get("asr_language"),
+            "asr_tokens_json": tokens_json,
+            "asr_words_json": words_json,
             "snr_db": seg.get("snr_db"),
             "wpm": pm.get("wpm", 0.0),
             "duration_s": duration_s,
@@ -279,9 +329,15 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "vq_shimmer_db": pm.get("vq_shimmer_db"),
             "vq_hnr_db": pm.get("vq_hnr_db"),
             "vq_cpps_db": pm.get("vq_cpps_db"),
-            "voice_quality_hint": pm.get("vq_note"),
+            "vq_voiced_ratio": pm.get("vq_voiced_ratio"),
+            "vq_spectral_slope_db": pm.get("vq_spectral_slope_db"),
+            "vq_reliable": bool(pm.get("vq_reliable")),
+            "voice_quality_hint": voice_quality_hint,
             "error_flags": seg.get("error_flags", ""),
         }
+
+        row["timeline_overlap_count"] = 0
+        row["timeline_overlap_ratio"] = 0.0
 
         row["_affect_payload"] = {
             "speech_top": speech_emotion.get("top"),
@@ -302,6 +358,11 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         if timeline_index is not None:
             overlaps = _intersect_events(start, end, timeline_index)
             if overlaps:
+                row["timeline_overlap_count"] = len(overlaps)
+                total_overlap = sum(float(item.get("overlap", 0.0)) for item in overlaps)
+                if duration_s > 0:
+                    overlap_ratio = max(0.0, min(1.0, total_overlap / duration_s))
+                    row["timeline_overlap_ratio"] = overlap_ratio
                 events_top = _topk_by_overlap(overlaps, k=3)
                 snr_from_events = _estimate_snr_from_events(overlaps, max(1e-6, row.get("duration_s", end - start)))
                 if snr_from_events is not None:
@@ -338,8 +399,14 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 snr_turn = _estimate_snr_from_events(overlaps, max(1e-6, end - start))
                 if snr_turn is not None:
                     turn["snr_db_sed"] = snr_turn
+                turn["timeline_overlap_count"] = len(overlaps)
+                total_overlap = sum(float(item.get("overlap", 0.0)) for item in overlaps)
+                duration = max(1e-6, end - start)
+                turn["timeline_overlap_ratio"] = max(0.0, min(1.0, total_overlap / duration))
             elif "events_top3" not in turn:
                 turn["events_top3"] = []
+                turn.setdefault("timeline_overlap_count", 0)
+                turn.setdefault("timeline_overlap_ratio", 0.0)
 
     guard.done(segments=len(segments_final))
 

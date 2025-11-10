@@ -75,7 +75,7 @@ Input Audio File
 │   - Attach top-3 background sounds from SED                  │
 │   - Estimate SED-derived SNR (`snr_db_sed`)                   │
 │ • Merge all features into segments_final                     │
-│ Output: segments_final (39 columns per SEGMENT_COLUMNS)     │
+│ Output: segments_final (53 columns per SEGMENT_COLUMNS)     │
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -384,7 +384,7 @@ PipelineState:
    - Implementation note: `EmotionAnalyzer` now delegates to modular analyzers under
      `diaremot.affect.analyzers` (`text`, `speech`, `vad`, `intent`) so each component can
      be unit-tested and swapped independently.
-2. Assemble final segment structure with all 39 columns
+2. Assemble final segment structure with all 53 columns
 3. Compute derived fields:
    - affect_hint (e.g., "calm-positive", "agitated-negative")
    - voice_quality_hint (interpretation of Praat metrics)
@@ -410,10 +410,13 @@ PipelineState:
         # Content
         "text": str,
         "words": int,
-        "language": str?,
-        
+
         # ASR
         "asr_logprob_avg": float,
+        "asr_confidence": float?,
+        "asr_language": str?,
+        "asr_tokens_json": str,
+        "asr_words_json": str,
         "low_confidence_ser": bool,
         
         # Audio Emotion
@@ -434,6 +437,13 @@ PipelineState:
         # Background
         "events_top3_json": str,    # JSON: Top 3 sounds
         "noise_tag": str,           # Dominant background class
+        "noise_score": float?,      # Aggregated background noise score
+        "timeline_event_count": int,
+        "timeline_mode": str?,
+        "timeline_inference_mode": str?,
+        "timeline_overlap_count": int,
+        "timeline_overlap_ratio": float,
+        "timeline_events_path": str?,
         
         # Signal Quality
         "snr_db": float,
@@ -455,6 +465,9 @@ PipelineState:
         "vq_shimmer_db": float,
         "vq_hnr_db": float,
         "vq_cpps_db": float,
+        "vq_voiced_ratio": float,
+        "vq_spectral_slope_db": float,
+        "vq_reliable": bool,
         "voice_quality_hint": str,
         
         # Hints/Flags
@@ -569,7 +582,7 @@ PipelineState:
 ### Stage 11: outputs
 **Input:** All state data  
 **Process:**
-1. Write primary CSV (39 columns, fixed order)
+1. Write primary CSV (53 columns, fixed order)
 2. Write JSONL segments
 3. Write timeline CSV
 4. Write human-readable transcript
@@ -620,48 +633,62 @@ manifest: dict
 
 ## Key Data Structures
 
-### SEGMENT_COLUMNS (39 columns, fixed order)
+### SEGMENT_COLUMNS (53 columns, fixed order)
 ```python
 SEGMENT_COLUMNS = [
-    "file_id",              # 1
-    "start",                # 2
-    "end",                  # 3
-    "speaker_id",           # 4
-    "speaker_name",         # 5
-    "text",                 # 6
-    "valence",              # 7
-    "arousal",              # 8
-    "dominance",            # 9
-    "emotion_top",          # 10
-    "emotion_scores_json",  # 11
-    "text_emotions_top5_json",   # 12
-    "text_emotions_full_json",   # 13
-    "intent_top",           # 14
-    "intent_top3_json",     # 15
-    "events_top3_json",     # 16
-    "noise_tag",            # 17
-    "asr_logprob_avg",      # 18
-    "snr_db",               # 19
-    "snr_db_sed",           # 20
-    "wpm",                  # 21
-    "duration_s",           # 22
-    "words",                # 23
-    "pause_ratio",          # 24
-    "low_confidence_ser",   # 25
-    "vad_unstable",         # 26
-    "affect_hint",          # 27
-    "pause_count",          # 28
-    "pause_time_s",         # 29
-    "f0_mean_hz",           # 30
-    "f0_std_hz",            # 31
-    "loudness_rms",         # 32
-    "disfluency_count",     # 33
-    "error_flags",          # 34
-    "vq_jitter_pct",        # 35
-    "vq_shimmer_db",        # 36
-    "vq_hnr_db",            # 37
-    "vq_cpps_db",           # 38
-    "voice_quality_hint",   # 39
+    "file_id",                      # 1
+    "start",                        # 2
+    "end",                          # 3
+    "speaker_id",                   # 4
+    "speaker_name",                 # 5
+    "text",                         # 6
+    "valence",                      # 7
+    "arousal",                      # 8
+    "dominance",                    # 9
+    "emotion_top",                  # 10
+    "emotion_scores_json",          # 11
+    "text_emotions_top5_json",      # 12
+    "text_emotions_full_json",      # 13
+    "intent_top",                   # 14
+    "intent_top3_json",             # 15
+    "events_top3_json",             # 16
+    "noise_tag",                    # 17
+    "asr_logprob_avg",              # 18
+    "snr_db",                       # 19
+    "snr_db_sed",                   # 20
+    "wpm",                          # 21
+    "duration_s",                   # 22
+    "words",                        # 23
+    "pause_ratio",                  # 24
+    "low_confidence_ser",           # 25
+    "vad_unstable",                 # 26
+    "affect_hint",                  # 27
+    "pause_count",                  # 28
+    "pause_time_s",                 # 29
+    "f0_mean_hz",                   # 30
+    "f0_std_hz",                    # 31
+    "loudness_rms",                 # 32
+    "disfluency_count",             # 33
+    "error_flags",                  # 34
+    "vq_jitter_pct",                # 35
+    "vq_shimmer_db",                # 36
+    "vq_hnr_db",                    # 37
+    "vq_cpps_db",                   # 38
+    "voice_quality_hint",           # 39
+    "noise_score",                  # 40
+    "timeline_event_count",         # 41
+    "timeline_mode",                # 42
+    "timeline_inference_mode",      # 43
+    "timeline_overlap_count",       # 44
+    "timeline_overlap_ratio",       # 45
+    "timeline_events_path",         # 46
+    "asr_confidence",               # 47
+    "asr_language",                 # 48
+    "asr_tokens_json",              # 49
+    "asr_words_json",               # 50
+    "vq_voiced_ratio",              # 51
+    "vq_spectral_slope_db",         # 52
+    "vq_reliable",                  # 53
 ]
 ```
 

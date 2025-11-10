@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -102,11 +103,65 @@ def read_json_safe(path: Path) -> dict[str, Any] | None:
     return None
 
 
+def matches_pipeline_cache(
+    payload: Mapping[str, Any] | None,
+    *,
+    version: Any = None,
+    audio_sha16: str | None = None,
+    pp_signature: Any = None,
+    extra: Mapping[str, Any] | None = None,
+    require_version: bool = True,
+    require_audio_sha: bool = True,
+    require_signature: bool = True,
+) -> bool:
+    """Validate cache metadata against expected pipeline identifiers."""
+
+    if not payload:
+        return False
+
+    if require_version and (version is not None) and payload.get("version") != version:
+        return False
+
+    if require_audio_sha and audio_sha16 and payload.get("audio_sha16") != audio_sha16:
+        return False
+
+    if require_signature and (pp_signature is not None) and payload.get("pp_signature") != pp_signature:
+        return False
+
+    if extra:
+        for key, expected in extra.items():
+            if payload.get(key) != expected:
+                return False
+
+    return True
+
+
+def build_cache_payload(
+    *,
+    version: Any,
+    audio_sha16: str | None,
+    pp_signature: Any,
+    extra: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Compose a cache payload with standard metadata fields."""
+
+    payload: dict[str, Any] = {
+        "version": version,
+        "audio_sha16": audio_sha16,
+        "pp_signature": pp_signature,
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
 __all__ = [
     "atomic_write_json",
     "compute_audio_sha16",
     "compute_audio_sha16_from_file",
     "compute_pp_signature",
     "compute_sed_signature",
+    "build_cache_payload",
+    "matches_pipeline_cache",
     "read_json_safe",
 ]

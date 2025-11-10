@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .logging_utils import RunStats, _make_json_safe
 
@@ -50,6 +51,20 @@ SEGMENT_COLUMNS = [
     "vq_hnr_db",
     "vq_cpps_db",
     "voice_quality_hint",
+    "noise_score",
+    "timeline_event_count",
+    "timeline_mode",
+    "timeline_inference_mode",
+    "timeline_overlap_count",
+    "timeline_overlap_ratio",
+    "timeline_events_path",
+    "asr_confidence",
+    "asr_language",
+    "asr_tokens_json",
+    "asr_words_json",
+    "vq_voiced_ratio",
+    "vq_spectral_slope_db",
+    "vq_reliable",
 ]
 
 
@@ -85,6 +100,20 @@ def ensure_segment_keys(seg: dict[str, Any]) -> dict[str, Any]:
         "low_confidence_ser": False,
         "vad_unstable": False,
         "error_flags": "",
+        "noise_score": None,
+        "timeline_event_count": 0,
+        "timeline_mode": None,
+        "timeline_inference_mode": None,
+        "timeline_overlap_count": 0,
+        "timeline_overlap_ratio": 0.0,
+        "timeline_events_path": None,
+        "asr_confidence": None,
+        "asr_language": None,
+        "asr_tokens_json": "[]",
+        "asr_words_json": "[]",
+        "vq_voiced_ratio": 0.0,
+        "vq_spectral_slope_db": 0.0,
+        "vq_reliable": False,
     }
     for key in SEGMENT_COLUMNS:
         if key not in seg:
@@ -415,7 +444,7 @@ def write_conversation_metrics_csv(
             payload = {
                 key: attr
                 for key in dir(metrics)
-                if not key.startswith("_") and not callable((attr := getattr(metrics, key)))
+                if not key.startswith("_") and not callable(attr := getattr(metrics, key))
             }
 
         for key in [
@@ -454,6 +483,7 @@ def write_overlap_summary_csv(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    available = bool(overlap_stats.get("available")) if overlap_stats else False
     total_sec = float(overlap_stats.get("overlap_total_sec", 0.0)) if overlap_stats else 0.0
     ratio = float(overlap_stats.get("overlap_ratio", 0.0)) if overlap_stats else 0.0
     ratio_pct = ratio * 100.0
@@ -468,6 +498,7 @@ def write_overlap_summary_csv(
         "overlap_ratio_pct",
         "conversation_duration_sec",
         "overlap_vs_duration_pct",
+        "overlap_available",
     ]
     row = {
         "file_id": file_id or "",
@@ -476,6 +507,7 @@ def write_overlap_summary_csv(
         "overlap_ratio_pct": ratio_pct,
         "conversation_duration_sec": duration_s,
         "overlap_vs_duration_pct": normalized_ratio,
+        "overlap_available": available,
     }
 
     with path.open("w", newline="", encoding="utf-8") as handle:

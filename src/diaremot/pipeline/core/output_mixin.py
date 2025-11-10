@@ -13,6 +13,8 @@ from ..outputs import (
     write_background_sed_summary_csv,
     write_conversation_metrics_csv,
     write_human_transcript,
+    write_interruption_events_csv,
+    write_interruption_events_json,
     write_interruptions_csv,
     write_moments_csv,
     write_narrative_report,
@@ -37,6 +39,7 @@ class OutputMixin:
         turns: list[dict[str, Any]],
         overlap_stats: dict[str, Any],
         per_speaker_interrupts: dict[str, Any],
+        interruption_events: list[dict[str, Any]],
         conv_metrics: ConversationMetrics | None,
         duration_s: float,
         sed_info: dict[str, Any] | None,
@@ -85,6 +88,18 @@ class OutputMixin:
             per_speaker_interrupts,
             speaker_labels=speaker_labels,
             conv_metrics=conv_metrics,
+            file_id=self.stats.file_id,
+        )
+        write_interruption_events_csv(
+            outp / "interruption_events.csv",
+            interruption_events,
+            speaker_labels=speaker_labels,
+            file_id=self.stats.file_id,
+        )
+        write_interruption_events_json(
+            outp / "interruption_events.json",
+            interruption_events,
+            speaker_labels=speaker_labels,
             file_id=self.stats.file_id,
         )
         write_audio_health_csv(
