@@ -487,6 +487,18 @@ def _ensure_timeline_summaries(cache_dir: Path, sed_info: dict[str, Any]) -> Non
         sed_info.update(_summarize_timeline_events(events))
 
 
+def _ensure_list(value: Any) -> list[Any]:
+    """
+    Ensure value is a proper list (not str/bytes), returning [] if not.
+    
+    Helper to normalize values that should be lists but might be missing,
+    wrong type, or accidentally a string/bytes.
+    """
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return list(value)
+
+
 def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
@@ -536,10 +548,8 @@ def run_background_sed(
         if matches:
             sed_info = cached.get("sed_info") or {}
 
-            top_entries = sed_info.get("top")
-            if not isinstance(top_entries, Sequence) or isinstance(top_entries, (str, bytes)):
-                top_entries = []
-                sed_info["top"] = top_entries
+            top_entries = _ensure_list(sed_info.get("top"))
+            sed_info["top"] = top_entries
 
             try:
                 cached_top_k = int(sed_info.get("tagger_top_k"))
@@ -735,8 +745,7 @@ def run_background_sed(
     sed_info.setdefault("top", [])
     sed_info.setdefault("noise_score", 0.0)
     sed_info.setdefault("dominant_label", None)
-    if not isinstance(sed_info["top"], Sequence) or isinstance(sed_info["top"], (str, bytes)):
-        sed_info["top"] = []
+    sed_info["top"] = _ensure_list(sed_info["top"])
     if "tagger_top_k" not in sed_info:
         sed_info["tagger_top_k"] = len(sed_info["top"])
     else:
