@@ -11,10 +11,6 @@ except Exception:  # noqa: S110 - broad except to gracefully fall back when pand
     pd = None  # type: ignore[assignment]
 
 
-class ConversationAnalysisError(RuntimeError):
-    """Raised when the conversation analysis stage fails unexpectedly."""
-
-
 @dataclass
 class ConversationMetrics:
     turn_taking_balance: float  # entropy of speaker participation
@@ -95,10 +91,10 @@ def analyze_conversation_flow(
             interruptions_per_speaker=interrupts_per_speaker,
         )
 
-    except Exception as exc:
-        raise ConversationAnalysisError(
-            f"conversation analysis failed: {exc}"
-        ) from exc
+    except Exception as e:
+        # Fallback to empty metrics on any error
+        print(f"Warning: conversation analysis failed: {e}")
+        return _empty_metrics()
 
 
 def _sanitize_segments(segs: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
@@ -464,3 +460,26 @@ def _empty_metrics() -> ConversationMetrics:
         energy_flow=[],
         interruptions_per_speaker={},
     )
+
+
+def build_conversation_analysis(
+    segments: list[dict[str, Any]],
+    total_duration_sec: float,
+    overlap_stats: dict[str, Any],
+) -> dict[str, Any]:
+    """Core interface: build conversation analysis from pipeline data"""
+    metrics = analyze_conversation_flow(segments, total_duration_sec)
+
+    return {
+        "turn_taking_balance": metrics.turn_taking_balance,
+        "interruption_rate_per_min": metrics.interruption_rate_per_min,
+        "avg_turn_duration_sec": metrics.avg_turn_duration_sec,
+        "conversation_pace_turns_per_min": metrics.conversation_pace_turns_per_min,
+        "silence_ratio": metrics.silence_ratio,
+        "speaker_dominance": metrics.speaker_dominance,
+        "response_latency_stats": metrics.response_latency_stats,
+        "topic_coherence_score": metrics.topic_coherence_score,
+        "energy_flow": metrics.energy_flow,
+        "interruptions_per_speaker": metrics.interruptions_per_speaker,
+        "overlap_stats": overlap_stats,
+    }

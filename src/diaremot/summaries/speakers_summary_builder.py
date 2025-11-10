@@ -5,7 +5,7 @@ Input: segments list with per-segment data
 Output: List of speaker summary dicts
 
 Notes:
-- Interruptions are provided via per_speaker_interrupts parameter
+- Interruptions/overlap are provided via per_speaker_interrupts parameter
 - We aggregate text emotions using the FULL 28-class distribution when present (preferred)
 - avg_wpm = (total_words / total_duration_minutes). WPM from segments (if present) is used only as a backup
 """
@@ -442,6 +442,7 @@ def _extract_affect_payload(row: dict[str, Any]) -> dict[str, Any]:
 def build_speakers_summary(
     segments: list[dict[str, Any]] | None,
     per_speaker_interrupts: dict[str, dict[str, Any]] | None,
+    overlap_stats: dict[str, Any] | None,
 ) -> list[dict[str, Any]]:
     """Build a speaker summary compatible with existing CSV outputs."""
 

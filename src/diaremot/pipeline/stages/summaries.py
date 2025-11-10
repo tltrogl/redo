@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...summaries.conversation_analysis import (
-    ConversationAnalysisError,
     ConversationMetrics,
     analyze_conversation_flow,
 )
@@ -27,11 +26,12 @@ __all__ = [
 def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     overlap_stats = {"overlap_total_sec": 0.0, "overlap_ratio": 0.0}
     per_speaker = {}
-    events: list[dict[str, str | float | int]] = []
     try:
         module = getattr(pipeline, "paralinguistics_module", None)
-        compute_overlap = getattr(module, "compute_overlap_and_interruptions")
-        overlap = compute_overlap(state.turns) or {}
+        if module and hasattr(module, "compute_overlap_and_interruptions"):
+            overlap = module.compute_overlap_and_interruptions(state.turns) or {}
+        else:
+            overlap = {}
         overlap_stats = {
             "overlap_total_sec": float(overlap.get("overlap_total_sec", 0.0)),
             "overlap_ratio": float(overlap.get("overlap_ratio", 0.0)),
@@ -58,46 +58,22 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
             slot["made"] = made_val
             made_provided.add(key)
 
-        raw_events = overlap.get("interruptions") or []
-        if isinstance(raw_events, list):
-            for index, item in enumerate(raw_events, start=1):
-                if not isinstance(item, dict):
-                    continue
+        for item in overlap.get("interruptions", []) or []:
+            if not isinstance(item, dict):
+                continue
 
-                at_raw = item.get("at", 0.0)
-                try:
-                    at_val = float(at_raw)
-                except (TypeError, ValueError):
-                    at_val = 0.0
+            interrupter = item.get("interrupter")
+            if interrupter not in (None, ""):
+                key = str(interrupter)
+                slot = _ensure_entry(key)
+                if key not in made_provided:
+                    slot["made"] = int(slot.get("made", 0)) + 1
 
-                overlap_raw = item.get("overlap_sec", 0.0)
-                try:
-                    overlap_val = float(overlap_raw)
-                except (TypeError, ValueError):
-                    overlap_val = 0.0
-
-                interrupter = item.get("interrupter")
-                interrupted = item.get("interrupted")
-
-                event_record: dict[str, str | float | int] = {
-                    "index": index,
-                    "at": at_val,
-                    "overlap_sec": overlap_val,
-                    "interrupter": "" if interrupter in (None, "") else str(interrupter),
-                    "interrupted": "" if interrupted in (None, "") else str(interrupted),
-                }
-                events.append(event_record)
-
-                if interrupter not in (None, ""):
-                    key = str(interrupter)
-                    slot = _ensure_entry(key)
-                    if key not in made_provided:
-                        slot["made"] = int(slot.get("made", 0)) + 1
-
-                if interrupted in (None, ""):
-                    continue
-                slot = _ensure_entry(str(interrupted))
-                slot["received"] = int(slot.get("received", 0)) + 1
+            interrupted = item.get("interrupted")
+            if interrupted in (None, ""):
+                continue
+            slot = _ensure_entry(str(interrupted))
+            slot["received"] = int(slot.get("received", 0)) + 1
 
         per_speaker = per_speaker_map
     except (AttributeError, RuntimeError, ValueError) as exc:
@@ -106,10 +82,8 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
             "warn",
             message=f"skipped: {exc}. Install paralinguistics extras or validate overlap feature inputs.",
         )
-        events = []
     state.overlap_stats = overlap_stats
     state.per_speaker_interrupts = per_speaker
-    state.interruption_events = events
     guard.done()
 
 
@@ -126,12 +100,7 @@ def run_conversation(
             coherence=metrics.topic_coherence_score,
         )
         state.conv_metrics = metrics
-    except (
-        ConversationAnalysisError,
-        RuntimeError,
-        ValueError,
-        ZeroDivisionError,
-    ) as exc:
+    except (RuntimeError, ValueError, ZeroDivisionError) as exc:
         pipeline.corelog.stage(
             "conversation_analysis",
             "warn",
@@ -159,7 +128,7 @@ def run_speaker_rollups(
 ) -> None:
     try:
         summary = build_speakers_summary(
-            state.segments_final, state.per_speaker_interrupts
+            state.segments_final, state.per_speaker_interrupts, state.overlap_stats
         )
         if isinstance(summary, dict):
             summary = [dict(v, speaker_id=k) for k, v in summary.items()]
@@ -186,7 +155,6 @@ def run_outputs(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
         state.turns,
         state.overlap_stats,
         state.per_speaker_interrupts,
-        state.interruption_events,
         state.conv_metrics,
         state.duration_s,
         state.sed_info,
