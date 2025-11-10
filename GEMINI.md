@@ -543,7 +543,7 @@ print(f'Schema OK: {len(SEGMENT_COLUMNS)} columns')
 | 7. affect_and_assemble | `norm_tx, para_map, sed_info, y, sr` | `segments_final` (39 columns) |
 | 8. overlap_interruptions | `segments_final` | `overlap_stats, per_speaker_interrupts` |
 | 9. conversation_analysis | `segments_final, overlap_stats` | `conv_metrics` |
-| 10. speaker_rollups | `segments_final, interrupts` | `speakers_summary` |
+| 10. speaker_rollups | `segments_final, per_speaker_interrupts` | `speakers_summary` |
 | 11. outputs | All state | CSV/JSONL/HTML/PDF files |
 
 ### Cache Files

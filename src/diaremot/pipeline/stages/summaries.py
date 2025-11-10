@@ -159,7 +159,7 @@ def run_speaker_rollups(
 ) -> None:
     try:
         summary = build_speakers_summary(
-            state.segments_final, state.per_speaker_interrupts, state.overlap_stats
+            state.segments_final, state.per_speaker_interrupts
         )
         if isinstance(summary, dict):
             summary = [dict(v, speaker_id=k) for k, v in summary.items()]
