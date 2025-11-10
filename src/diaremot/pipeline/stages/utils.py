@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
 
@@ -11,20 +12,29 @@ import numpy as np
 
 
 def compute_audio_sha16(y: np.ndarray) -> str:
+    hasher = hashlib.blake2s(digest_size=16)
     try:
-        arr = np.array(y, dtype=np.float32)
+        arr = np.asarray(y, dtype=np.float32)
     except Exception:
-        return hashlib.blake2s(b"", digest_size=16).hexdigest()
+        hasher.update(b"")
+        return hasher.hexdigest()
 
     if not isinstance(arr, np.ndarray):
         try:
-            arr = np.array(arr, dtype=np.float32, copy=True)
+            arr = np.asarray(arr, dtype=np.float32)
         except Exception:
-            return hashlib.blake2s(b"", digest_size=16).hexdigest()
+            hasher.update(b"")
+            return hasher.hexdigest()
+
+    if arr.size == 0:
+        hasher.update(b"")
+        return hasher.hexdigest()
+
     if not arr.flags["C_CONTIGUOUS"]:
         arr = np.ascontiguousarray(arr)
 
-    return hashlib.blake2s(arr.tobytes(), digest_size=16).hexdigest()
+    hasher.update(arr.view(np.uint8))
+    return hasher.hexdigest()
 
 
 def compute_audio_sha16_from_file(path: str) -> str:
@@ -40,16 +50,54 @@ def compute_audio_sha16_from_file(path: str) -> str:
         return ""
 
 
+def _normalise_signature_value(value: Any) -> Any:
+    if is_dataclass(value):
+        value = asdict(value)
+    if isinstance(value, Path):
+        return value.as_posix()
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, dict):
+        return {
+            str(k): _normalise_signature_value(v)
+            for k, v in sorted(value.items(), key=lambda item: str(item[0]))
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_normalise_signature_value(v) for v in value]
+    return value
+
+
 def compute_pp_signature(pp_conf: Any) -> str:
     """Compute a deterministic string signature of preprocessing config."""
-    keys = ["target_sr", "denoise", "loudness_mode"]
-    sig: dict[str, Any] = {}
-    for key in keys:
-        try:
-            sig[key] = getattr(pp_conf, key)
-        except Exception:
-            sig[key] = None
-    return json.dumps(sig, sort_keys=True)
+
+    if pp_conf is None:
+        return json.dumps(None)
+
+    if is_dataclass(pp_conf):
+        payload: Any = asdict(pp_conf)
+    elif isinstance(pp_conf, dict):
+        payload = dict(pp_conf)
+    elif hasattr(pp_conf, "__dict__"):
+        payload = {
+            key: getattr(pp_conf, key)
+            for key in vars(pp_conf).keys()
+            if not key.startswith("_")
+        }
+    else:
+        payload = {}
+        for key in dir(pp_conf):
+            if key.startswith("_"):
+                continue
+            try:
+                value = getattr(pp_conf, key)
+            except Exception:
+                continue
+            if callable(value):
+                continue
+            payload[key] = value
+
+    normalised = _normalise_signature_value(payload)
+    return json.dumps(normalised, sort_keys=True)
 
 
 def compute_sed_signature(cfg: Any) -> str:
@@ -97,6 +145,16 @@ def read_json_safe(path: Path) -> dict[str, Any] | None:
     try:
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        corrupt_path = path.with_suffix(path.suffix + ".corrupt")
+        try:
+            path.replace(corrupt_path)
+        except Exception:
+            try:
+                path.unlink()
+            except Exception:
+                pass
+        return None
     except Exception:
         return None
     return None
