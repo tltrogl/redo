@@ -88,6 +88,10 @@ class ParalinguisticsMixin:
                         "vq_shimmer_db": float(d.get("vq_shimmer_db", 0.0) or 0.0),
                         "vq_hnr_db": float(d.get("vq_hnr_db", 0.0) or 0.0),
                         "vq_cpps_db": float(d.get("vq_cpps_db", 0.0) or 0.0),
+                        "vq_voiced_ratio": float(d.get("vq_voiced_ratio", 0.0) or 0.0),
+                        "vq_spectral_slope_db": float(d.get("vq_spectral_slope_db", 0.0) or 0.0),
+                        "vq_reliable": bool(d.get("vq_reliable", False)),
+                        "vq_note": d.get("vq_note"),
                     }
                 return results
         except Exception as exc:  # pragma: no cover - best effort fallback
@@ -126,5 +130,9 @@ class ParalinguisticsMixin:
                 "vq_shimmer_db": 0.0,
                 "vq_hnr_db": 0.0,
                 "vq_cpps_db": 0.0,
+                "vq_voiced_ratio": 0.0,
+                "vq_spectral_slope_db": 0.0,
+                "vq_reliable": False,
+                "vq_note": "fallback",
             }
         return results

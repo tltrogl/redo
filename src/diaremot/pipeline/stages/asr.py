@@ -61,6 +61,33 @@ def _normalize_segment(item: Any) -> dict[str, Any]:
         payload = {}
     start = float(payload.get("start_time", payload.get("start", 0.0)) or 0.0)
     end = float(payload.get("end_time", payload.get("end", 0.0)) or 0.0)
+
+    def _normalize_sequence(raw: Any) -> Any:
+        if raw is None:
+            return None
+        if isinstance(raw, (list, tuple, set)):
+            normalized: list[Any] = []
+            for item in raw:
+                if isinstance(item, (str, int, float, bool)) or item is None:
+                    normalized.append(item)
+                elif hasattr(item, "_asdict"):
+                    normalized.append(dict(item._asdict()))
+                elif hasattr(item, "__dict__"):
+                    normalized.append(
+                        {
+                            key: value
+                            for key, value in item.__dict__.items()
+                            if not key.startswith("_")
+                        }
+                    )
+                else:
+                    normalized.append(str(item))
+            return normalized
+        try:
+            return list(raw)
+        except TypeError:
+            return raw
+
     return {
         "start": start,
         "end": end,
@@ -70,6 +97,10 @@ def _normalize_segment(item: Any) -> dict[str, Any]:
         "asr_logprob_avg": payload.get("asr_logprob_avg"),
         "snr_db": payload.get("snr_db"),
         "error_flags": payload.get("error_flags", ""),
+        "asr_confidence": payload.get("confidence"),
+        "asr_language": payload.get("language"),
+        "asr_tokens": _normalize_sequence(payload.get("tokens")),
+        "asr_words": _normalize_sequence(payload.get("words")),
     }
 
 
@@ -83,6 +114,10 @@ def _digest_payload(segment: dict[str, Any]) -> dict[str, Any]:
         "asr_logprob_avg": segment.get("asr_logprob_avg"),
         "snr_db": segment.get("snr_db"),
         "error_flags": segment.get("error_flags", ""),
+        "asr_confidence": segment.get("asr_confidence"),
+        "asr_language": segment.get("asr_language"),
+        "asr_tokens": segment.get("asr_tokens"),
+        "asr_words": segment.get("asr_words"),
     }
 
 

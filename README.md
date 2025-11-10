@@ -92,7 +92,7 @@ Audio File (WAV/MP3/M4A)
     ↓ {para_map: {seg_idx: {wpm, f0_mean_hz, vq_jitter_pct, ...}}}
     ↓
 [7] affect_and_assemble → Audio (VAD+SER8) + Text (GoEmotions+BART-MNLI) + SED context
-    ↓ {segments_final: 39 columns per segment}
+    ↓ {segments_final: 53 columns per segment}
     ↓
 [8] overlap_interruptions → Detect overlaps + classify interruptions with sweep-line \(\mathcal{O}(n \log n)\) analytics
     ↓ {overlap_stats, per_speaker_interrupts}
@@ -106,7 +106,7 @@ Audio File (WAV/MP3/M4A)
 [11] outputs → Write CSV/JSONL/HTML/PDF/QC reports
     ↓
 Output Files:
-  • diarized_transcript_with_emotion.csv (39 columns)
+  • diarized_transcript_with_emotion.csv (53 columns)
   • segments.jsonl
   • timeline.csv
   • diarized_transcript_readable.txt
@@ -786,20 +786,20 @@ Transcription module employs sophisticated batching:
 
 ## CSV Schema Reference
 
-The primary output `diarized_transcript_with_emotion.csv` contains **39 columns** (in this exact order):
+The primary output `diarized_transcript_with_emotion.csv` contains **53 columns** (in this exact order):
 
 ### Column Order (CRITICAL - DO NOT MODIFY)
 ```python
 SEGMENT_COLUMNS = [
-    "file_id",                      # 1.  File identifier
-    "start",                        # 2.  Segment start time (seconds)
-    "end",                          # 3.  Segment end time (seconds)
-    "speaker_id",                   # 4.  Internal speaker ID
-    "speaker_name",                 # 5.  Human-readable speaker name
-    "text",                         # 6.  Transcribed text
-    "valence",                      # 7.  Valence (-1 to +1)
-    "arousal",                      # 8.  Arousal (-1 to +1)
-    "dominance",                    # 9.  Dominance (-1 to +1)
+    "file_id",                      #  1. File identifier
+    "start",                        #  2. Segment start time (seconds)
+    "end",                          #  3. Segment end time (seconds)
+    "speaker_id",                   #  4. Internal speaker ID
+    "speaker_name",                 #  5. Human-readable speaker name
+    "text",                         #  6. Transcribed text
+    "valence",                      #  7. Valence (-1 to +1)
+    "arousal",                      #  8. Arousal (-1 to +1)
+    "dominance",                    #  9. Dominance (-1 to +1)
     "emotion_top",                  # 10. Top speech emotion label
     "emotion_scores_json",          # 11. All 8 emotion scores (JSON)
     "text_emotions_top5_json",      # 12. Top 5 text emotions (JSON)
@@ -808,28 +808,42 @@ SEGMENT_COLUMNS = [
     "intent_top3_json",             # 15. Top 3 intents with confidence (JSON)
     "events_top3_json",             # 16. Top 3 background sounds (JSON)
     "noise_tag",                    # 17. Dominant background class
-    "asr_logprob_avg",              # 18. ASR confidence (avg log prob)
-    "snr_db",                       # 19. Signal-to-noise ratio estimate
-    "snr_db_sed",                   # 20. SNR from SED noise score
-    "wpm",                          # 21. Words per minute
-    "duration_s",                   # 22. Segment duration
-    "words",                        # 23. Word count
-    "pause_ratio",                  # 24. Pause time / total duration
-    "low_confidence_ser",           # 25. Low speech emotion confidence flag
-    "vad_unstable",                 # 26. VAD instability flag
-    "affect_hint",                  # 27. Human-readable affect state
-    "pause_count",                  # 28. Number of pauses
-    "pause_time_s",                 # 29. Total pause duration
-    "f0_mean_hz",                   # 30. Mean fundamental frequency
-    "f0_std_hz",                    # 31. F0 standard deviation
-    "loudness_rms",                 # 32. RMS loudness
-    "disfluency_count",             # 33. Filler word count
-    "error_flags",                  # 34. Processing error indicators
-    "vq_jitter_pct",                # 35. Jitter percentage
-    "vq_shimmer_db",                # 36. Shimmer in dB
-    "vq_hnr_db",                    # 37. Harmonics-to-Noise Ratio
-    "vq_cpps_db",                   # 38. Cepstral Peak Prominence Smoothed
-    "voice_quality_hint",           # 39. Human-readable quality interpretation
+    "noise_score",                  # 18. Aggregated background noise score
+    "timeline_event_count",         # 19. Total SED timeline events available
+    "timeline_mode",                # 20. Timeline rendering mode
+    "timeline_inference_mode",      # 21. Timeline inference strategy
+    "timeline_overlap_count",       # 22. Number of timeline events overlapping the segment
+    "timeline_overlap_ratio",       # 23. Fraction of the segment covered by timeline events
+    "timeline_events_path",         # 24. Path to persisted timeline events (if exported)
+    "asr_logprob_avg",              # 25. ASR average log probability
+    "asr_confidence",               # 26. Decoder-reported confidence (if available)
+    "asr_language",                 # 27. Detected language for the segment
+    "asr_tokens_json",              # 28. Raw ASR token IDs (JSON)
+    "asr_words_json",               # 29. Word-level timing metadata (JSON)
+    "snr_db",                       # 30. Signal-to-noise ratio estimate
+    "snr_db_sed",                   # 31. SNR from SED noise score/events
+    "wpm",                          # 32. Words per minute
+    "duration_s",                   # 33. Segment duration
+    "words",                        # 34. Word count
+    "pause_ratio",                  # 35. Pause time / total duration
+    "low_confidence_ser",           # 36. Low speech emotion confidence flag
+    "vad_unstable",                 # 37. VAD instability flag
+    "affect_hint",                  # 38. Human-readable affect state
+    "pause_count",                  # 39. Number of pauses
+    "pause_time_s",                 # 40. Total pause duration
+    "f0_mean_hz",                   # 41. Mean fundamental frequency
+    "f0_std_hz",                    # 42. F0 standard deviation
+    "loudness_rms",                 # 43. RMS loudness
+    "disfluency_count",             # 44. Filler word count
+    "error_flags",                  # 45. Processing error indicators
+    "vq_jitter_pct",                # 46. Jitter percentage
+    "vq_shimmer_db",                # 47. Shimmer in dB
+    "vq_hnr_db",                    # 48. Harmonics-to-Noise Ratio
+    "vq_cpps_db",                   # 49. Cepstral Peak Prominence Smoothed
+    "vq_voiced_ratio",              # 50. Fraction of voiced frames in voice-quality window
+    "vq_spectral_slope_db",         # 51. Voice-quality spectral slope (dB)
+    "vq_reliable",                  # 52. Whether voice-quality metrics met reliability thresholds
+    "voice_quality_hint",           # 53. Human-readable quality interpretation
 ]
 ```
 
@@ -1080,7 +1094,7 @@ redo/
 │       │   │   ├── postprocess.py    # Transcript redistribution helpers
 │       │   │   └── scheduler.py      # Async engine & batching heuristics
 │       │   ├── transcription_module.py  # Transcriber façade delegating to package
-│       │   ├── outputs.py           # CSV schema (39 columns)
+│       │   ├── outputs.py           # CSV schema (53 columns)
 │       │   ├── config.py
 │       │   ├── runtime_env.py
 │       │   ├── pipeline_checkpoint_system.py
