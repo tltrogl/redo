@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import csv
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from .logging_utils import RunStats, _make_json_safe
 
@@ -443,7 +444,7 @@ def write_conversation_metrics_csv(
             payload = {
                 key: attr
                 for key in dir(metrics)
-                if not key.startswith("_") and not callable((attr := getattr(metrics, key)))
+                if not key.startswith("_") and not callable(attr := getattr(metrics, key))
             }
 
         for key in [

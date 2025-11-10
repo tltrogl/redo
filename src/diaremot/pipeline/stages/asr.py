@@ -162,7 +162,7 @@ def _digests_match(
 
 
 def _load_transcription_checkpoint(
-    pipeline: "AudioAnalysisPipelineV2", state: PipelineState
+    pipeline: AudioAnalysisPipelineV2, state: PipelineState
 ) -> list[dict[str, Any]] | None:
     checkpoint, _meta = pipeline.checkpoints.load_checkpoint(
         state.input_audio_path,
