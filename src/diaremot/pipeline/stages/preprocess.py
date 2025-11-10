@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Sequence
 
@@ -488,6 +489,100 @@ def _hydrate_timeline_events(cache_dir: Path, sed_info: dict[str, Any]) -> None:
         sed_info["timeline_event_count"] = len(events)
 
 
+def _summarize_timeline_events(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Aggregate duration and score statistics for timeline events."""
+
+    total_duration = 0.0
+    total_weight = 0.0
+    label_durations: dict[str, float] = {}
+    label_weights: dict[str, float] = {}
+
+    for raw_event in events:
+        if not isinstance(raw_event, Mapping):
+            continue
+        label = str(raw_event.get("label") or "").strip()
+        try:
+            start = float(raw_event.get("start", 0.0))
+            end = float(raw_event.get("end", 0.0))
+        except Exception:
+            continue
+        duration = max(0.0, float(raw_event.get("duration", end - start)))
+        try:
+            score = float(raw_event.get("score", 0.0))
+        except Exception:
+            score = 0.0
+        weight = float(raw_event.get("weight", score * duration))
+
+        total_duration += duration
+        total_weight += max(0.0, weight)
+
+        if label:
+            label_durations[label] = label_durations.get(label, 0.0) + duration
+            label_weights[label] = label_weights.get(label, 0.0) + max(0.0, weight)
+
+    label_mean_scores = {
+        key: (label_weights[key] / duration if duration > 0 else 0.0)
+        for key, duration in label_durations.items()
+    }
+
+    return {
+        "timeline_total_duration": total_duration,
+        "timeline_total_weight": total_weight,
+        "timeline_label_durations": label_durations,
+        "timeline_label_mean_scores": label_mean_scores,
+    }
+
+
+def _ensure_timeline_summaries(cache_dir: Path, sed_info: dict[str, Any]) -> None:
+    """Populate aggregate timeline metrics when cached data lacks them."""
+
+    if not sed_info or not sed_info.get("timeline_event_count"):
+        return
+
+    if all(key in sed_info for key in ("timeline_total_duration", "timeline_label_durations")):
+        return
+
+    events: Sequence[Mapping[str, Any]] | None = None
+    events_path_raw = sed_info.get("timeline_events_path")
+    if events_path_raw:
+        payload = read_json_safe(Path(events_path_raw))
+        if isinstance(payload, Mapping):
+            raw_events = payload.get("events")
+            if isinstance(raw_events, Sequence):
+                collected: list[Mapping[str, Any]] = []
+                for item in raw_events:
+                    if isinstance(item, Mapping):
+                        collected.append(item)
+                events = collected
+
+    if events is None:
+        fallback_payload = read_json_safe(cache_dir / "sed.timeline_events.json")
+        if isinstance(fallback_payload, Mapping):
+            raw_events = fallback_payload.get("events")
+            if isinstance(raw_events, Sequence):
+                collected: list[Mapping[str, Any]] = []
+                for item in raw_events:
+                    if isinstance(item, Mapping):
+                        collected.append(item)
+                events = collected
+
+    if events:
+        sed_info.update(_summarize_timeline_events(events))
+
+
+def _ensure_list(value: Any) -> list[Any]:
+    """
+    Ensure value is a proper list (not str/bytes), returning [] if not.
+    
+    Helper to normalize values that should be lists but might be missing,
+    wrong type, or accidentally a string/bytes.
+    """
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return list(value)
+
+
+
 def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
@@ -504,6 +599,25 @@ def run_background_sed(
         state.cache_dir = cache_dir
     else:
         cache_dir.mkdir(parents=True, exist_ok=True)
+
+    cfg_obj = pipeline.cfg
+    if isinstance(cfg_obj, Mapping):
+        rank_limit_raw = cfg_obj.get("sed_rank_export_limit")
+    else:
+        rank_limit_raw = getattr(cfg_obj, "sed_rank_export_limit", None)
+    rank_limit_value: int | None
+    if rank_limit_raw is None:
+        rank_limit_value = None
+    else:
+        try:
+            rank_limit_value = int(rank_limit_raw)
+        except (TypeError, ValueError):
+            pipeline.corelog.stage(
+                "background_sed",
+                "warn",
+                message=f"invalid sed_rank_export_limit value {rank_limit_raw!r}; ignoring",
+            )
+            rank_limit_value = None
 
     sed_sig = compute_sed_signature(pipeline.cfg)
     sed_cache_path = cache_dir / "sed.json"
@@ -523,6 +637,40 @@ def run_background_sed(
             sed_info = cached.get("sed_info") or {}
             _hydrate_timeline_events(cache_dir, sed_info)
             sed_info.setdefault("timeline_event_count", 0)
+            
+            # Normalize tagger metadata
+            top_entries = _ensure_list(sed_info.get("top"))
+            sed_info["top"] = top_entries
+            
+            try:
+                cached_top_k = int(sed_info.get("tagger_top_k"))
+            except (TypeError, ValueError):
+                cached_top_k = len(top_entries)
+            sed_info["tagger_top_k"] = cached_top_k
+            
+            cached_rank_limit = sed_info.get("tagger_rank_limit")
+            if cached_rank_limit is None:
+                sed_info["tagger_rank_limit"] = rank_limit_value
+            else:
+                try:
+                    sed_info["tagger_rank_limit"] = int(cached_rank_limit)
+                except (TypeError, ValueError):
+                    sed_info["tagger_rank_limit"] = rank_limit_value
+            
+            ranking_entries = sed_info.get("tagger_ranking")
+            if ranking_entries is not None:
+                ranking_list = _ensure_list(ranking_entries)
+                sed_info["tagger_ranking"] = ranking_list
+            sed_info["tagger_ranking_size"] = int(
+                sed_info.get("tagger_ranking_size") or len(_ensure_list(ranking_entries))
+            )
+            
+            _ensure_timeline_summaries(cache_dir, sed_info)
+            
+            sed_info.setdefault("tagger_available", bool(sed_info.get("tagger_available")))
+            sed_info.setdefault("tagger_backend", sed_info.get("tagger_backend"))
+            sed_info.setdefault("tagger_error", sed_info.get("tagger_error"))
+            
             snapshot = dict(sed_info)
             pipeline.stats.config_snapshot["background_sed"] = snapshot
             state.sed_info = sed_info
@@ -536,10 +684,19 @@ def run_background_sed(
             )
             return
 
-    empty_result = {"top": [], "dominant_label": None, "noise_score": 0.0}
+    empty_result = {
+        "top": [],
+        "dominant_label": None,
+        "noise_score": 0.0,
+        "tagger_top_k": 0,
+        "tagger_rank_limit": rank_limit_value,
+        "tagger_ranking": [],
+        "tagger_ranking_size": 0,
+    }
     if not bool(pipeline.cfg.get("enable_sed", True)):
         disabled_result = dict(empty_result)
         disabled_result["enabled"] = False
+        disabled_result["tagger_ranking"] = []
         guard.progress("background sound event detection disabled via configuration")
         pipeline.stats.config_snapshot["background_sed"] = disabled_result
         state.sed_info = disabled_result
@@ -547,11 +704,23 @@ def run_background_sed(
         return
 
     sed_info = dict(empty_result)
+    sed_info["tagger_ranking"] = []
+    
+    tagger_backend = getattr(tagger, "backend", None) if (tagger := getattr(pipeline, "sed_tagger", None)) is not None else None
+    tagger_available = bool(getattr(tagger, "available", tagger is not None)) if tagger is not None else False
+    sed_info["tagger_backend"] = tagger_backend
+    sed_info["tagger_available"] = tagger_available
+    sed_info["tagger_error"] = None
+    
     try:
-        tagger = getattr(pipeline, "sed_tagger", None)
         if tagger is not None and state.y.size > 0 and state.sr:
-            sed_info = dict(tagger.tag(state.y, state.sr) or empty_result)
+            result = tagger.tag(state.y, state.sr, rank_limit=rank_limit_value) or empty_result
+            sed_info = dict(result)
+            sed_info.setdefault("tagger_ranking", [])
             sed_info["enabled"] = True
+            sed_info["tagger_backend"] = tagger_backend
+            sed_info["tagger_available"] = tagger_available
+            sed_info["tagger_error"] = None
             pipeline.corelog.event(
                 "background_sed",
                 "tags",
@@ -565,6 +734,7 @@ def run_background_sed(
                 message="tagger unavailable; emitting empty background tag summary",
             )
             sed_info["enabled"] = True
+            sed_info["tagger_error"] = "tagger unavailable"
     except (
         ImportError,
         ModuleNotFoundError,
@@ -578,6 +748,7 @@ def run_background_sed(
             message=f"tagging skipped: {exc}. Emitting empty background tag summary.",
         )
         sed_info["enabled"] = True
+        sed_info["tagger_error"] = str(exc)
     finally:
         tl_cfg = {
             "mode": str(pipeline.cfg.get("sed_mode", "auto")).lower(),
