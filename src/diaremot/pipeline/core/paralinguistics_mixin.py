@@ -46,6 +46,14 @@ class ParalinguisticsMixin:
                 except (TypeError, ValueError):
                     return None
 
+        def _safe_bool(value: Any) -> bool:
+            if isinstance(value, str):
+                lowered = value.strip().lower()
+                if lowered in {"", "0", "false", "no", "none", "null"}:
+                    return False
+                return True
+            return bool(value)
+
         try:
             extract_fn = getattr(para, "extract", None) if para else None
             if extract_fn:
@@ -73,6 +81,19 @@ class ParalinguisticsMixin:
                         pause_ratio = (pause_time / duration_s) if duration_s > 0 else 0.0
                     pause_ratio = max(0.0, min(1.0, pause_ratio))
 
+                    voiced_ratio = _safe_float(d.get("vq_voiced_ratio"))
+                    if voiced_ratio is None:
+                        voiced_ratio = 0.0
+                    else:
+                        voiced_ratio = max(0.0, min(1.0, voiced_ratio))
+
+                    spectral_slope = _safe_float(d.get("vq_spectral_slope_db"))
+                    if spectral_slope is None:
+                        spectral_slope = 0.0
+
+                    note = d.get("vq_note")
+                    note_str = str(note) if note is not None else ""
+
                     results[i] = {
                         "wpm": float(d.get("wpm", 0.0) or 0.0),
                         "duration_s": float(duration_s),
@@ -88,6 +109,10 @@ class ParalinguisticsMixin:
                         "vq_shimmer_db": float(d.get("vq_shimmer_db", 0.0) or 0.0),
                         "vq_hnr_db": float(d.get("vq_hnr_db", 0.0) or 0.0),
                         "vq_cpps_db": float(d.get("vq_cpps_db", 0.0) or 0.0),
+                        "vq_voiced_ratio": float(voiced_ratio),
+                        "vq_spectral_slope_db": float(spectral_slope),
+                        "vq_reliable": _safe_bool(d.get("vq_reliable")),
+                        "vq_note": note_str,
                     }
                 return results
         except Exception as exc:  # pragma: no cover - best effort fallback
@@ -126,5 +151,9 @@ class ParalinguisticsMixin:
                 "vq_shimmer_db": 0.0,
                 "vq_hnr_db": 0.0,
                 "vq_cpps_db": 0.0,
+                "vq_voiced_ratio": 0.0,
+                "vq_spectral_slope_db": 0.0,
+                "vq_reliable": False,
+                "vq_note": "",
             }
         return results
