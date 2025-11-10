@@ -49,6 +49,7 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 5. **transcribe** – Speech-to-text with intelligent batching
    - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
 6. **paralinguistics** – Voice quality and prosody extraction (skips automatically when transcription fails or no segments are available)
+   - Surfaces voiced-ratio, spectral-slope, and reliability hints alongside the Praat-derived jitter/shimmer metrics for downstream summaries.
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
 8. **overlap_interruptions** – Turn-taking and interruption pattern analysis (sweep-line \(\mathcal{O}(n \log n)\) boundary sweep)
 9. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation
