@@ -28,6 +28,18 @@ if TYPE_CHECKING:
 __all__ = ["run_preprocess", "run_background_sed"]
 
 
+def _ensure_list(value: Any) -> list:
+    """
+    Ensure the given value is a valid list-like sequence.
+    
+    Returns an empty list if value is not a Sequence or if it's a str/bytes.
+    Otherwise returns the value as-is (which should be a list or list-like sequence).
+    """
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return value
+
+
 def run_preprocess(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
@@ -536,10 +548,8 @@ def run_background_sed(
         if matches:
             sed_info = cached.get("sed_info") or {}
 
-            top_entries = sed_info.get("top")
-            if not isinstance(top_entries, Sequence) or isinstance(top_entries, (str, bytes)):
-                top_entries = []
-                sed_info["top"] = top_entries
+            top_entries = _ensure_list(sed_info.get("top"))
+            sed_info["top"] = top_entries
 
             try:
                 cached_top_k = int(sed_info.get("tagger_top_k"))
@@ -735,8 +745,7 @@ def run_background_sed(
     sed_info.setdefault("top", [])
     sed_info.setdefault("noise_score", 0.0)
     sed_info.setdefault("dominant_label", None)
-    if not isinstance(sed_info["top"], Sequence) or isinstance(sed_info["top"], (str, bytes)):
-        sed_info["top"] = []
+    sed_info["top"] = _ensure_list(sed_info["top"])
     if "tagger_top_k" not in sed_info:
         sed_info["tagger_top_k"] = len(sed_info["top"])
     else:
