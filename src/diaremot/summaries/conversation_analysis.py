@@ -11,6 +11,10 @@ except Exception:  # noqa: S110 - broad except to gracefully fall back when pand
     pd = None  # type: ignore[assignment]
 
 
+class ConversationAnalysisError(RuntimeError):
+    """Raised when the conversation analysis stage fails unexpectedly."""
+
+
 @dataclass
 class ConversationMetrics:
     turn_taking_balance: float  # entropy of speaker participation
@@ -91,10 +95,10 @@ def analyze_conversation_flow(
             interruptions_per_speaker=interrupts_per_speaker,
         )
 
-    except Exception as e:
-        # Fallback to empty metrics on any error
-        print(f"Warning: conversation analysis failed: {e}")
-        return _empty_metrics()
+    except Exception as exc:
+        raise ConversationAnalysisError(
+            f"conversation analysis failed: {exc}"
+        ) from exc
 
 
 def _sanitize_segments(segs: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
