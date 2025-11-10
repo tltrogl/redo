@@ -19,6 +19,7 @@ from .utils import (
     atomic_write_json,
     compute_audio_sha16,
     compute_audio_sha16_from_file,
+    compute_nohash_cache_key,
     compute_pp_signature,
     compute_sed_signature,
     read_json_safe,
@@ -41,14 +42,24 @@ def run_preprocess(
 
     # Try to load cached preprocessed audio first
     state.audio_sha16 = compute_audio_sha16_from_file(state.input_audio_path)
+    cache_root = pipeline.cache_root
+    fallback_cache_key: str | None = None
+
     if state.audio_sha16:
         pipeline.checkpoints.seed_file_hash(state.input_audio_path, state.audio_sha16)
-
-        cache_root = pipeline.cache_root
         cache_dir = cache_root / state.audio_sha16
         cache_dir.mkdir(parents=True, exist_ok=True)
         state.cache_dir = cache_dir
-        state.cache_key = cache_dir.name
+        state.cache_key = state.audio_sha16
+
+        if _load_preprocessed_cache(pipeline, state, cache_dir, guard):
+            return
+    else:
+        fallback_cache_key = compute_nohash_cache_key(state.input_audio_path)
+        cache_dir = cache_root / fallback_cache_key
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        state.cache_dir = cache_dir
+        state.cache_key = fallback_cache_key
 
         if _load_preprocessed_cache(pipeline, state, cache_dir, guard):
             return
@@ -79,10 +90,25 @@ def run_preprocess(
 
     # Save preprocessed audio to cache
     if not state.audio_sha16:
-        state.audio_sha16 = compute_audio_sha16(state.y)
-        if state.audio_sha16:
-            pipeline.checkpoints.seed_file_hash(state.input_audio_path, state.audio_sha16)
-            state.cache_key = state.audio_sha16
+        waveform = state.y
+        if (waveform is None or getattr(waveform, "size", 0) == 0) and state.preprocessed_audio_path:
+            try:
+                waveform = state.ensure_audio()
+            except Exception:
+                waveform = state.y
+
+        if isinstance(waveform, np.ndarray) and waveform.size:
+            candidate_hash = compute_audio_sha16(waveform)
+            if candidate_hash:
+                state.audio_sha16 = candidate_hash
+                pipeline.checkpoints.seed_file_hash(state.input_audio_path, state.audio_sha16)
+
+    if state.audio_sha16:
+        state.cache_key = state.audio_sha16
+    elif not state.cache_key:
+        if fallback_cache_key is None:
+            fallback_cache_key = compute_nohash_cache_key(state.input_audio_path)
+        state.cache_key = fallback_cache_key
 
     pipeline.checkpoints.create_checkpoint(
         state.input_audio_path,
@@ -91,9 +117,7 @@ def run_preprocess(
         progress=5.0,
         file_hash=state.audio_sha16,
     )
-
-    cache_root = pipeline.cache_root
-    cache_key = state.cache_key or (state.audio_sha16 or "nohash")
+    cache_key = state.cache_key or (state.audio_sha16 or fallback_cache_key or "nohash")
     cache_dir = cache_root / cache_key
     cache_dir.mkdir(parents=True, exist_ok=True)
     state.cache_dir = cache_dir

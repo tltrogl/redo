@@ -50,6 +50,19 @@ def compute_audio_sha16_from_file(path: str) -> str:
         return ""
 
 
+def compute_nohash_cache_key(path: str) -> str:
+    """Derive a stable cache key for inputs without a reliable audio hash."""
+
+    try:
+        normalised = Path(path).expanduser()
+    except Exception:
+        normalised = Path(str(path))
+
+    text = normalised.as_posix()
+    digest = hashlib.blake2s(text.encode("utf-8", "ignore"), digest_size=8)
+    return f"nohash-{digest.hexdigest()}"
+
+
 def _normalise_signature_value(value: Any) -> Any:
     if is_dataclass(value):
         value = asdict(value)
@@ -164,6 +177,7 @@ __all__ = [
     "atomic_write_json",
     "compute_audio_sha16",
     "compute_audio_sha16_from_file",
+    "compute_nohash_cache_key",
     "compute_pp_signature",
     "compute_sed_signature",
     "read_json_safe",
