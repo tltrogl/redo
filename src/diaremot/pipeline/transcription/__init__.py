@@ -12,7 +12,6 @@ from .models import (
     TranscriptionError,
     TranscriptionSegment,
     estimate_snr_db,
-    estimate_snr_db_cached,
     resample_audio_fast,
 )
 from .postprocess import distribute_batch_results, distribute_text_proportionally
@@ -34,7 +33,6 @@ __all__ = [
     "TranscriptionError",
     "TranscriptionSegment",
     "estimate_snr_db",
-    "estimate_snr_db_cached",
     "resample_audio_fast",
     "distribute_batch_results",
     "distribute_text_proportionally",
