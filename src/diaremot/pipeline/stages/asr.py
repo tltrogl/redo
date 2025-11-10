@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from ..logging_utils import StageGuard
 from ..pipeline_checkpoint_system import ProcessingStage
 from .base import PipelineState
-from .utils import atomic_write_json
+from .utils import atomic_write_json, build_cache_payload
 
 if TYPE_CHECKING:
     from ..orchestrator import AudioAnalysisPipelineV2
@@ -311,17 +311,17 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
 
     if state.cache_dir:
         try:
-            atomic_write_json(
-                state.cache_dir / "tx.json",
-                {
-                    "version": pipeline.cache_version,
-                    "audio_sha16": state.audio_sha16,
-                    "pp_signature": state.pp_sig,
+            payload = build_cache_payload(
+                version=pipeline.cache_version,
+                audio_sha16=state.audio_sha16,
+                pp_signature=state.pp_sig,
+                extra={
                     "segment_count": len(norm_tx),
                     "segments": [_cache_metadata(segment) for segment in norm_tx],
                     "saved_at": time.time(),
                 },
             )
+            atomic_write_json(state.cache_dir / "tx.json", payload)
         except OSError as exc:
             pipeline.corelog.stage(
                 "transcribe",

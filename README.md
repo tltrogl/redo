@@ -21,6 +21,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 
 - **README.md** (this file) - User guide and reference
 - **DATAFLOW.md** - Detailed pipeline data flow documentation
+- **docs/pipeline_stage_analysis.md** - Stage responsibilities, rationale, and cross-stage observations
 - **MODEL_MAP.md** - Complete model inventory and search paths
 - **GEMINI.md** - Project context for AI assistants (Gemini, Claude, etc.)
 - **AGENTS.md** - Setup guide for autonomous agents
@@ -156,6 +157,7 @@ Output Files:
 - Voice quality metrics
 - Turn-taking patterns
 - Dominance scores
+- Availability flag indicating whether overlap metrics were computed for the run
 
 ### Supporting Files
 
@@ -166,7 +168,7 @@ Output Files:
 - **`qc_report.json`** – Quality control metrics and processing diagnostics
 - **`summary.pdf`** – PDF version of HTML report (requires wkhtmltopdf and succeeds only when the dependency is installed)
 - **`conversation_metrics.csv`** – One-row summary of turn-taking balance, interruption rate, coherence, and latency metrics
-- **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration
+- **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration and an `overlap_available` flag
 - **`interruptions_by_speaker.csv`** – Per-speaker interruption counts, received interruptions, and overlap seconds
 - **`audio_health.csv`** – Snapshot of preprocessing QA metrics (SNR, loudness, silence ratio, clipping flags)
 - **`background_sed_summary.csv`** – Ambient sound detection overview with dominant labels and timeline artifact references

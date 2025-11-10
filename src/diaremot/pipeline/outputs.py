@@ -483,6 +483,7 @@ def write_overlap_summary_csv(
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    available = bool(overlap_stats.get("available")) if overlap_stats else False
     total_sec = float(overlap_stats.get("overlap_total_sec", 0.0)) if overlap_stats else 0.0
     ratio = float(overlap_stats.get("overlap_ratio", 0.0)) if overlap_stats else 0.0
     ratio_pct = ratio * 100.0
@@ -497,6 +498,7 @@ def write_overlap_summary_csv(
         "overlap_ratio_pct",
         "conversation_duration_sec",
         "overlap_vs_duration_pct",
+        "overlap_available",
     ]
     row = {
         "file_id": file_id or "",
@@ -505,6 +507,7 @@ def write_overlap_summary_csv(
         "overlap_ratio_pct": ratio_pct,
         "conversation_duration_sec": duration_s,
         "overlap_vs_duration_pct": normalized_ratio,
+        "overlap_available": available,
     }
 
     with path.open("w", newline="", encoding="utf-8") as handle:
