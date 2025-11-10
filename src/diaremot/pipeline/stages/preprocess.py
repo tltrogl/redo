@@ -419,74 +419,16 @@ def _write_preprocessed_cache(
 def _persist_timeline_events(
     cache_dir: Path,
     events: Sequence[Any],
-    existing_path: str | os.PathLike[str] | None = None,
 ) -> Path | None:
-    """Persist timeline events to a dedicated JSON file.
-
-    Returns the concrete path if any events were written. When ``existing_path``
-    is provided the payload is rewritten in place to upgrade legacy caches.
-    """
+    """Persist timeline events to a dedicated JSON file and return its path."""
 
     if not events:
         return None
 
-    if existing_path:
-        events_path = Path(existing_path)
-        try:
-            events_path.parent.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            pass
-    else:
-        events_path = cache_dir / "sed.timeline_events.json"
-
+    events_path = cache_dir / "sed.timeline_events.json"
     payload = {"events": list(events)}
     atomic_write_json(events_path, payload)
     return events_path
-
-
-def _hydrate_timeline_events(cache_dir: Path, sed_info: dict[str, Any]) -> None:
-    """Populate in-memory timeline events from cached artefacts."""
-
-    if not isinstance(sed_info, dict):
-        return
-
-    direct_events = sed_info.get("timeline_events")
-    if isinstance(direct_events, list):
-        if not sed_info.get("timeline_events_path"):
-            try:
-                events_path = _persist_timeline_events(cache_dir, direct_events)
-            except Exception:  # pragma: no cover - cache hydration best effort
-                events_path = None
-            if events_path is not None:
-                sed_info["timeline_events_path"] = str(events_path)
-        sed_info["timeline_event_count"] = len(direct_events)
-        return
-
-    events_path = sed_info.get("timeline_events_path")
-    if not events_path:
-        return
-
-    try:
-        path_obj = Path(events_path)
-        if not path_obj.is_absolute():
-            candidate = cache_dir / path_obj
-            if candidate.exists():
-                path_obj = candidate
-        if not path_obj.exists():
-            return
-        payload = json.loads(path_obj.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
-        return
-
-    events: Any
-    if isinstance(payload, dict):
-        events = payload.get("events")
-    else:
-        events = payload
-
-    if isinstance(events, list):
-        sed_info["timeline_events"] = events
-        sed_info["timeline_event_count"] = len(events)
 
 
 def _summarize_timeline_events(events: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -635,8 +577,6 @@ def run_background_sed(
             require_audio_sha=bool(state.audio_sha16),
         ):
             sed_info = cached.get("sed_info") or {}
-            _hydrate_timeline_events(cache_dir, sed_info)
-            sed_info.setdefault("timeline_event_count", 0)
             
             # Normalize tagger metadata
             top_entries = _ensure_list(sed_info.get("top"))
@@ -658,12 +598,56 @@ def run_background_sed(
                     sed_info["tagger_rank_limit"] = rank_limit_value
             
             ranking_entries = sed_info.get("tagger_ranking")
-            if ranking_entries is not None:
-                ranking_list = _ensure_list(ranking_entries)
+            if isinstance(ranking_entries, list):
+                ranking_list = ranking_entries
+            else:
+                ranking_list = []
                 sed_info["tagger_ranking"] = ranking_list
             sed_info["tagger_ranking_size"] = int(
-                sed_info.get("tagger_ranking_size") or len(_ensure_list(ranking_entries))
+                sed_info.get("tagger_ranking_size") or len(ranking_list)
             )
+            
+            if "enabled" not in sed_info:
+                sed_info["enabled"] = True
+            
+            # Handle legacy inline events - persist and remove
+            events = sed_info.pop("timeline_events", None)
+            if events and cache_dir is not None:
+                events_path = None
+                try:
+                    events_path = _persist_timeline_events(cache_dir, events)
+                except Exception as exc:  # pragma: no cover - best effort upgrade
+                    pipeline.corelog.stage(
+                        "background_sed",
+                        "warn",
+                        message=f"failed to upgrade cached SED events: {exc}",
+                    )
+                try:
+                    event_list = [event for event in events if isinstance(event, Mapping)]
+                except TypeError:
+                    event_list = []
+                sed_info["timeline_event_count"] = len(event_list)
+                if events_path is not None:
+                    sed_info["timeline_events_path"] = str(events_path)
+                else:
+                    sed_info.pop("timeline_events_path", None)
+                if event_list:
+                    sed_info.update(_summarize_timeline_events(event_list))
+                cached["sed_info"] = sed_info
+                try:
+                    atomic_write_json(sed_cache_path, cached)
+                except Exception:
+                    pipeline.corelog.stage(
+                        "background_sed",
+                        "warn",
+                        message="failed to rewrite upgraded SED cache payload",
+                    )
+            sed_info.pop("timeline_events", None)
+            sed_info.setdefault("timeline_event_count", 0)
+            sed_info.setdefault("timeline_total_duration", 0.0)
+            sed_info.setdefault("timeline_total_weight", 0.0)
+            sed_info.setdefault("timeline_label_durations", {})
+            sed_info.setdefault("timeline_label_mean_scores", {})
             
             _ensure_timeline_summaries(cache_dir, sed_info)
             
@@ -715,12 +699,24 @@ def run_background_sed(
     try:
         if tagger is not None and state.y.size > 0 and state.sr:
             result = tagger.tag(state.y, state.sr, rank_limit=rank_limit_value) or empty_result
-            sed_info = dict(result)
-            sed_info.setdefault("tagger_ranking", [])
-            sed_info["enabled"] = True
-            sed_info["tagger_backend"] = tagger_backend
-            sed_info["tagger_available"] = tagger_available
-            sed_info["tagger_error"] = None
+            sed_info.update(dict(result))
+
+            top_k_value = sed_info.pop("top_k", None)
+            if top_k_value is None:
+                top_k_value = len(sed_info.get("top") or [])
+            try:
+                sed_info["tagger_top_k"] = int(top_k_value)
+            except (TypeError, ValueError):
+                sed_info["tagger_top_k"] = len(sed_info.get("top") or [])
+
+            ranking_payload = sed_info.pop("ranking", None)
+            if isinstance(ranking_payload, list):
+                sed_info["tagger_ranking"] = list(ranking_payload)
+            else:
+                sed_info["tagger_ranking"] = []
+            sed_info["tagger_ranking_size"] = len(sed_info["tagger_ranking"])
+            sed_info["tagger_rank_limit"] = rank_limit_value
+
             pipeline.corelog.event(
                 "background_sed",
                 "tags",
@@ -749,8 +745,27 @@ def run_background_sed(
         )
         sed_info["enabled"] = True
         sed_info["tagger_error"] = str(exc)
-    finally:
-        tl_cfg = {
+    
+    sed_info.setdefault("top", [])
+    sed_info.setdefault("noise_score", 0.0)
+    sed_info.setdefault("dominant_label", None)
+    sed_info["top"] = _ensure_list(sed_info["top"])
+    if "tagger_top_k" not in sed_info:
+        sed_info["tagger_top_k"] = len(sed_info["top"])
+    else:
+        try:
+            sed_info["tagger_top_k"] = int(sed_info["tagger_top_k"])
+        except (TypeError, ValueError):
+            sed_info["tagger_top_k"] = len(sed_info["top"])
+    ranking_list = sed_info.get("tagger_ranking")
+    if not isinstance(ranking_list, list):
+        ranking_list = []
+        sed_info["tagger_ranking"] = ranking_list
+    sed_info["tagger_ranking_size"] = len(ranking_list)
+    sed_info.setdefault("tagger_rank_limit", rank_limit_value)
+    sed_info.setdefault("enabled", True)
+    
+    tl_cfg = {
             "mode": str(pipeline.cfg.get("sed_mode", "auto")).lower(),
             "window_sec": float(pipeline.cfg.get("sed_window_sec", 1.0)),
             "hop_sec": float(pipeline.cfg.get("sed_hop_sec", 0.5)),
@@ -762,95 +777,128 @@ def run_background_sed(
             "classmap_csv": pipeline.cfg.get("sed_classmap_csv"),
             "write_jsonl": bool(pipeline.cfg.get("sed_timeline_jsonl", False)),
             "median_k": int(pipeline.cfg.get("sed_median_k", 5)),
-            "batch_size": int(pipeline.cfg.get("sed_batch_size", 256)),
-            # Cap total windows processed in timeline to avoid long hangs on multi-hour inputs
-            "max_windows": int(pipeline.cfg.get("sed_max_windows", 6000)),
-        }
+        "batch_size": int(pipeline.cfg.get("sed_batch_size", 256)),
+        # Cap total windows processed in timeline to avoid long hangs on multi-hour inputs
+        "max_windows": int(pipeline.cfg.get("sed_max_windows", 6000)),
+    }
 
+    run_timeline = False
+    timeline_status = "skipped:mode_global"
+    timeline_error: str | None = None
+    noise_score = float(sed_info.get("noise_score", 0.0) or 0.0)
+    if tl_cfg["mode"] == "timeline":
+        run_timeline = True
+    elif tl_cfg["mode"] == "auto":
+        run_timeline = noise_score >= 0.30
+
+    if run_timeline and state.out_dir is None:
+        timeline_status = "skipped:no_out_dir"
         run_timeline = False
-        noise_score = float(sed_info.get("noise_score", 0.0) or 0.0)
-        if tl_cfg["mode"] == "timeline":
-            run_timeline = True
-        elif tl_cfg["mode"] == "auto":
-            run_timeline = noise_score >= 0.30
 
-        if run_timeline and state.out_dir is not None:
-            try:
-                from ...affect.sed_timeline import run_sed_timeline
+    if run_timeline and tagger is None:
+        timeline_status = "skipped:no_tagger"
+        run_timeline = False
 
-                model_paths = getattr(tagger, "model_paths", None)
-                labels = getattr(tagger, "labels", None)
-                file_id = pipeline.stats.file_id or Path(state.input_audio_path).name
-                artifacts = run_sed_timeline(
-                    state.y,
-                    sr=state.sr,
-                    cfg=tl_cfg,
-                    out_dir=state.out_dir,
-                    file_id=file_id,
-                    model_paths=model_paths,
-                    labels=labels,
-                )
-                if artifacts is not None:
-                    sed_info["timeline_csv"] = str(artifacts.csv)
-                    sed_info["timeline_jsonl"] = str(artifacts.jsonl) if artifacts.jsonl else None
-                    sed_info["timeline_mode"] = tl_cfg["mode"]
-                    if getattr(artifacts, "mode", None):
-                        sed_info["timeline_inference_mode"] = artifacts.mode
+    if run_timeline and not sed_info.get("tagger_available"):
+        timeline_status = "skipped:tagger_unavailable"
+        run_timeline = False
 
-                    events = list(getattr(artifacts, "events", []) or [])
-                    if events:
-                        events_path = None
-                        try:
-                            events_path = _persist_timeline_events(cache_dir, events)
-                        except Exception as exc:  # pragma: no cover - best-effort cache
-                            pipeline.corelog.stage(
-                                "background_sed",
-                                "warn",
-                                message=f"failed to persist timeline events: {exc}",
-                            )
-                        sed_info["timeline_event_count"] = len(events)
-                        sed_info["timeline_events"] = events
-                        if events_path is not None:
-                            sed_info["timeline_events_path"] = str(events_path)
-                        else:
-                            sed_info.pop("timeline_events_path", None)
-                    else:
-                        sed_info["timeline_event_count"] = 0
-                        sed_info.pop("timeline_events_path", None)
-                        sed_info.pop("timeline_events", None)
-            except Exception as exc:  # pragma: no cover - runtime dependent
-                pipeline.corelog.stage(
-                    "background_sed",
-                    "warn",
-                    message=f"timeline generation failed: {exc}. Falling back to global tags only.",
-                )
-
-        sed_info.setdefault("enabled", True)
-        sed_info.setdefault("timeline_event_count", 0)
-        snapshot = dict(sed_info)
-        pipeline.stats.config_snapshot["background_sed"] = snapshot
-        state.sed_info = sed_info
+    if run_timeline:
         try:
-            cache_sed_info = dict(sed_info)
-            cache_sed_info.pop("timeline_events", None)
-            extra_payload: dict[str, Any] = {
-                "sed_signature": sed_sig,
-                "sed_info": cache_sed_info,
-            }
-            if state.out_dir is not None:
-                extra_payload["out_dir"] = str(state.out_dir)
-            cache_payload = build_cache_payload(
-                version=pipeline.cache_version,
-                audio_sha16=state.audio_sha16,
-                pp_signature=state.pp_sig,
-                extra=extra_payload,
+            from ...affect.sed_timeline import run_sed_timeline
+
+            model_paths = getattr(tagger, "model_paths", None) if tagger is not None else None
+            labels = getattr(tagger, "labels", None) if tagger is not None else None
+            file_id = pipeline.stats.file_id or Path(state.input_audio_path).name
+            artifacts = run_sed_timeline(
+                state.y,
+                sr=state.sr,
+                cfg=tl_cfg,
+                out_dir=state.out_dir,
+                file_id=file_id,
+                model_paths=model_paths,
+                labels=labels,
             )
-            atomic_write_json(sed_cache_path, cache_payload)
-            guard.progress(f"background SED cached results to {sed_cache_path}")
-        except Exception as exc:  # pragma: no cover - best-effort cache
+            if artifacts is not None:
+                sed_info["timeline_csv"] = str(artifacts.csv)
+                sed_info["timeline_jsonl"] = str(artifacts.jsonl) if artifacts.jsonl else None
+                sed_info["timeline_mode"] = tl_cfg["mode"]
+                if getattr(artifacts, "mode", None):
+                    sed_info["timeline_inference_mode"] = artifacts.mode
+
+                events = list(getattr(artifacts, "events", []) or [])
+                if events:
+                    events_path = None
+                    try:
+                        events_path = _persist_timeline_events(cache_dir, events)
+                    except Exception as exc:  # pragma: no cover - best-effort cache
+                        pipeline.corelog.stage(
+                            "background_sed",
+                            "warn",
+                            message=f"failed to persist timeline events: {exc}",
+                        )
+                    sed_info["timeline_event_count"] = len(events)
+                    if events_path is not None:
+                        sed_info["timeline_events_path"] = str(events_path)
+                    else:
+                        sed_info.pop("timeline_events_path", None)
+                    sed_info.update(_summarize_timeline_events(events))
+                    timeline_status = "generated"
+                else:
+                    sed_info["timeline_event_count"] = 0
+                    sed_info.pop("timeline_events_path", None)
+                    sed_info["timeline_total_duration"] = 0.0
+                    sed_info["timeline_total_weight"] = 0.0
+                    sed_info["timeline_label_durations"] = {}
+                    sed_info["timeline_label_mean_scores"] = {}
+                    timeline_status = "generated_empty"
+            else:
+                timeline_status = "skipped:artifacts_unavailable"
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            timeline_error = str(exc)
             pipeline.corelog.stage(
                 "background_sed",
                 "warn",
-                message=f"failed to cache results: {exc}",
+                message=f"timeline generation failed: {exc}. Falling back to global tags only.",
             )
-        guard.done()
+            timeline_status = "error"
+
+    sed_info.setdefault("timeline_event_count", 0)
+    sed_info.setdefault("timeline_total_duration", 0.0)
+    sed_info.setdefault("timeline_total_weight", 0.0)
+    sed_info.setdefault("timeline_label_durations", {})
+    sed_info.setdefault("timeline_label_mean_scores", {})
+    sed_info["timeline_status"] = timeline_status
+    sed_info["timeline_error"] = (timeline_error[:256] if isinstance(timeline_error, str) else None)
+    sed_info["timeline_artifacts_root"] = str(state.out_dir) if state.out_dir is not None else None
+    sed_info.setdefault("timeline_events_path", None)
+    sed_info["timeline_artifacts_stale"] = False
+
+    sed_info.pop("timeline_events", None)
+    snapshot = dict(sed_info)
+    pipeline.stats.config_snapshot["background_sed"] = snapshot
+    state.sed_info = sed_info
+    try:
+        cache_sed_info = dict(sed_info)
+        cache_sed_info.pop("timeline_events", None)
+        extra_payload: dict[str, Any] = {
+            "sed_signature": sed_sig,
+            "sed_info": cache_sed_info,
+        }
+        if state.out_dir is not None:
+            extra_payload["out_dir"] = str(state.out_dir)
+        cache_payload = build_cache_payload(
+            version=pipeline.cache_version,
+            audio_sha16=state.audio_sha16,
+            pp_signature=state.pp_sig,
+            extra=extra_payload,
+        )
+        atomic_write_json(sed_cache_path, cache_payload)
+        guard.progress(f"background SED cached results to {sed_cache_path}")
+    except Exception as exc:  # pragma: no cover - best-effort cache
+        pipeline.corelog.stage(
+            "background_sed",
+            "warn",
+            message=f"failed to cache results: {exc}",
+        )
+    guard.done()
