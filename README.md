@@ -27,6 +27,13 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - **CLOUD_BUILD_GUIDE.md** - Cloud deployment instructions
 
 
+## Recent Changes
+
+- **2025-05-18:** Removed the legacy `build_conversation_analysis` helper. Downstream code
+  should call `analyze_conversation_flow` directly and, if needed, assemble output
+  dictionaries from the returned `ConversationMetrics` dataclass.
+
+
 ### Preprocessing architecture
 The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with focused modules for configuration (`config.py`), disk I/O (`io.py`), chunk lifecycle management (`chunking.py`), denoising primitives (`denoise.py`), and the signal chain (`chain.py`). The legacy `audio_preprocessing.py` module remains as a façade so existing imports continue to work. A standalone CLI for manual runs is available at `scripts/preprocess_audio.py`.
 
