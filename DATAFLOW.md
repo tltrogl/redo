@@ -75,7 +75,7 @@ Input Audio File
 │   - Attach top-3 background sounds from SED                  │
 │   - Estimate SED-derived SNR (`snr_db_sed`)                   │
 │ • Merge all features into segments_final                     │
-│ Output: segments_final (39 columns per SEGMENT_COLUMNS)     │
+│ Output: segments_final (53 columns per SEGMENT_COLUMNS)     │
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -363,7 +363,7 @@ PipelineState:
    - Implementation note: `EmotionAnalyzer` now delegates to modular analyzers under
      `diaremot.affect.analyzers` (`text`, `speech`, `vad`, `intent`) so each component can
      be unit-tested and swapped independently.
-2. Assemble final segment structure with all 39 columns
+2. Assemble final segment structure with all 53 columns
 3. Compute derived fields:
    - affect_hint (e.g., "calm-positive", "agitated-negative")
    - voice_quality_hint (interpretation of Praat metrics)
@@ -562,7 +562,7 @@ PipelineState:
 ### Stage 11: outputs
 **Input:** All state data  
 **Process:**
-1. Write primary CSV (39 columns, fixed order)
+1. Write primary CSV (53 columns, fixed order)
 2. Write JSONL segments
 3. Write timeline CSV
 4. Write human-readable transcript
@@ -616,7 +616,7 @@ manifest: dict
 
 ## Key Data Structures
 
-### SEGMENT_COLUMNS (39 columns, fixed order)
+### SEGMENT_COLUMNS (53 columns, fixed order)
 ```python
 SEGMENT_COLUMNS = [
     "file_id",              # 1
