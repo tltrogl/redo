@@ -84,3 +84,12 @@ where the FFT is among the most expensive CPU steps.
 - Fresh transcriptions keep the asynchronous execution path but reuse a single
   normalisation routine when writing caches, so per-segment payloads are hashed
   once and shared across outputs.【F:src/diaremot/pipeline/stages/asr.py†L132-L211】
+
+## Transcription maintenance cleanup (Current)
+
+- Removed an unused SNR cache facade and a dead resampling kernel helper from
+  the transcription models module, slimming the public surface area while keeping
+  the fast resampler and SNR estimator intact.【F:src/diaremot/pipeline/transcription/models.py†L10-L113】
+- Dropped an unused semaphore placeholder from the async transcriber; executor
+  resets still rebuild the worker pool without tracking redundant concurrency
+  state.【F:src/diaremot/pipeline/transcription/scheduler.py†L63-L69】【F:src/diaremot/pipeline/transcription/scheduler.py†L683-L689】

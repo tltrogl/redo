@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -15,7 +13,6 @@ __all__ = [
     "TranscriptionError",
     "resample_audio_fast",
     "estimate_snr_db",
-    "estimate_snr_db_cached",
 ]
 
 
@@ -82,17 +79,6 @@ class TranscriptionError(Exception):
     """Raised when transcription cannot be completed."""
 
 
-@lru_cache(maxsize=16)
-def _get_resampling_kernel(orig_sr: int, target_sr: int, length: int) -> np.ndarray:
-    if backends.has_librosa:
-        return backends.librosa.resample(
-            np.zeros(min(1024, length), dtype=np.float32),
-            orig_sr=orig_sr,
-            target_sr=target_sr,
-        )
-    return np.array([])
-
-
 def resample_audio_fast(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
     if orig_sr == target_sr:
         return audio.astype(np.float32)
@@ -113,29 +99,15 @@ def resample_audio_fast(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.n
     return np.interp(old_indices, np.arange(len(audio)), audio).astype(np.float32)
 
 
-_SNR_CACHE: dict[tuple[str, tuple[int, ...]], float] = {}
-
-
-@lru_cache(maxsize=256)
-def estimate_snr_db_cached(audio_hash: str, audio_shape: tuple[int, ...]) -> float:
-    return _SNR_CACHE.get((audio_hash, audio_shape), 15.0)
-
-
 def estimate_snr_db(audio: np.ndarray) -> float:
     if audio.size == 0:
         return float("nan")
-
-    audio_hash = hashlib.blake2s(audio.tobytes()).hexdigest()[:16]
 
     try:
         audio = audio.astype(np.float32)
         signal_power = float(np.mean(audio**2))
         noise_estimate = float(np.var(np.diff(audio)))
         snr = 10.0 * np.log10((signal_power + 1e-9) / (noise_estimate + 1e-9))
-        try:
-            _SNR_CACHE[(audio_hash, audio.shape)] = snr
-        except Exception:  # pragma: no cover - cache best effort
-            pass
         return snr
     except Exception:
         return 10.0
