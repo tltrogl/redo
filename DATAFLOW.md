@@ -456,6 +456,7 @@ PipelineState:
 3. Aggregate per-speaker:
    - Interruptions made
    - Interruptions received
+4. Capture event-level interruption log with precise timestamps
 
 **Output:**
 ```python
@@ -473,9 +474,22 @@ PipelineState:
       speaker_id: {
         "made": int,               # Interruptions initiated
         "received": int,           # Times interrupted
+        "overlap_sec": float,      # Cumulative overlap seconds
       },
       ...
     }
+
+  interruption_events: list[dict]
+    [
+      {
+        "index": int,
+        "timestamp_sec": float,
+        "interrupter": str,       # speaker_id initiating
+        "interrupted": str,       # speaker_id interrupted
+        "overlap_sec": float,
+      },
+      ...
+    ]
 ```
 
 ---
@@ -556,6 +570,7 @@ PipelineState:
    - `conversation_metrics.csv` (one row per run)
    - `overlap_summary.csv`
    - `interruptions_by_speaker.csv`
+   - `interruption_events.csv` / `interruption_events.json`
    - `audio_health.csv`
    - `background_sed_summary.csv`
    - `moments_to_review.csv`
@@ -582,6 +597,8 @@ manifest: dict
       "conversation_metrics_csv": str,   # conversation_metrics.csv
       "overlap_summary_csv": str,        # overlap_summary.csv
       "interruptions_by_speaker_csv": str,  # interruptions_by_speaker.csv
+      "interruption_events_csv": str,   # interruption_events.csv
+      "interruption_events_json": str,  # interruption_events.json
       "audio_health_csv": str,           # audio_health.csv
       "background_sed_summary_csv": str, # background_sed_summary.csv
       "moments_to_review_csv": str,      # moments_to_review.csv

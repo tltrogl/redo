@@ -168,6 +168,7 @@ Output Files:
 - **`conversation_metrics.csv`** – One-row summary of turn-taking balance, interruption rate, coherence, and latency metrics
 - **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration
 - **`interruptions_by_speaker.csv`** – Per-speaker interruption counts, received interruptions, and overlap seconds
+- **`interruption_events.csv` / `interruption_events.json`** – Event-level interruption log with precise timestamps, interrupter/interrupted mapping, and overlap durations for downstream analytics
 - **`audio_health.csv`** – Snapshot of preprocessing QA metrics (SNR, loudness, silence ratio, clipping flags)
 - **`background_sed_summary.csv`** – Ambient sound detection overview with dominant labels and timeline artifact references
 - **`moments_to_review.csv`** – High-arousal peaks and inferred action items with timestamps for rapid follow-up
