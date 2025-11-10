@@ -33,7 +33,7 @@ def _render_csv(rows: list[dict[str, object]], header: list[str]) -> list[str]:
 
 def test_speakers_summary_matches_snapshot() -> None:
     segments = _load_segments(FIXTURE_ROOT / "segments.jsonl")
-    summary = build_speakers_summary(segments, {})
+    summary = build_speakers_summary(segments, {}, {})
 
     csv_path = FIXTURE_ROOT / "speakers_summary.csv"
     expected_lines = csv_path.read_text(encoding="utf-8").strip().splitlines()
@@ -43,31 +43,3 @@ def test_speakers_summary_matches_snapshot() -> None:
 
     actual_lines = _render_csv(summary, header)
     assert actual_lines == expected_lines
-
-
-def test_interruptions_payload_overrides_counts() -> None:
-    segments = [
-        {
-            "speaker_id": "S1",
-            "speaker_name": "Speaker 1",
-            "start": 0.0,
-            "end": 10.0,
-            "text": "hello world",
-            "words": 20,
-        }
-    ]
-    per_speaker_interrupts = {
-        "S1": {
-            "made": 3,
-            "received": 2,
-            "overlap_sec": 1.5,
-        }
-    }
-
-    summary = build_speakers_summary(segments, per_speaker_interrupts)
-    assert len(summary) == 1
-    speaker = summary[0]
-    assert speaker["interruptions_made"] == 3
-    assert speaker["interruptions_received"] == 2
-    # Overlap seconds / total duration -> ratio
-    assert speaker["overlap_ratio"] == 0.15

@@ -7,7 +7,6 @@
   - Complexity drops from \(\mathcal{O}(n^2)\) pairwise comparisons to \(\mathcal{O}(n \log n)\) for sorting plus linear accumulation across active speakers.
   - Dense, long-form conversations (100+ rapid turns) now stay inside the paralinguistics SLA without throttling downstream analytics.
 - Threshold knobs (`min_overlap_sec`, `interruption_gap_sec`) are unchanged, ensuring historical report expectations remain intact while scaling to higher speaker churn.
-- **Pipeline wiring update:** the orchestrator now loads the paralinguistics overlap helper during component initialisation so the summaries stage always attempts a real overlap computation before falling back to safe defaults.
 
 ## Next Targets
 
@@ -76,9 +75,6 @@ where the FFT is among the most expensive CPU steps.
   JSON, significantly reducing resume overhead for large meetings.【F:src/diaremot/pipeline/stages/diarize.py†L1-L209】
 - Resume paths rehydrate embeddings on demand, preserving downstream speaker
   recognition behaviour while avoiding redundant JSON decoding.【F:src/diaremot/pipeline/stages/diarize.py†L82-L123】
-- Sanitisation clamps cached and fresh diarisation turns to valid time ranges
-  and sorts them chronologically so that downstream metrics and resumptions do
-  not encounter negative or out-of-order spans.【F:src/diaremot/pipeline/stages/diarize.py†L26-L121】【F:src/diaremot/pipeline/stages/diarize.py†L146-L206】
 
 ## Transcription resume fast path
 
@@ -88,12 +84,3 @@ where the FFT is among the most expensive CPU steps.
 - Fresh transcriptions keep the asynchronous execution path but reuse a single
   normalisation routine when writing caches, so per-segment payloads are hashed
   once and shared across outputs.【F:src/diaremot/pipeline/stages/asr.py†L132-L211】
-
-## Transcription maintenance cleanup (Current)
-
-- Removed an unused SNR cache facade and a dead resampling kernel helper from
-  the transcription models module, slimming the public surface area while keeping
-  the fast resampler and SNR estimator intact.【F:src/diaremot/pipeline/transcription/models.py†L10-L113】
-- Dropped an unused semaphore placeholder from the async transcriber; executor
-  resets still rebuild the worker pool without tracking redundant concurrency
-  state.【F:src/diaremot/pipeline/transcription/scheduler.py†L63-L69】【F:src/diaremot/pipeline/transcription/scheduler.py†L683-L689】

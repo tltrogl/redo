@@ -14,8 +14,6 @@ import pytest
 PipelineState: type | None = None
 asr = None
 
-PP_SIG = json.dumps({"pp": "sig"}, sort_keys=True)
-
 
 class _FakeOrtSession:
     def __init__(self, *args, **kwargs) -> None:  # noqa: ANN001
@@ -187,7 +185,7 @@ def _build_state(tmp_path: Path) -> PipelineState:
     ]
     state.cache_dir = tmp_path
     state.audio_sha16 = "abc123"
-    state.pp_sig = PP_SIG
+    state.pp_sig = {"pp": "sig"}
     return state
 
 

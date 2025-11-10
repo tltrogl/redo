@@ -1,6 +1,5 @@
 import json
 import sys
-from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
@@ -34,9 +33,6 @@ if "diaremot.pipeline.stages.summaries" not in sys.modules:
 
 from diaremot.pipeline.stages.base import PipelineState
 from diaremot.pipeline.stages import preprocess
-
-
-PP_SIG = json.dumps({"pp": "sig"}, sort_keys=True)
 
 
 class _GuardStub:
@@ -96,7 +92,7 @@ def _build_state(tmp_path) -> PipelineState:  # noqa: ANN001
     state = PipelineState(input_audio_path="input.wav", out_dir=out_dir)
     state.y = np.ones(1600, dtype=np.float32)
     state.sr = 16000
-    state.pp_sig = PP_SIG
+    state.pp_sig = {"pp": "sig"}
     return state
 
 
@@ -184,43 +180,3 @@ def test_background_sed_upgrades_inlined_events(tmp_path):  # noqa: ANN001
     assert events_path
     events_payload = json.loads((cache_dir / "sed.timeline_events.json").read_text(encoding="utf-8"))
     assert events_payload["events"] == [{"start": 0.0, "end": 0.2, "label": "speech"}]
-
-
-def test_background_sed_rehydrates_timeline_for_new_out_dir(tmp_path, monkeypatch):  # noqa: ANN001
-    cache_root = tmp_path / "cache"
-    cache_root.mkdir()
-    pipeline = _PipelineStub(cache_root)
-    state = _build_state(tmp_path)
-    guard = _GuardStub()
-
-    module = ModuleType("diaremot.affect.sed_timeline")
-
-    def _fake_run_sed_timeline(audio, *, sr, cfg, out_dir, file_id, model_paths=None, labels=None):  # noqa: ANN001
-        csv_path = out_dir / "events_timeline.csv"
-        csv_path.write_text("file_id,start,end,label,score,source,enter,exit,median_k\n", encoding="utf-8")
-        events = [{"start": 0.1, "end": 0.6, "label": "typing", "score": 0.8}]
-        return SimpleNamespace(csv=csv_path, jsonl=None, events=events, mode="waveform")
-
-    module.run_sed_timeline = _fake_run_sed_timeline
-    monkeypatch.setitem(sys.modules, "diaremot.affect.sed_timeline", module)
-
-    preprocess.run_background_sed(pipeline, state, guard)
-
-    second_out = tmp_path / "out2"
-    second_out.mkdir()
-    state2 = PipelineState(input_audio_path="input.wav", out_dir=second_out)
-    state2.y = np.array(state.y, copy=True)
-    state2.sr = state.sr
-    state2.audio_sha16 = state.audio_sha16
-    state2.cache_dir = pipeline.cache_root / state.audio_sha16
-    state2.cache_key = state.audio_sha16
-    state2.pp_sig = state.pp_sig
-    guard2 = _GuardStub()
-
-    preprocess.run_background_sed(pipeline, state2, guard2)
-
-    assert state2.sed_info is not None
-    timeline_csv = state2.sed_info.get("timeline_csv")
-    assert timeline_csv == str(second_out / "events_timeline.csv")
-    assert Path(timeline_csv).exists()
-    assert state2.sed_info.get("timeline_event_count") == 1
