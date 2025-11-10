@@ -52,7 +52,7 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
    - Surfaces voiced-ratio, spectral-slope, and reliability hints alongside the Praat-derived jitter/shimmer metrics for downstream summaries.
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
 8. **overlap_interruptions** – Turn-taking and interruption pattern analysis (sweep-line \(\mathcal{O}(n \log n)\) boundary sweep)
-9. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation
+9. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation. Failures now surface through `pipeline.corelog.stage` so pipeline logs capture issues without leaking to stdout.
 10. **speaker_rollups** – Per-speaker statistical summaries
 11. **outputs** – Generate CSV, JSON, HTML, PDF reports
 
