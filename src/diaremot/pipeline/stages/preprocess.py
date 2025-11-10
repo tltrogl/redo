@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import json
 import os
 import shutil
 import tempfile
@@ -17,6 +19,7 @@ from .utils import (
     atomic_write_json,
     compute_audio_sha16,
     compute_audio_sha16_from_file,
+    compute_nohash_cache_key,
     compute_pp_signature,
     compute_sed_signature,
     read_json_safe,
@@ -39,13 +42,24 @@ def run_preprocess(
 
     # Try to load cached preprocessed audio first
     state.audio_sha16 = compute_audio_sha16_from_file(state.input_audio_path)
+    cache_root = pipeline.cache_root
+    fallback_cache_key: str | None = None
+
     if state.audio_sha16:
         pipeline.checkpoints.seed_file_hash(state.input_audio_path, state.audio_sha16)
-
-        cache_root = pipeline.cache_root
         cache_dir = cache_root / state.audio_sha16
         cache_dir.mkdir(parents=True, exist_ok=True)
         state.cache_dir = cache_dir
+        state.cache_key = state.audio_sha16
+
+        if _load_preprocessed_cache(pipeline, state, cache_dir, guard):
+            return
+    else:
+        fallback_cache_key = compute_nohash_cache_key(state.input_audio_path)
+        cache_dir = cache_root / fallback_cache_key
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        state.cache_dir = cache_dir
+        state.cache_key = fallback_cache_key
 
         if _load_preprocessed_cache(pipeline, state, cache_dir, guard):
             return
@@ -76,9 +90,25 @@ def run_preprocess(
 
     # Save preprocessed audio to cache
     if not state.audio_sha16:
-        state.audio_sha16 = compute_audio_sha16(state.y)
-        if state.audio_sha16:
-            pipeline.checkpoints.seed_file_hash(state.input_audio_path, state.audio_sha16)
+        waveform = state.y
+        if (waveform is None or getattr(waveform, "size", 0) == 0) and state.preprocessed_audio_path:
+            try:
+                waveform = state.ensure_audio()
+            except Exception:
+                waveform = state.y
+
+        if isinstance(waveform, np.ndarray) and waveform.size:
+            candidate_hash = compute_audio_sha16(waveform)
+            if candidate_hash:
+                state.audio_sha16 = candidate_hash
+                pipeline.checkpoints.seed_file_hash(state.input_audio_path, state.audio_sha16)
+
+    if state.audio_sha16:
+        state.cache_key = state.audio_sha16
+    elif not state.cache_key:
+        if fallback_cache_key is None:
+            fallback_cache_key = compute_nohash_cache_key(state.input_audio_path)
+        state.cache_key = fallback_cache_key
 
     pipeline.checkpoints.create_checkpoint(
         state.input_audio_path,
@@ -87,14 +117,11 @@ def run_preprocess(
         progress=5.0,
         file_hash=state.audio_sha16,
     )
-
-    cache_root = pipeline.cache_root
-    if not state.audio_sha16:
-        cache_dir = cache_root / "nohash"
-    else:
-        cache_dir = cache_root / state.audio_sha16
+    cache_key = state.cache_key or (state.audio_sha16 or fallback_cache_key or "nohash")
+    cache_dir = cache_root / cache_key
     cache_dir.mkdir(parents=True, exist_ok=True)
     state.cache_dir = cache_dir
+    state.cache_key = cache_key
 
     # Save preprocessed audio to cache
     try:
@@ -147,26 +174,46 @@ def _load_diar_tx_caches(
     tx_cache_src = str(tx_path) if state.tx_cache else None
 
     if not state.diar_cache or not state.tx_cache:
+        candidate_keys: list[str] = []
+        if state.cache_key:
+            candidate_keys.append(state.cache_key)
+        if state.audio_sha16 and state.audio_sha16 not in candidate_keys:
+            candidate_keys.append(state.audio_sha16)
+        if not state.audio_sha16 and "nohash" not in candidate_keys:
+            candidate_keys.append("nohash")
+
         for root in pipeline.cache_roots[1:]:
-            alt_dir = Path(root) / state.audio_sha16
-            alt_diar = read_json_safe(alt_dir / "diar.json")
-            alt_tx = read_json_safe(alt_dir / "tx.json")
-            if not state.diar_cache and alt_diar:
-                state.diar_cache = alt_diar
-                diar_cache_src = str(alt_dir / "diar.json")
-            if not state.tx_cache and alt_tx:
-                state.tx_cache = alt_tx
-                tx_cache_src = str(alt_dir / "tx.json")
+            for key in candidate_keys:
+                if not key:
+                    continue
+                alt_dir = Path(root) / key
+                alt_diar = read_json_safe(alt_dir / "diar.json")
+                alt_tx = read_json_safe(alt_dir / "tx.json")
+                if not state.diar_cache and alt_diar:
+                    state.diar_cache = alt_diar
+                    diar_cache_src = str(alt_dir / "diar.json")
+                if not state.tx_cache and alt_tx:
+                    state.tx_cache = alt_tx
+                    tx_cache_src = str(alt_dir / "tx.json")
+                if state.diar_cache and state.tx_cache:
+                    break
             if state.diar_cache and state.tx_cache:
                 break
 
     def _cache_matches(obj: dict[str, object] | None) -> bool:
-        return (
-            bool(obj)
-            and obj.get("version") == pipeline.cache_version
-            and obj.get("audio_sha16") == state.audio_sha16
-            and obj.get("pp_signature") == state.pp_sig
-        )
+        if not obj:
+            return False
+        if obj.get("version") != pipeline.cache_version:
+            return False
+        if obj.get("pp_signature") != state.pp_sig:
+            return False
+        cached_hash = str(obj.get("audio_sha16") or "")
+        state_hash = str(state.audio_sha16 or "")
+        if state_hash:
+            return cached_hash == state_hash
+        if state.cache_key == "nohash":
+            return cached_hash in ("", "nohash")
+        return cached_hash == ""
 
     if _cache_matches(state.tx_cache):
         state.resume_tx = True
@@ -213,7 +260,20 @@ def _load_preprocessed_cache(
     legacy_path = cache_dir / "preprocessed.npz"
 
     def _matches(meta: dict[str, object] | None) -> bool:
-        return bool(meta) and meta.get("pp_signature") == state.pp_sig
+        if not meta:
+            return False
+        if meta.get("pp_signature") != state.pp_sig:
+            return False
+        if meta.get("version") != pipeline.cache_version:
+            return False
+        meta_hash = str(meta.get("audio_sha16") or "")
+        state_hash = str(state.audio_sha16 or "")
+        if state_hash:
+            if not meta_hash or meta_hash != state_hash:
+                return False
+        elif meta_hash and meta_hash not in ("", "nohash"):
+            return False
+        return True
 
     if meta_path.exists() and audio_path.exists():
         meta = read_json_safe(meta_path)
@@ -238,6 +298,9 @@ def _load_preprocessed_cache(
         else:
             state.preprocessed_num_samples = int(state.y.shape[0])
         state.preprocessed_audio_path = audio_path
+        if not state.audio_sha16:
+            state.audio_sha16 = str(meta.get("audio_sha16") or "")
+        state.cache_key = cache_dir.name
 
         health_dict = meta.get("health") if isinstance(meta, dict) else None
         if isinstance(health_dict, dict):
@@ -291,6 +354,9 @@ def _load_preprocessed_cache(
                 cache_path=str(legacy_path),
             )
             guard.done(duration_s=state.duration_s)
+            state.cache_key = cache_dir.name
+            if not state.audio_sha16:
+                state.audio_sha16 = cache_dir.name if cache_dir.name != "nohash" else ""
 
             try:
                 _write_preprocessed_cache(
@@ -345,12 +411,31 @@ def _write_preprocessed_cache(
         if source_path.resolve() != target_path.resolve():
             shutil.move(str(source_path), target_path)
     else:
-        y = np.asarray(state.y, dtype=np.float32)
-        with tempfile.NamedTemporaryFile(dir=cache_dir, suffix=".npy", delete=False) as tmp:
-            np.save(tmp, y)
-            tmp.flush()
-            os.fsync(tmp.fileno())
-            tmp_path = Path(tmp.name)
+        y = state.y
+        if not isinstance(y, np.ndarray) or y.dtype != np.float32:
+            y = np.asarray(y, dtype=np.float32)
+        if not y.flags["C_CONTIGUOUS"]:
+            y = np.ascontiguousarray(y)
+
+        fd, tmp_name = tempfile.mkstemp(dir=cache_dir, suffix=".npy")
+        os.close(fd)
+        tmp_path = Path(tmp_name)
+        try:
+            mm = np.lib.format.open_memmap(
+                tmp_path, mode="w+", dtype=np.float32, shape=y.shape
+            )
+            np.copyto(mm, y, casting="safe")
+            mm.flush()
+            del mm
+        except Exception:
+            try:
+                tmp_path.unlink(missing_ok=True)  # type: ignore[arg-type]
+            except TypeError:
+                try:
+                    tmp_path.unlink()
+                except OSError:
+                    pass
+            raise
 
         os.replace(tmp_path, target_path)
         if num_samples is None:
@@ -419,6 +504,173 @@ def _persist_timeline_events(
     return events_path
 
 
+def _load_cached_timeline_events(
+    cache_dir: Path, sed_info: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    if not sed_info:
+        return []
+
+    candidates: list[Path] = []
+    events_path = sed_info.get("timeline_events_path") if isinstance(sed_info, dict) else None
+    if isinstance(events_path, str) and events_path:
+        candidates.append(Path(events_path))
+    candidates.append(cache_dir / "sed.timeline_events.json")
+
+    for candidate in candidates:
+        try:
+            payload = json.loads(Path(candidate).read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        events = payload.get("events")
+        if isinstance(events, list) and events:
+            filtered = [event for event in events if isinstance(event, dict)]
+            if filtered:
+                return filtered
+    return []
+
+
+def _write_cached_timeline_csv(
+    path: Path,
+    file_id: str,
+    events: Sequence[dict[str, Any]],
+    *,
+    enter: float,
+    exit: float,
+    median_k: int,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            ["file_id", "start", "end", "label", "score", "source", "enter", "exit", "median_k"]
+        )
+        for event in events:
+            start = float(event.get("start", 0.0))
+            end = float(event.get("end", start))
+            score = float(event.get("score", 0.0))
+            label = event.get("label") or event.get("name") or ""
+            source = event.get("source", "cnn14")
+            writer.writerow(
+                [
+                    file_id,
+                    f"{start:.6f}",
+                    f"{end:.6f}",
+                    label,
+                    f"{score:.4f}",
+                    source,
+                    f"{float(enter):.2f}",
+                    f"{float(exit):.2f}",
+                    int(median_k),
+                ]
+            )
+
+
+def _ensure_timeline_outputs(
+    pipeline: "AudioAnalysisPipelineV2",
+    state: PipelineState,
+    cache_dir: Path,
+    sed_info: dict[str, Any],
+    cached_out_dir: str | None,
+) -> bool:
+    out_dir = state.out_dir
+    if out_dir is None or not sed_info:
+        return False
+
+    out_dir_path = Path(out_dir)
+    out_dir_path.mkdir(parents=True, exist_ok=True)
+
+    events = _load_cached_timeline_events(cache_dir, sed_info)
+    changed = False
+
+    if events:
+        sed_info["timeline_event_count"] = len(events)
+    elif sed_info.get("timeline_event_count"):
+        sed_info["timeline_event_count"] = 0
+
+    file_id = pipeline.stats.file_id or Path(state.input_audio_path).name
+    enter = float(sed_info.get("timeline_enter") or pipeline.cfg.get("sed_enter", 0.5) or 0.5)
+    exit = float(sed_info.get("timeline_exit") or pipeline.cfg.get("sed_exit", 0.35) or 0.35)
+    median = int(sed_info.get("timeline_median_k") or pipeline.cfg.get("sed_median_k", 5) or 5)
+
+    dest_csv = out_dir_path / "events_timeline.csv"
+    csv_sources: list[Path] = []
+    csv_path_value = sed_info.get("timeline_csv")
+    if isinstance(csv_path_value, str) and csv_path_value:
+        csv_sources.append(Path(csv_path_value))
+    if cached_out_dir:
+        csv_sources.append(Path(cached_out_dir) / "events_timeline.csv")
+
+    for src in csv_sources:
+        try:
+            if src.exists():
+                if src.resolve() != dest_csv.resolve():
+                    shutil.copy2(src, dest_csv)
+                if dest_csv.exists():
+                    sed_info["timeline_csv"] = str(dest_csv)
+                    changed = True
+                break
+        except Exception as exc:  # pragma: no cover - best effort
+            pipeline.corelog.stage(
+                "background_sed",
+                "warn",
+                message=f"failed to copy cached timeline CSV: {exc}",
+            )
+
+    if not dest_csv.exists() and events:
+        try:
+            _write_cached_timeline_csv(
+                dest_csv,
+                file_id,
+                events,
+                enter=enter,
+                exit=exit,
+                median_k=median,
+            )
+            sed_info["timeline_csv"] = str(dest_csv)
+            changed = True
+        except Exception as exc:  # pragma: no cover - best effort
+            pipeline.corelog.stage(
+                "background_sed",
+                "warn",
+                message=f"failed to rebuild timeline CSV from cache: {exc}",
+            )
+
+    jsonl_sources: list[Path] = []
+    jsonl_value = sed_info.get("timeline_jsonl")
+    if isinstance(jsonl_value, str) and jsonl_value:
+        jsonl_sources.append(Path(jsonl_value))
+    if cached_out_dir:
+        jsonl_sources.append(Path(cached_out_dir) / "events.jsonl")
+
+    dest_jsonl = out_dir_path / "events.jsonl"
+    jsonl_updated = False
+    for src in jsonl_sources:
+        try:
+            if src.exists():
+                if src.resolve() != dest_jsonl.resolve():
+                    shutil.copy2(src, dest_jsonl)
+                sed_info["timeline_jsonl"] = str(dest_jsonl)
+                jsonl_updated = True
+                changed = True
+                break
+        except Exception as exc:  # pragma: no cover - best effort
+            pipeline.corelog.stage(
+                "background_sed",
+                "warn",
+                message=f"failed to copy cached timeline JSONL: {exc}",
+            )
+
+    if not jsonl_updated and "timeline_jsonl" in sed_info:
+        sed_info.pop("timeline_jsonl", None)
+        changed = True
+
+    sed_info.setdefault("timeline_enter", float(enter))
+    sed_info.setdefault("timeline_exit", float(exit))
+    sed_info.setdefault("timeline_median_k", int(median))
+    return changed
+
+
 def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
@@ -426,13 +678,16 @@ def run_background_sed(
     if not state.audio_sha16:
         if state.y.size:
             state.audio_sha16 = compute_audio_sha16(state.y)
+            if state.audio_sha16 and not state.cache_key:
+                state.cache_key = state.audio_sha16
     cache_dir = state.cache_dir
     if cache_dir is None:
         base = pipeline.cache_root
-        key = state.audio_sha16 or "nohash"
+        key = state.cache_key or state.audio_sha16 or "nohash"
         cache_dir = base / key
         cache_dir.mkdir(parents=True, exist_ok=True)
         state.cache_dir = cache_dir
+        state.cache_key = key
     else:
         cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -440,16 +695,19 @@ def run_background_sed(
     sed_cache_path = cache_dir / "sed.json"
     cached = read_json_safe(sed_cache_path) if sed_cache_path.exists() else None
     if cached:
+        cached_hash = str(cached.get("audio_sha16") or "")
+        state_hash = str(state.audio_sha16 or "")
+        hash_matches = cached_hash == state_hash if state_hash else cached_hash in ("", "nohash")
         matches = (
             cached.get("version") == pipeline.cache_version
-            and cached.get("audio_sha16") == state.audio_sha16
             and cached.get("pp_signature") == state.pp_sig
             and cached.get("sed_signature") == sed_sig
-            and cached.get("out_dir") == str(state.out_dir)
+            and hash_matches
         )
         if matches:
             sed_info = cached.get("sed_info") or {}
             events = sed_info.pop("timeline_events", None)
+            payload_changed = False
             if events and cache_dir is not None:
                 events_path = None
                 try:
@@ -465,6 +723,19 @@ def run_background_sed(
                     sed_info["timeline_events_path"] = str(events_path)
                 else:
                     sed_info.pop("timeline_events_path", None)
+                payload_changed = True
+            sed_info.pop("timeline_events", None)
+            sed_info.setdefault("timeline_event_count", 0)
+            cached_out_dir = cached.get("out_dir") if isinstance(cached.get("out_dir"), str) else None
+            if cache_dir is not None and _ensure_timeline_outputs(
+                pipeline, state, cache_dir, sed_info, cached_out_dir
+            ):
+                payload_changed = True
+            new_out_dir = str(state.out_dir) if state.out_dir is not None else None
+            if cached.get("out_dir") != new_out_dir:
+                cached["out_dir"] = new_out_dir
+                payload_changed = True
+            if payload_changed:
                 cached["sed_info"] = sed_info
                 try:
                     atomic_write_json(sed_cache_path, cached)
@@ -474,8 +745,6 @@ def run_background_sed(
                         "warn",
                         message="failed to rewrite upgraded SED cache payload",
                     )
-            sed_info.pop("timeline_events", None)
-            sed_info.setdefault("timeline_event_count", 0)
             snapshot = dict(sed_info)
             pipeline.stats.config_snapshot["background_sed"] = snapshot
             state.sed_info = sed_info
@@ -578,6 +847,9 @@ def run_background_sed(
                     sed_info["timeline_mode"] = tl_cfg["mode"]
                     if getattr(artifacts, "mode", None):
                         sed_info["timeline_inference_mode"] = artifacts.mode
+                    sed_info["timeline_enter"] = float(tl_cfg["enter"])
+                    sed_info["timeline_exit"] = float(tl_cfg["exit"])
+                    sed_info["timeline_median_k"] = int(tl_cfg["median_k"])
 
                     events = list(getattr(artifacts, "events", []) or [])
                     if events:
@@ -606,6 +878,9 @@ def run_background_sed(
                 )
 
         sed_info.setdefault("enabled", True)
+        sed_info.setdefault("timeline_enter", float(tl_cfg.get("enter", 0.5)))
+        sed_info.setdefault("timeline_exit", float(tl_cfg.get("exit", 0.35)))
+        sed_info.setdefault("timeline_median_k", int(tl_cfg.get("median_k", 5)))
         sed_info.pop("timeline_events", None)
         sed_info.setdefault("timeline_event_count", 0)
         snapshot = dict(sed_info)

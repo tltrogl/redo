@@ -9,6 +9,9 @@ from diaremot.pipeline.stages.base import PipelineState
 from diaremot.pipeline.stages.diarize import run as run_diarize
 
 
+PP_SIG = json.dumps({"key": "value"}, sort_keys=True)
+
+
 class _StubGuard:
     def __init__(self) -> None:
         self.progress_calls: list[str] = []
@@ -66,7 +69,7 @@ def _build_state(tmp_path: Path) -> PipelineState:
     state.sr = 16000
     state.duration_s = 60.0
     state.audio_sha16 = "abc123"
-    state.pp_sig = {"key": "value"}
+    state.pp_sig = PP_SIG
     state.cache_dir = tmp_path
     return state
 
@@ -91,7 +94,7 @@ def test_diar_stage_reads_cached_vad_metric(tmp_path: Path) -> None:
     cache = {
         "version": "test",
         "audio_sha16": "abc123",
-        "pp_signature": {"key": "value"},
+        "pp_signature": PP_SIG,
         "turns": turns,
         "diagnostics": {"vad_boundary_flips": 10.0},
     }

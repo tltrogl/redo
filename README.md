@@ -34,6 +34,8 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 
 **2025-03 update:** long-form preprocessing streams chunks straight from ffmpeg/soundfile without first materialising the full waveform. Processed samples are stitched into a memory-mapped `.npy` artifact that downstream stages load lazily via `PipelineState.ensure_audio()`, keeping peak memory usage bounded even on multi-hour recordings.
 
+**2025-04 cache refinements:** Preprocessing caches are now keyed by the complete `PreprocessConfig` state rather than a handful of fields, guaranteeing cache invalidation whenever a knob changes. Cache metadata is validated against the pipeline cache version, audio hash, and config signature before reuse, and corrupt JSON payloads are automatically quarantined. Inputs that cannot be hashed fall back to a deterministic `nohash-<id>` cache key derived from the audio location so repeat runs still reuse artefacts safely. When preprocessing streams audio directly to disk (e.g., chunked memmaps) the pipeline now hashes the cached waveform to keep cache entries distinct. Background SED caches can be reused across different output directories—the pipeline recreates timeline CSV artefacts from cached events when necessary so downstream reports stay in sync.
+
 ---
 
 ## 11-Stage Processing Pipeline
