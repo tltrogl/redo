@@ -460,9 +460,15 @@ class PANNSEventTagger:
 
         ranking: list[dict[str, Any]] | None = None
         if limit is not None:
-            sorted_idx = clip.argsort()[::-1]
-            if limit > 0:
-                sorted_idx = sorted_idx[:limit]
+            if limit > 0 and limit < clip.size:
+                # Efficiently get indices of top `limit` elements
+                topk_idx_unsorted = np.argpartition(clip, -limit)[-limit:]
+                # Now sort these indices by score descending
+                sorted_idx = topk_idx_unsorted[np.argsort(clip[topk_idx_unsorted])[::-1]]
+            else:
+                sorted_idx = clip.argsort()[::-1]
+                if limit is not None and limit > 0:
+                    sorted_idx = sorted_idx[:limit]
             ranking = [
                 {"label": str(map_labels[i]), "score": float(clip[i])} for i in sorted_idx
             ]
