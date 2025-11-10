@@ -62,10 +62,11 @@ def _finalize_turns(
         if end < start:
             start, end = end, start
 
-        start = max(0.0, start)
         if max_end is not None:
             start = min(start, max_end)
             end = min(end, max_end)
+        start = max(0.0, start)
+        end = max(0.0, end)
 
         if end < start:
             end = start
