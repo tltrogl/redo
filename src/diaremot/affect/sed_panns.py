@@ -141,8 +141,16 @@ class PANNSEventTagger:
                 "PANNs event tagging unavailable: neither ONNX nor PyTorch backend could be initialized"
             )
 
-    def _empty_result(self) -> dict[str, Any]:
-        return {"top": [], "dominant_label": None, "noise_score": 0.0}
+    def _empty_result(self, rank_limit: int | None = None) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "top": [],
+            "dominant_label": None,
+            "noise_score": 0.0,
+            "top_k": int(self.cfg.top_k),
+        }
+        if rank_limit is not None:
+            result["ranking"] = []
+        return result
 
     def _emit_missing_warning(self, reason: str) -> None:
         if self._warned_missing:
@@ -358,16 +366,31 @@ class PANNSEventTagger:
         y = np.interp(x_new, x_old, audio).astype(np.float32)
         return y, 32000
 
-    def tag(self, audio_16k_mono: np.ndarray, sr: int) -> dict[str, Any]:
+    def tag(
+        self,
+        audio_16k_mono: np.ndarray,
+        sr: int,
+        *,
+        rank_limit: int | None = None,
+    ) -> dict[str, Any]:
+        limit: int | None
+        if rank_limit is None:
+            limit = None
+        else:
+            try:
+                limit = int(rank_limit)
+            except (TypeError, ValueError):
+                limit = None
+
         if not self.available:
-            return self._empty_result()
+            return self._empty_result(limit)
         if audio_16k_mono is None or audio_16k_mono.size == 0:
-            return self._empty_result()
+            return self._empty_result(limit)
         if (len(audio_16k_mono) / max(1, sr)) < self.cfg.min_duration_sec:
-            return self._empty_result()
+            return self._empty_result(limit)
         self._ensure_model()
         if not self.available:
-            return self._empty_result()
+            return self._empty_result(limit)
 
         # Subsample/limit audio duration to keep SED fast on long files
         y_in = audio_16k_mono
@@ -394,18 +417,18 @@ class PANNSEventTagger:
         if self.backend == "onnx":
             if self._session is None or not self._labels:
                 self._emit_missing_warning("onnx session unavailable at inference")
-                return self._empty_result()
+                return self._empty_result(limit)
             try:
                 inp = self._session.get_inputs()[0].name
                 clip = self._session.run(None, {inp: y[np.newaxis, :]})[0][0]
             except Exception as exc:
                 logger.info("ONNX SED inference failed: %s", exc)
-                return self._empty_result()
+                return self._empty_result(limit)
             map_labels = self._labels
         else:
             if self._tagger is None:
                 self._emit_missing_warning("panns_inference tagger unavailable")
-                return self._empty_result()
+                return self._empty_result(limit)
             try:
                 # panns_inference expects shape [B, T] at 32 kHz and returns
                 # (clipwise_output[B,527], embedding[B,2048]) as numpy arrays
@@ -413,12 +436,12 @@ class PANNSEventTagger:
                 clip = np.asarray(cw[0], dtype=np.float32)
             except Exception as exc:
                 logger.info("PyTorch SED inference failed: %s", exc)
-                return self._empty_result()
+                return self._empty_result(limit)
             # Prefer labels from the tagger; fallback to imported default
             map_labels = getattr(self._tagger, "labels", labels) or []  # type: ignore
 
         if clip.size == 0:
-            return self._empty_result()
+            return self._empty_result(limit)
         # If labels are missing or mismatched, synthesize generic labels
         if not map_labels or len(map_labels) != clip.size:
             try:
@@ -435,11 +458,24 @@ class PANNSEventTagger:
             if any(k in lab for k in _NOISE_KEYWORDS):
                 noise_score += float(s)
 
-        return {
+        ranking: list[dict[str, Any]] | None = None
+        if limit is not None:
+            sorted_idx = clip.argsort()[::-1]
+            if limit > 0:
+                sorted_idx = sorted_idx[:limit]
+            ranking = [
+                {"label": str(map_labels[i]), "score": float(clip[i])} for i in sorted_idx
+            ]
+
+        result: dict[str, Any] = {
             "top": top,
             "dominant_label": top[0]["label"] if top else None,
             "noise_score": float(noise_score),
+            "top_k": int(self.cfg.top_k),
         }
+        if ranking is not None:
+            result["ranking"] = ranking
+        return result
 
     @property
     def labels(self) -> list[str] | None:
