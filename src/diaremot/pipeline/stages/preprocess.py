@@ -28,6 +28,18 @@ if TYPE_CHECKING:
 __all__ = ["run_preprocess", "run_background_sed"]
 
 
+def _ensure_list(value: Any) -> list:
+    """
+    Ensure the given value is a valid list-like sequence.
+    
+    Returns an empty list if value is not a Sequence or if it's a str/bytes.
+    Otherwise returns the value as-is (which should be a list or list-like sequence).
+    """
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return value
+
+
 def run_preprocess(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
