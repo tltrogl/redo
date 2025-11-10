@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -15,10 +16,12 @@ from ..pipeline_checkpoint_system import ProcessingStage
 from .base import PipelineState
 from .utils import (
     atomic_write_json,
+    build_cache_payload,
     compute_audio_sha16,
     compute_audio_sha16_from_file,
     compute_pp_signature,
     compute_sed_signature,
+    matches_pipeline_cache,
     read_json_safe,
 )
 
@@ -160,17 +163,23 @@ def _load_diar_tx_caches(
             if state.diar_cache and state.tx_cache:
                 break
 
-    def _cache_matches(obj: dict[str, object] | None) -> bool:
-        return (
-            bool(obj)
-            and obj.get("version") == pipeline.cache_version
-            and obj.get("audio_sha16") == state.audio_sha16
-            and obj.get("pp_signature") == state.pp_sig
-        )
-
-    if _cache_matches(state.tx_cache):
+    if matches_pipeline_cache(
+        state.tx_cache,
+        version=pipeline.cache_version,
+        audio_sha16=state.audio_sha16 or None,
+        pp_signature=state.pp_sig,
+        require_audio_sha=bool(state.audio_sha16),
+    ):
         state.resume_tx = True
-        state.resume_diar = bool(_cache_matches(state.diar_cache))
+        state.resume_diar = bool(
+            matches_pipeline_cache(
+                state.diar_cache,
+                version=pipeline.cache_version,
+                audio_sha16=state.audio_sha16 or None,
+                pp_signature=state.pp_sig,
+                require_audio_sha=bool(state.audio_sha16),
+            )
+        )
         if state.resume_diar:
             _progress("resume: using tx.json+diar.json caches; skipping diarize+ASR")
         else:
@@ -183,7 +192,13 @@ def _load_diar_tx_caches(
             audio_sha16=state.audio_sha16,
             src=tx_cache_src,
         )
-    elif _cache_matches(state.diar_cache):
+    elif matches_pipeline_cache(
+        state.diar_cache,
+        version=pipeline.cache_version,
+        audio_sha16=state.audio_sha16 or None,
+        pp_signature=state.pp_sig,
+        require_audio_sha=bool(state.audio_sha16),
+    ):
         state.resume_diar = True
         _progress("resume: using diar.json cache; skipping diarize")
         pipeline.corelog.event(
@@ -213,7 +228,14 @@ def _load_preprocessed_cache(
     legacy_path = cache_dir / "preprocessed.npz"
 
     def _matches(meta: dict[str, object] | None) -> bool:
-        return bool(meta) and meta.get("pp_signature") == state.pp_sig
+        return matches_pipeline_cache(
+            meta or {},
+            version=pipeline.cache_version,
+            audio_sha16=state.audio_sha16 or None,
+            pp_signature=state.pp_sig,
+            require_version=False,
+            require_audio_sha=bool(state.audio_sha16),
+        )
 
     if meta_path.exists() and audio_path.exists():
         meta = read_json_safe(meta_path)
@@ -378,16 +400,18 @@ def _write_preprocessed_cache(
             "chunk_info": getattr(state.health, "chunk_info", None),
         }
 
-    meta_payload = {
-        "version": pipeline.cache_version,
-        "audio_sha16": state.audio_sha16,
-        "pp_signature": state.pp_sig,
-        "sample_rate": state.sr,
-        "duration_s": state.duration_s,
-        "dtype": "float32",
-        "shape": [int(num_samples)],
-        "health": health_dict,
-    }
+    meta_payload = build_cache_payload(
+        version=pipeline.cache_version,
+        audio_sha16=state.audio_sha16,
+        pp_signature=state.pp_sig,
+        extra={
+            "sample_rate": state.sr,
+            "duration_s": state.duration_s,
+            "dtype": "float32",
+            "shape": [int(num_samples)],
+            "health": health_dict,
+        },
+    )
     atomic_write_json(meta_path, meta_payload)
 
 
@@ -419,6 +443,51 @@ def _persist_timeline_events(
     return events_path
 
 
+def _hydrate_timeline_events(cache_dir: Path, sed_info: dict[str, Any]) -> None:
+    """Populate in-memory timeline events from cached artefacts."""
+
+    if not isinstance(sed_info, dict):
+        return
+
+    direct_events = sed_info.get("timeline_events")
+    if isinstance(direct_events, list):
+        if not sed_info.get("timeline_events_path"):
+            try:
+                events_path = _persist_timeline_events(cache_dir, direct_events)
+            except Exception:  # pragma: no cover - cache hydration best effort
+                events_path = None
+            if events_path is not None:
+                sed_info["timeline_events_path"] = str(events_path)
+        sed_info["timeline_event_count"] = len(direct_events)
+        return
+
+    events_path = sed_info.get("timeline_events_path")
+    if not events_path:
+        return
+
+    try:
+        path_obj = Path(events_path)
+        if not path_obj.is_absolute():
+            candidate = cache_dir / path_obj
+            if candidate.exists():
+                path_obj = candidate
+        if not path_obj.exists():
+            return
+        payload = json.loads(path_obj.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return
+
+    events: Any
+    if isinstance(payload, dict):
+        events = payload.get("events")
+    else:
+        events = payload
+
+    if isinstance(events, list):
+        sed_info["timeline_events"] = events
+        sed_info["timeline_event_count"] = len(events)
+
+
 def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
@@ -440,41 +509,19 @@ def run_background_sed(
     sed_cache_path = cache_dir / "sed.json"
     cached = read_json_safe(sed_cache_path) if sed_cache_path.exists() else None
     if cached:
-        matches = (
-            cached.get("version") == pipeline.cache_version
-            and cached.get("audio_sha16") == state.audio_sha16
-            and cached.get("pp_signature") == state.pp_sig
-            and cached.get("sed_signature") == sed_sig
-            and cached.get("out_dir") == str(state.out_dir)
-        )
-        if matches:
+        extra_requirements: dict[str, Any] = {"sed_signature": sed_sig}
+        if state.out_dir is not None:
+            extra_requirements["out_dir"] = str(state.out_dir)
+        if matches_pipeline_cache(
+            cached,
+            version=pipeline.cache_version,
+            audio_sha16=state.audio_sha16 or None,
+            pp_signature=state.pp_sig,
+            extra=extra_requirements,
+            require_audio_sha=bool(state.audio_sha16),
+        ):
             sed_info = cached.get("sed_info") or {}
-            events = sed_info.pop("timeline_events", None)
-            if events and cache_dir is not None:
-                events_path = None
-                try:
-                    events_path = _persist_timeline_events(cache_dir, events)
-                except Exception as exc:  # pragma: no cover - best effort upgrade
-                    pipeline.corelog.stage(
-                        "background_sed",
-                        "warn",
-                        message=f"failed to upgrade cached SED events: {exc}",
-                    )
-                sed_info["timeline_event_count"] = len(events)
-                if events_path is not None:
-                    sed_info["timeline_events_path"] = str(events_path)
-                else:
-                    sed_info.pop("timeline_events_path", None)
-                cached["sed_info"] = sed_info
-                try:
-                    atomic_write_json(sed_cache_path, cached)
-                except Exception:
-                    pipeline.corelog.stage(
-                        "background_sed",
-                        "warn",
-                        message="failed to rewrite upgraded SED cache payload",
-                    )
-            sed_info.pop("timeline_events", None)
+            _hydrate_timeline_events(cache_dir, sed_info)
             sed_info.setdefault("timeline_event_count", 0)
             snapshot = dict(sed_info)
             pipeline.stats.config_snapshot["background_sed"] = snapshot
@@ -591,6 +638,7 @@ def run_background_sed(
                                 message=f"failed to persist timeline events: {exc}",
                             )
                         sed_info["timeline_event_count"] = len(events)
+                        sed_info["timeline_events"] = events
                         if events_path is not None:
                             sed_info["timeline_events_path"] = str(events_path)
                         else:
@@ -598,6 +646,7 @@ def run_background_sed(
                     else:
                         sed_info["timeline_event_count"] = 0
                         sed_info.pop("timeline_events_path", None)
+                        sed_info.pop("timeline_events", None)
             except Exception as exc:  # pragma: no cover - runtime dependent
                 pipeline.corelog.stage(
                     "background_sed",
@@ -606,20 +655,25 @@ def run_background_sed(
                 )
 
         sed_info.setdefault("enabled", True)
-        sed_info.pop("timeline_events", None)
         sed_info.setdefault("timeline_event_count", 0)
         snapshot = dict(sed_info)
         pipeline.stats.config_snapshot["background_sed"] = snapshot
         state.sed_info = sed_info
         try:
-            cache_payload = {
-                "version": pipeline.cache_version,
-                "audio_sha16": state.audio_sha16,
-                "pp_signature": state.pp_sig,
+            cache_sed_info = dict(sed_info)
+            cache_sed_info.pop("timeline_events", None)
+            extra_payload: dict[str, Any] = {
                 "sed_signature": sed_sig,
-                "out_dir": str(state.out_dir),
-                "sed_info": sed_info,
+                "sed_info": cache_sed_info,
             }
+            if state.out_dir is not None:
+                extra_payload["out_dir"] = str(state.out_dir)
+            cache_payload = build_cache_payload(
+                version=pipeline.cache_version,
+                audio_sha16=state.audio_sha16,
+                pp_signature=state.pp_sig,
+                extra=extra_payload,
+            )
             atomic_write_json(sed_cache_path, cache_payload)
             guard.progress(f"background SED cached results to {sed_cache_path}")
         except Exception as exc:  # pragma: no cover - best-effort cache
