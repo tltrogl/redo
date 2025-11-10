@@ -7,6 +7,7 @@
   - Complexity drops from \(\mathcal{O}(n^2)\) pairwise comparisons to \(\mathcal{O}(n \log n)\) for sorting plus linear accumulation across active speakers.
   - Dense, long-form conversations (100+ rapid turns) now stay inside the paralinguistics SLA without throttling downstream analytics.
 - Threshold knobs (`min_overlap_sec`, `interruption_gap_sec`) are unchanged, ensuring historical report expectations remain intact while scaling to higher speaker churn.
+- **Pipeline wiring update:** the orchestrator now loads the paralinguistics overlap helper during component initialisation so the summaries stage always attempts a real overlap computation before falling back to safe defaults.
 
 ## Next Targets
 
