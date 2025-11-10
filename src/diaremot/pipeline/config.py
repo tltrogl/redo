@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -9,7 +10,6 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from dataclasses import fields as dataclass_fields
 from importlib import metadata as importlib_metadata
-import os
 from pathlib import Path
 from typing import Any
 
