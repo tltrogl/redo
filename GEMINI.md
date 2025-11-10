@@ -230,7 +230,7 @@ src/diaremot/
 │   │   └── summaries.py                # Stages 8-11
 │   │
 │   ├── orchestrator.py                 # Stage execution controller
-│   ├── outputs.py                      # SEGMENT_COLUMNS (40 cols)
+│   ├── outputs.py                      # SEGMENT_COLUMNS (39 cols)
 │   ├── config.py                       # PipelineConfig schema
 │   ├── audio_pipeline_core.py          # Main pipeline API
 │   ├── diarization/                    # Modular diarization runtime
@@ -356,7 +356,7 @@ python -m diaremot.cli smoke --outdir outputs/
 1. **Make changes** in appropriate module
 2. **Run linter:** `ruff check src/ tests/`
 3. **Run tests:** `pytest tests/ -v`
-4. **Verify schema:** Check `SEGMENT_COLUMNS` count is still 40
+4. **Verify schema:** Check `SEGMENT_COLUMNS` count is still 39
 5. **Integration test:** Run on sample audio
 6. **Check outputs:** Verify CSV structure unchanged
 
