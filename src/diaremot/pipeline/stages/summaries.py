@@ -29,10 +29,8 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
     events: list[dict[str, str | float | int]] = []
     try:
         module = getattr(pipeline, "paralinguistics_module", None)
-        if module and hasattr(module, "compute_overlap_and_interruptions"):
-            overlap = module.compute_overlap_and_interruptions(state.turns) or {}
-        else:
-            overlap = {}
+        compute_overlap = getattr(module, "compute_overlap_and_interruptions")
+        overlap = compute_overlap(state.turns) or {}
         overlap_stats = {
             "overlap_total_sec": float(overlap.get("overlap_total_sec", 0.0)),
             "overlap_ratio": float(overlap.get("overlap_ratio", 0.0)),

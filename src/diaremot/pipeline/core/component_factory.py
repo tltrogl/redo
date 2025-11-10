@@ -35,6 +35,7 @@ class ComponentFactoryMixin:
         self.html = None
         self.pdf = None
         self.auto_tuner = None
+        self.paralinguistics_module = None
 
         affect_kwargs: dict[str, Any] = {
             "text_emotion_model": cfg.get("text_emotion_model", "SamLowe/roberta-base-go_emotions"),
@@ -147,6 +148,19 @@ class ComponentFactoryMixin:
             os.environ["TORCH_DEVICE"] = "cpu"
             self.tx = Transcriber(**transcriber_config)
             self.auto_tuner = AutoTuner()
+
+            self.paralinguistics_module = None
+            try:
+                import importlib
+
+                module = importlib.import_module("diaremot.affect.paralinguistics")
+                if not hasattr(module, "compute_overlap_and_interruptions"):
+                    module = importlib.import_module(
+                        "diaremot.affect.paralinguistics.analysis"
+                    )
+                self.paralinguistics_module = module
+            except (ModuleNotFoundError, ImportError):
+                self.paralinguistics_module = None
 
             def _normalize_model_dir(value: Any) -> str | None:
                 if value in (None, ""):
@@ -282,6 +296,7 @@ class ComponentFactoryMixin:
                     self.auto_tuner = AutoTuner()
             except Exception:
                 self.auto_tuner = None
+            self.paralinguistics_module = None
             raise coerce_stage_error(
                 "dependency_check",
                 "Component initialisation failed",
