@@ -148,7 +148,7 @@ src/diaremot/
 │   ├── core/              # Core mixins
 │   ├── transcription/     # ASR subsystem
 │   ├── preprocess/        # Audio preprocessing
-│   └── outputs.py         # Output schema (39 columns)
+│   └── outputs.py         # Output schema (53 columns)
 ├── affect/                # Emotion and sentiment analysis
 │   ├── paralinguistics/   # Voice quality and prosody
 │   ├── vad_analyzer.py    # Valence-Arousal-Dominance
@@ -168,7 +168,7 @@ tests/
 
 - **`src/diaremot/cli.py`** - CLI commands: `run`, `core`, `enrich`, `smoke`, `diagnostics`
 - **`src/diaremot/pipeline/orchestrator.py`** - Main pipeline orchestrator with 11-stage execution
-- **`src/diaremot/pipeline/outputs.py`** - Output schema definitions (39-column CSV)
+- **`src/diaremot/pipeline/outputs.py`** - Output schema definitions (53-column CSV)
 - **`src/diaremot/affect/paralinguistics/extract.py`** - Voice quality and prosody extraction API
 - **`src/diaremot/io/onnx_utils.py`** - ONNX model loading utilities
 - **`pyproject.toml`** - Project configuration, dependencies, and tool settings
@@ -246,15 +246,15 @@ raise StageExecutionError(
 ## Output Files
 
 ### Primary Outputs
-- **`diarized_transcript_with_emotion.csv`** - 39-column master transcript
+- **`diarized_transcript_with_emotion.csv`** - 53-column master transcript
 - **`segments.jsonl`** - Full segment payloads with audio features
 - **`summary.html`** - Interactive HTML report
 - **`conversation_report.md`** - Narrative summary
 - **`speakers_summary.csv`** - Per-speaker statistics
 - **`qc_report.json`** - Quality control metrics
 
-### Output Schema (39 columns)
-Temporal, speaker, content, affect (V/A/D), emotion scores, voice quality (jitter, shimmer, HNR, CPPS), prosody (WPM, pause metrics, pitch), sound events, SNR estimates, quality flags.
+### Output Schema (53 columns)
+Temporal, speaker, content, affect (V/A/D), emotion scores, voice quality (jitter, shimmer, HNR, CPPS), prosody (WPM, pause metrics, pitch), sound events, SNR estimates, quality flags, extended affect metadata (noise score, timeline events, ASR confidence/language/tokens, voice quality reliability).
 
 ## Performance Considerations
 

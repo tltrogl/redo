@@ -293,7 +293,7 @@ Any missing artifact, schema mismatch, or fallback indicator causes a **hard fai
 - **CLI:** `src/diaremot/cli.py`
 - **Pipeline Orchestrator:** `src/diaremot/pipeline/orchestrator.py`
 - **Stages Registry:** `src/diaremot/pipeline/stages/__init__.py`
-- **Outputs & schema:** `src/diaremot/pipeline/outputs.py` (39 contractual columns)
+- **Outputs & schema:** `src/diaremot/pipeline/outputs.py` (53 contractual columns)
 - **Affect / SED / Intent:** `src/diaremot/affect/`, `src/diaremot/sed/`, `src/diaremot/intent/`
 - **Model utilities:** `src/diaremot/io/onnx_utils.py`, `src/diaremot/utils/model_paths.py`
 - **Tests:** `tests/`
@@ -344,7 +344,7 @@ pytest -q
 
 - `logs/run.jsonl`: Stage timing, warnings, fallback notices.
 - `outputs/qc_report.json`: Audio health metrics, dependency summary, auto-tune notes (if enabled).
-- `outputs/diarized_transcript_with_emotion.csv`: Confirm the 39-column schema and non-empty rows.
+- `outputs/diarized_transcript_with_emotion.csv`: Confirm the 53-column schema and non-empty rows.
 - `outputs/segments.jsonl`: Ensure affect, text emotion, and intent payloads are present.
 - `outputs/summary.html` / `summary.pdf`: Generated when dependencies are available; note if missing.
 - `/tmp/smoke/*` (for smoke runs): Validate expected artefacts and review logs for fallbacks.
@@ -365,7 +365,7 @@ A run is successful only if **all** of the following pass:
    - `timeline.csv`
    - `qc_report.json`
    - `events_timeline.csv` whenever the manifest advertises a timeline output (absence is only acceptable when SED timeline mode does not engage for the sample audio).
-2. **CSV contract:** `diarized_transcript_with_emotion.csv` has **39 columns** including affect (V/A/D), speech emotion, text emotions top‑5 JSON, intent, SED overlaps, noise/SNR metrics.
+2. **CSV contract:** `diarized_transcript_with_emotion.csv` has **53 columns** including affect (V/A/D), speech emotion, text emotions top‑5 JSON, intent, SED overlaps, noise/SNR metrics, extended affect metadata (noise score, timeline events, ASR confidence/language/tokens, voice quality reliability).
 3. **All features exercised:** Quiet‑Boost, SED (ON), Diarization, ASR, Affect V/A/D, Speech Emotion 8‑class, Text Emotions 28‑class, Intent. **VAD_dim present.**
 4. **No fallbacks used.** If any component indicates fallback/disablement, mark as **failure**.
 5. **Lint/tests:** `ruff` and `pytest` (if tests exist) complete with **zero hard failures**.

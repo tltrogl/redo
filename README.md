@@ -95,7 +95,7 @@ Audio File (WAV/MP3/M4A)
     ↓ {para_map: {seg_idx: {wpm, f0_mean_hz, vq_jitter_pct, ...}}}
     ↓
 [7] affect_and_assemble → Audio (VAD+SER8) + Text (GoEmotions+BART-MNLI) + SED context
-    ↓ {segments_final: 39 columns per segment}
+    ↓ {segments_final: 53 columns per segment}
     ↓
 [8] overlap_interruptions → Detect overlaps + classify interruptions with sweep-line \(\mathcal{O}(n \log n)\) analytics
     ↓ {overlap_stats, per_speaker_interrupts}
@@ -109,7 +109,7 @@ Audio File (WAV/MP3/M4A)
 [11] outputs → Write CSV/JSONL/HTML/PDF/QC reports
     ↓
 Output Files:
-  • diarized_transcript_with_emotion.csv (39 columns)
+  • diarized_transcript_with_emotion.csv (53 columns)
   • segments.jsonl
   • timeline.csv
   • diarized_transcript_readable.txt
@@ -129,7 +129,7 @@ Output Files:
 
 ### Primary Outputs
 
-**`diarized_transcript_with_emotion.csv`** - 39-column master transcript
+**`diarized_transcript_with_emotion.csv`** - 53-column master transcript
 - **Temporal**: start, end, duration_s
 - **Speaker**: speaker_id, speaker_name
 - **Content**: text, asr_logprob_avg
@@ -790,7 +790,7 @@ Transcription module employs sophisticated batching:
 
 ## CSV Schema Reference
 
-The primary output `diarized_transcript_with_emotion.csv` contains **39 columns** (in this exact order):
+The primary output `diarized_transcript_with_emotion.csv` contains **53 columns** (in this exact order):
 
 ### Column Order (CRITICAL - DO NOT MODIFY)
 ```python
@@ -1084,7 +1084,7 @@ redo/
 │       │   │   ├── postprocess.py    # Transcript redistribution helpers
 │       │   │   └── scheduler.py      # Async engine & batching heuristics
 │       │   ├── transcription_module.py  # Transcriber façade delegating to package
-│       │   ├── outputs.py           # CSV schema (39 columns)
+│       │   ├── outputs.py           # CSV schema (53 columns)
 │       │   ├── config.py
 │       │   ├── runtime_env.py
 │       │   ├── pipeline_checkpoint_system.py
