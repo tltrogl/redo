@@ -156,23 +156,22 @@ class HTMLSummaryGenerator:
                         }
                     )
 
-        # Aggregate simple voice-quality metrics
-        def _avg(key: str):
-            vals = []
-            for s in segments or []:
-                v = s.get(key)
-                if v is None:
-                    continue
-                try:
-                    vals.append(float(v))
-                except Exception:
-                    pass
-            return (sum(vals) / len(vals)) if vals else None
-
-        vq_jitter = _avg("vq_jitter_pct")
-        vq_shimmer = _avg("vq_shimmer_db")
-        vq_hnr = _avg("vq_hnr_db")
-        vq_cpps = _avg("vq_cpps_db")
+        # Aggregate voice-quality metrics efficiently in a single pass
+        vq_metrics = {"vq_jitter_pct": [], "vq_shimmer_db": [], "vq_hnr_db": [], "vq_cpps_db": []}
+        
+        for seg in segments or []:
+            for key, vals_list in vq_metrics.items():
+                v = seg.get(key)
+                if v is not None:
+                    try:
+                        vals_list.append(float(v))
+                    except (TypeError, ValueError):
+                        pass
+        
+        vq_jitter = (sum(vq_metrics["vq_jitter_pct"]) / len(vq_metrics["vq_jitter_pct"])) if vq_metrics["vq_jitter_pct"] else None
+        vq_shimmer = (sum(vq_metrics["vq_shimmer_db"]) / len(vq_metrics["vq_shimmer_db"])) if vq_metrics["vq_shimmer_db"] else None
+        vq_hnr = (sum(vq_metrics["vq_hnr_db"]) / len(vq_metrics["vq_hnr_db"])) if vq_metrics["vq_hnr_db"] else None
+        vq_cpps = (sum(vq_metrics["vq_cpps_db"]) / len(vq_metrics["vq_cpps_db"])) if vq_metrics["vq_cpps_db"] else None
 
         return f"""<!DOCTYPE html>
 <html><head>
@@ -335,24 +334,32 @@ body {{ font: 14px system-ui; margin: 0; background: #f8f9fa; }}
         </div>
         """
 
-    def _build_transcript(self, segments: list) -> str:
+    def _build_transcript(self, segments: list, max_segments: int = 500) -> str:
+        """Build transcript HTML with configurable segment limit.
+        
+        Args:
+            segments: List of transcript segments
+            max_segments: Maximum number of segments to display (default 500)
+        """
         if not segments:
             return "<p>No transcript available</p>"
 
-        rows = []
-        for seg in segments[:100]:  # Limit for performance
-            time = fmt_hms(_coerce_float(seg.get("start", 0)))
-            speaker = _get_speaker_name(seg.get("speaker_id"), seg.get("speaker_name"))
-            text = seg.get("text", "") or ""
+        # Use list comprehension for better performance
+        limit = min(len(segments), max_segments)
+        rows = [
+            f'<div class="transcript-row">'
+            f'<div class="transcript-time">{fmt_hms(_coerce_float(seg.get("start", 0)))}</div>'
+            f'<div class="transcript-speaker">{_get_speaker_name(seg.get("speaker_id"), seg.get("speaker_name"))}</div>'
+            f'<div class="transcript-text">{seg.get("text", "") or ""}</div>'
+            f'</div>'
+            for seg in segments[:limit]
+        ]
 
+        if len(segments) > limit:
             rows.append(
-                f"""
-            <div class="transcript-row">
-              <div class="transcript-time">{time}</div>
-              <div class="transcript-speaker">{speaker}</div>
-              <div class="transcript-text">{text}</div>
-            </div>
-            """
+                f'<div class="transcript-row" style="text-align:center;color:#666;font-style:italic;">'
+                f'... {len(segments) - limit} more segments not shown ...'
+                f'</div>'
             )
 
         return "".join(rows)

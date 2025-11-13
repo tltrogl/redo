@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from copy import deepcopy
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from dataclasses import fields as dataclass_fields
 from importlib import metadata as importlib_metadata
-import os
 from pathlib import Path
 from typing import Any
 
@@ -439,7 +438,8 @@ def dependency_health_summary(
         _DEPENDENCY_SUMMARY_CACHE = None
 
     if use_cache and _DEPENDENCY_SUMMARY_CACHE is not None:
-        return deepcopy(_DEPENDENCY_SUMMARY_CACHE)
+        # Return shallow copy - nested dicts are immutable during typical usage
+        return _DEPENDENCY_SUMMARY_CACHE.copy()
 
     summary: dict[str, dict[str, Any]] = {}
 
@@ -482,7 +482,8 @@ def dependency_health_summary(
 
     if use_cache:
         _DEPENDENCY_SUMMARY_CACHE = summary
-        return deepcopy(summary)
+        # Return shallow copy - nested dicts are immutable during typical usage
+        return summary.copy()
 
     return summary
 
