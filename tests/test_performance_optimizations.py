@@ -1,8 +1,7 @@
 """Test performance optimizations to ensure they work correctly."""
 
-import tempfile
 import os
-from pathlib import Path
+import tempfile
 
 
 def test_html_generator_segment_limit():
@@ -38,7 +37,7 @@ def test_html_generator_segment_limit():
         # Check that file was created
         assert os.path.exists(path), 'HTML file not created'
         
-        with open(path, 'r') as f:
+        with open(path) as f:
             content = f.read()
             
             # Should include 500 segments (new limit)
@@ -77,7 +76,7 @@ def test_html_generator_single_pass_aggregation():
     with tempfile.TemporaryDirectory() as tmpdir:
         path = gen.render_to_html(tmpdir, 'test', segments, speakers, {})
         
-        with open(path, 'r') as f:
+        with open(path) as f:
             content = f.read()
             
             # Check that metrics are present and reasonable
@@ -117,6 +116,7 @@ def test_conversation_analysis_efficiency():
 def test_paralinguistics_memory_optimization():
     """Test that paralinguistics array conversion is efficient."""
     import numpy as np
+
     from diaremot.affect.paralinguistics.config import ParalinguisticsConfig
     from diaremot.affect.paralinguistics.features import compute_segment_features_v2
     
