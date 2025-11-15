@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from copy import deepcopy
 from typing import TYPE_CHECKING, Any
 
 from ..auto_tuner import AutoTuner
@@ -92,7 +91,11 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         "result": result.to_dict(),
         "applied": applied,
     }
-    state.tuning_history.append(deepcopy(state.tuning_summary))
+    # Create a shallow copy for history - nested dicts are immutable snapshots
+    state.tuning_history.append({
+        "result": result.to_dict(),
+        "applied": {k: v.copy() for k, v in applied.items()},
+    })
 
     # Persist into run stats for downstream diagnostics
     snapshot = getattr(pipeline.stats, "config_snapshot", {})

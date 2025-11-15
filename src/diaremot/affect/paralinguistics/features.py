@@ -46,9 +46,12 @@ def compute_segment_features_v2(
     start_idx = max(0, int(start_time * sr))
     end_idx = min(len(audio), int(end_time * sr))
 
+    # Extract segment audio - slice is already a view, convert type efficiently
     if cfg.enable_memory_optimization:
-        segment_audio = audio[start_idx:end_idx].copy().astype(np.float32)
+        # Explicit copy for memory locality, convert to float32 in one operation
+        segment_audio = audio[start_idx:end_idx].astype(np.float32, copy=True)
     else:
+        # No copy - use view directly, convert type in-place if needed
         segment_audio = audio[start_idx:end_idx].astype(np.float32, copy=False)
 
     flags: dict[str, Any] = {
