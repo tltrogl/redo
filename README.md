@@ -171,7 +171,7 @@ Output Files:
 - **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration and an `overlap_available` flag
 - **`interruptions_by_speaker.csv`** – Per-speaker interruption counts, received interruptions, and overlap seconds
 - **`audio_health.csv`** – Snapshot of preprocessing QA metrics (SNR, loudness, silence ratio, clipping flags)
-- **`background_sed_summary.csv`** – Ambient sound detection overview with dominant labels and timeline artifact references
+- **`background_sed_summary.csv`** – Ambient sound detection overview with dominant labels, tagger backend/availability, timeline status, aggregated duration/score metrics, and artifact references
 - **`moments_to_review.csv`** – High-arousal peaks and inferred action items with timestamps for rapid follow-up
 
 ---
@@ -299,6 +299,13 @@ export NUMEXPR_MAX_THREADS=4
 # Disable tokenizer parallelism warnings
 export TOKENIZERS_PARALLELISM=false
 ```
+
+### Sound Event Detection configuration
+
+- The SED stage honours timeline parameters (`sed_mode`, window sizes, thresholds) provided via `build_pipeline_config`/CLI.
+- `sed_max_windows` now caps the total number of inference windows (0 disables the cap). Values are validated on startup to avoid runaway timelines on very long recordings.
+- `sed_rank_export_limit` controls how many ranked labels are persisted from the raw classifier scores. Omit the field to disable ranking export, set it to a positive integer to capture the top-N classes, or use `0`/negative values to retain the full 527-class ordering when deeper analysis is required.
+- `background_sed_summary.csv` records the tagger backend/availability plus timeline status, total duration, label-wise durations, weighted scores, and any exported ranking metadata (`tagger_top_k`, configured limit, JSON ranking payload) so downstream tooling can reason about cached or regenerated artifacts without parsing the raw timeline payloads.
 
 ### Local-first model resolution
 

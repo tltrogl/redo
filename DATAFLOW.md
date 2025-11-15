@@ -179,11 +179,17 @@ PipelineState:
 ### Stage 3: background_sed
 **Input:** `state.y`, `state.sr`  
 **Process:**
-1. Run PANNs CNN14 on entire audio
-2. Generate global background classification
-3. If noise_score ≥ 0.30 (or mode="timeline"):
-   - Create detailed event timeline
-   - Save to events_timeline.csv, events.jsonl
+1. Run PANNs CNN14 on the entire audio clip, recording backend/availability metadata for diagnostics.
+2. Populate the global tag summary (top labels, dominant label, noise score) and surface any tagging exceptions in `tagger_error`, `tagger_top_k`, and (when configured) the exported ranking metadata.
+3. Evaluate the configured timeline policy (`sed_mode`/`sed_max_windows`):
+   - `auto` enables the timeline when `noise_score ≥ 0.30`.
+   - `timeline` forces execution regardless of noise score.
+   - `global` (or missing assets) records a descriptive `timeline_status`.
+4. When the timeline runs successfully:
+   - Limit window count using `sed_max_windows` (0 disables the cap).
+   - Persist CSV/JSONL artifacts and cache the raw events to `sed.timeline_events.json`.
+   - Aggregate total duration, per-label durations, and weighted mean scores (`timeline_total_duration`, `timeline_label_*`).
+5. All skip/failure reasons are captured in `timeline_status`/`timeline_error` so cache hits can distinguish stale artifacts from intentional skips.
 
 **Output:**
 ```python
@@ -194,10 +200,25 @@ PipelineState:
       "dominant_label": str,                         # Most common class
       "noise_score": float,                          # 0.0-1.0
       "enabled": bool,                               # True if ran
+      "tagger_available": bool,                      # Whether PANNs backend initialised
+      "tagger_backend": str?,                        # "onnx" / "pytorch" / "auto" / None
+      "tagger_error": str?,                          # Exception or skip reason (if any)
+      "tagger_top_k": int,                           # Requested top-k from the tagger
+      "tagger_rank_limit": int | None,               # Configured ranking export limit (None disables)
+      "tagger_ranking": list[dict[str, float]],      # Optional ranking payload (label/score pairs)
+      "tagger_ranking_size": int,                    # Number of ranking entries retained
       "timeline_csv": str?,                          # Path if generated
       "timeline_jsonl": str?,                        # Path if generated
       "timeline_event_count": int?,                  # Number of timeline events persisted
       "timeline_events_path": str?,                  # JSON file with full event payload
+      "timeline_total_duration": float,              # Sum of event durations (seconds)
+      "timeline_total_weight": float,                # Sum(score * duration) across events
+      "timeline_label_durations": dict[str, float],  # Duration per label (seconds)
+      "timeline_label_mean_scores": dict[str, float],# Weighted mean score per label
+      "timeline_status": str,                        # generated / skipped:* / error
+      "timeline_error": str?,                        # Captured exception (if any)
+      "timeline_artifacts_root": str?,               # Output directory where artifacts were written
+      "timeline_artifacts_stale": bool,              # True when cache reused under new out_dir
     }
 ```
 
