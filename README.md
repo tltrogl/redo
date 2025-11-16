@@ -65,6 +65,8 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
   improves failure diagnostics without altering the 11-stage contract.
 - Component bootstrap logic in `ComponentFactoryMixin` raises these structured errors as soon as a
   dependency is missing, keeping cache and checkpoint handling consistent with pre-refactor runs.
+  - The mixin defers heavy imports (emotion analyzer, diarizer, SED, HTML/PDF summaries) until `_init_components`
+    runs so CLI startup remains fast and memory usage stays low when optional features are disabled.
 - The paralinguistics stack is now a proper package under `src/diaremot/affect/paralinguistics/`,
   splitting configuration, audio/voice quality primitives, aggregate analytics, benchmarking, and
   the CLI into focused modules while preserving the legacy `extract` API for pipeline callers.
@@ -118,6 +120,7 @@ Output Files:
   • summary.pdf
   • qc_report.json
   • speakers_summary.csv
+  • interruption_events.csv / interruption_events.json
   • events_timeline.csv (if SED ran)
 ```
 
@@ -138,6 +141,12 @@ Output Files:
 - **Prosody**: WPM, pause metrics, pitch statistics
 - **Context**: sound events, SNR estimates
 - **Quality Flags**: low confidence, VAD instability, error flags
+
+Implementation note: the CSV schema is backed by the `SEGMENT_COLUMNS`
+list in `src/diaremot/pipeline/outputs.py`, and the file is emitted via
+Python's built-in `csv.DictWriter`. This keeps the export free of heavy
+dependencies (for example pandas) while guaranteeing the column order
+and the full 53-column contract.
 
 **`diarized_transcript_readable.txt`** - Plain-text transcript with diarized turns, human-friendly timestamps, VAD stability, top sound events, dominant intent, and affect snapshot (valence/arousal/dominance + emotion hint).
 
@@ -172,6 +181,8 @@ Output Files:
 - **`conversation_metrics.csv`** – One-row summary of turn-taking balance, interruption rate, coherence, and latency metrics
 - **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration and an `overlap_available` flag
 - **`interruptions_by_speaker.csv`** – Per-speaker interruption counts, received interruptions, and overlap seconds
+- **`interruption_events.csv`** – Timestamped log of each detected interruption with speaker IDs/names and overlap duration
+- **`interruption_events.json`** – JSON companion to the CSV for downstream analytics workflows
 - **`audio_health.csv`** – Snapshot of preprocessing QA metrics (SNR, loudness, silence ratio, clipping flags)
 - **`background_sed_summary.csv`** – Ambient sound detection overview with dominant labels, tagger backend/availability, timeline status, aggregated duration/score metrics, and artifact references
 - **`moments_to_review.csv`** – High-arousal peaks and inferred action items with timestamps for rapid follow-up

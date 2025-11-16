@@ -571,6 +571,89 @@ def write_interruptions_csv(
             writer.writerow(row)
 
 
+def write_interruption_events_csv(
+    path: Path,
+    events: list[dict[str, Any]] | None,
+    *,
+    speaker_labels: dict[str, str] | None = None,
+    file_id: str | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = [
+        "file_id",
+        "timestamp",
+        "interrupter_id",
+        "interrupter_name",
+        "interrupted_id",
+        "interrupted_name",
+        "overlap_sec",
+    ]
+
+    def _to_float(value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    speaker_labels = speaker_labels or {}
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+
+        for event in events or []:
+            if not isinstance(event, dict):
+                continue
+            interrupter = str(event.get("interrupter") or "").strip()
+            interrupted = str(event.get("interrupted") or "").strip()
+            row = {
+                "file_id": file_id or "",
+                "timestamp": _to_float(event.get("at") or event.get("timestamp")),
+                "interrupter_id": interrupter,
+                "interrupter_name": speaker_labels.get(interrupter, ""),
+                "interrupted_id": interrupted,
+                "interrupted_name": speaker_labels.get(interrupted, ""),
+                "overlap_sec": _to_float(event.get("overlap_sec")),
+            }
+            writer.writerow(row)
+
+
+def write_interruption_events_json(
+    path: Path,
+    events: list[dict[str, Any]] | None,
+    *,
+    speaker_labels: dict[str, str] | None = None,
+    file_id: str | None = None,
+) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload: list[dict[str, Any]] = []
+    speaker_labels = speaker_labels or {}
+
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        interrupter = str(event.get("interrupter") or "").strip()
+        interrupted = str(event.get("interrupted") or "").strip()
+        payload.append(
+            {
+                "file_id": file_id or "",
+                "timestamp": event.get("at") or event.get("timestamp"),
+                "interrupter_id": interrupter,
+                "interrupter_name": speaker_labels.get(interrupter, ""),
+                "interrupted_id": interrupted,
+                "interrupted_name": speaker_labels.get(interrupted, ""),
+                "overlap_sec": event.get("overlap_sec"),
+            }
+        )
+
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+
+
 def write_audio_health_csv(
     path: Path,
     health: Any,
@@ -773,6 +856,8 @@ __all__ = [
     "write_conversation_metrics_csv",
     "write_overlap_summary_csv",
     "write_interruptions_csv",
+    "write_interruption_events_csv",
+    "write_interruption_events_json",
     "write_audio_health_csv",
     "write_background_sed_summary_csv",
     "write_moments_csv",
