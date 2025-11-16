@@ -12,7 +12,7 @@ import numpy as np
 from ..logging_utils import StageGuard
 from ..pipeline_checkpoint_system import ProcessingStage
 from .base import PipelineState
-from .utils import atomic_write_json
+from .utils import atomic_write_json, build_cache_payload
 
 if TYPE_CHECKING:
     from ..orchestrator import AudioAnalysisPipelineV2
@@ -27,56 +27,6 @@ def _fallback_turn(duration_s: float) -> dict[str, Any]:
         "speaker": "Speaker_1",
         "speaker_name": "Speaker_1",
     }
-
-
-def _finalize_turns(
-    turns: list[dict[str, Any]], duration_s: float | None
-) -> list[dict[str, Any]]:
-    """Return sanitized, chronologically ordered turns."""
-
-    if not turns:
-        return []
-
-    sanitized: list[dict[str, Any]] = []
-    max_end = None
-    try:
-        if duration_s is not None:
-            max_end = float(duration_s)
-    except (TypeError, ValueError):
-        max_end = None
-
-    for turn in turns:
-        if not isinstance(turn, dict):
-            continue
-
-        cleaned = dict(turn)
-        try:
-            start = float(cleaned.get("start", 0.0) or 0.0)
-        except (TypeError, ValueError):
-            continue
-        try:
-            end = float(cleaned.get("end", start) or start)
-        except (TypeError, ValueError):
-            end = start
-
-        if end < start:
-            start, end = end, start
-
-        if max_end is not None:
-            start = min(start, max_end)
-            end = min(end, max_end)
-        start = max(0.0, start)
-        end = max(0.0, end)
-
-        if end < start:
-            end = start
-
-        cleaned["start"] = start
-        cleaned["end"] = end
-        sanitized.append(cleaned)
-
-    sanitized.sort(key=lambda entry: (entry.get("start", 0.0), entry.get("end", 0.0)))
-    return sanitized
 
 
 def _prepare_turn_cache(
@@ -222,9 +172,8 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     "speaker_name": speaker_name,
                 }
             )
-        turns = _finalize_turns(turns, duration_s)
         if not turns:
-            turns = [_fallback_turn(duration_s)]
+            turns.append(_fallback_turn(duration_s))
         state.vad_unstable = False
         speakers_est, turn_count = _speaker_metrics(turns)
         guard.progress(
@@ -234,7 +183,6 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     elif state.resume_diar and state.diar_cache:
         turns = state.diar_cache.get("turns", []) or []
         turns = _rehydrate_embeddings(state.cache_dir, turns)
-        turns = _finalize_turns(turns, duration_s)
         if not turns:
             pipeline.corelog.stage(
                 "diarize",
@@ -272,14 +220,6 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         if not turns:
             pipeline.corelog.stage("diarize", "warn", message="Diarizer returned 0 turns; using fallback")
             turns = [_fallback_turn(duration_s)]
-        turns = _finalize_turns(turns, duration_s)
-        if not turns:
-            pipeline.corelog.stage(
-                "diarize",
-                "warn",
-                message="Sanitised diarization output produced 0 turns; using fallback",
-            )
-            turns = [_fallback_turn(duration_s)]
         stats_getter = getattr(pipeline.diar, "get_vad_statistics", None)
         if callable(stats_getter):
             try:
@@ -295,13 +235,15 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         if state.cache_dir:
             try:
                 turns_json, embeddings = _prepare_turn_cache(turns)
-                payload = {
-                    "version": pipeline.cache_version,
-                    "audio_sha16": state.audio_sha16,
-                    "pp_signature": state.pp_sig,
-                    "turns": turns_json,
-                    "saved_at": time.time(),
-                }
+                payload = build_cache_payload(
+                    version=pipeline.cache_version,
+                    audio_sha16=state.audio_sha16,
+                    pp_signature=state.pp_sig,
+                    extra={
+                        "turns": turns_json,
+                        "saved_at": time.time(),
+                    },
+                )
                 if vad_stats:
                     payload["diagnostics"] = vad_stats
                 atomic_write_json(state.cache_dir / "diar.json", payload)

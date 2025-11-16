@@ -32,11 +32,10 @@ class PipelineState:
     duration_s: float = 0.0
     overlap_stats: dict[str, Any] = field(default_factory=dict)
     per_speaker_interrupts: dict[str, Any] = field(default_factory=dict)
-    interruption_events: list[dict[str, Any]] = field(default_factory=list)
+    overlap_available: bool = False
     audio_sha16: str = ""
-    pp_sig: str = ""
+    pp_sig: dict[str, Any] = field(default_factory=dict)
     cache_dir: Path | None = None
-    cache_key: str = ""
     diar_cache: dict[str, Any] | None = None
     tx_cache: dict[str, Any] | None = None
     resume_diar: bool = False

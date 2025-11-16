@@ -366,6 +366,7 @@ A run is successful only if **all** of the following pass:
    - `qc_report.json`
    - `events_timeline.csv` whenever the manifest advertises a timeline output (absence is only acceptable when SED timeline mode does not engage for the sample audio).
 2. **CSV contract:** `diarized_transcript_with_emotion.csv` has **53 columns** including affect (V/A/D), speech emotion, text emotions top‑5 JSON, intent, SED overlaps, noise/SNR metrics, extended affect metadata (noise score, timeline events, ASR confidence/language/tokens, voice quality reliability).
+2. **CSV contract:** `diarized_transcript_with_emotion.csv` has **53 columns** including affect (V/A/D), speech emotion, text emotion JSON payloads, intent, ASR confidences/tokens, SED timeline metadata, and noise/SNR metrics.
 3. **All features exercised:** Quiet‑Boost, SED (ON), Diarization, ASR, Affect V/A/D, Speech Emotion 8‑class, Text Emotions 28‑class, Intent. **VAD_dim present.**
 4. **No fallbacks used.** If any component indicates fallback/disablement, mark as **failure**.
 5. **Lint/tests:** `ruff` and `pytest` (if tests exist) complete with **zero hard failures**.

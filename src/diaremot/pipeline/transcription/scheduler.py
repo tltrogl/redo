@@ -65,6 +65,7 @@ class AsyncTranscriber:
             max_workers=self.max_workers,
             thread_name_prefix="tx-worker",
         )
+        self._model_semaphore = asyncio.Semaphore(self.max_workers)
         self._model_concurrency = max(1, int(max_workers))
         self._max_concurrent_segments = max(1, int(max_concurrent_segments))
         self.segment_timeout_sec = float(segment_timeout_sec)
@@ -687,6 +688,7 @@ class AsyncTranscriber:
                 max_workers=self.max_workers, thread_name_prefix="tx-worker"
             )
             self._loop.set_default_executor(self.executor)
+            self._model_semaphore = asyncio.Semaphore(self.max_workers)
 
 
 class AudioTranscriber:

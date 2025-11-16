@@ -21,6 +21,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 
 - **README.md** (this file) - User guide and reference
 - **DATAFLOW.md** - Detailed pipeline data flow documentation
+- **docs/pipeline_stage_analysis.md** - Stage responsibilities, rationale, and cross-stage observations
 - **MODEL_MAP.md** - Complete model inventory and search paths
 - **GEMINI.md** - Project context for AI assistants (Gemini, Claude, etc.)
 - **AGENTS.md** - Setup guide for autonomous agents
@@ -33,8 +34,6 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 `chain.py` now threads a cached spectral magnitude (`SpectralFrameStats`) through the upward gain and compression stages so both reuse the same STFT work. This removes a redundant FFT per clip while unit tests confirm the shared path is numerically identical to the legacy double-FFT flow.
 
 **2025-03 update:** long-form preprocessing streams chunks straight from ffmpeg/soundfile without first materialising the full waveform. Processed samples are stitched into a memory-mapped `.npy` artifact that downstream stages load lazily via `PipelineState.ensure_audio()`, keeping peak memory usage bounded even on multi-hour recordings.
-
-**2025-04 cache refinements:** Preprocessing caches are now keyed by the complete `PreprocessConfig` state rather than a handful of fields, guaranteeing cache invalidation whenever a knob changes. Cache metadata is validated against the pipeline cache version, audio hash, and config signature before reuse, and corrupt JSON payloads are automatically quarantined. Inputs that cannot be hashed fall back to a deterministic `nohash-<id>` cache key derived from the audio location so repeat runs still reuse artefacts safely. When preprocessing streams audio directly to disk (e.g., chunked memmaps) the pipeline now hashes the cached waveform to keep cache entries distinct. Background SED caches can be reused across different output directories—the pipeline recreates timeline CSV artefacts from cached events when necessary so downstream reports stay in sync.
 
 ---
 
@@ -49,7 +48,6 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 5. **transcribe** – Speech-to-text with intelligent batching
    - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
 6. **paralinguistics** – Voice quality and prosody extraction (skips automatically when transcription fails or no segments are available)
-   - Surfaces voiced-ratio, spectral-slope, and reliability hints alongside the Praat-derived jitter/shimmer metrics for downstream summaries.
 7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
 8. **overlap_interruptions** – Turn-taking and interruption pattern analysis (sweep-line \(\mathcal{O}(n \log n)\) boundary sweep)
 9. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation
@@ -159,6 +157,7 @@ Output Files:
 - Voice quality metrics
 - Turn-taking patterns
 - Dominance scores
+- Availability flag indicating whether overlap metrics were computed for the run
 
 ### Supporting Files
 
@@ -169,9 +168,8 @@ Output Files:
 - **`qc_report.json`** – Quality control metrics and processing diagnostics
 - **`summary.pdf`** – PDF version of HTML report (requires wkhtmltopdf and succeeds only when the dependency is installed)
 - **`conversation_metrics.csv`** – One-row summary of turn-taking balance, interruption rate, coherence, and latency metrics
-- **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration
+- **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration and an `overlap_available` flag
 - **`interruptions_by_speaker.csv`** – Per-speaker interruption counts, received interruptions, and overlap seconds
-- **`interruption_events.csv` / `interruption_events.json`** – Event-level interruption log with precise timestamps, interrupter/interrupted mapping, and overlap durations for downstream analytics
 - **`audio_health.csv`** – Snapshot of preprocessing QA metrics (SNR, loudness, silence ratio, clipping flags)
 - **`background_sed_summary.csv`** – Ambient sound detection overview with dominant labels and timeline artifact references
 - **`moments_to_review.csv`** – High-arousal peaks and inferred action items with timestamps for rapid follow-up
@@ -795,15 +793,15 @@ The primary output `diarized_transcript_with_emotion.csv` contains **53 columns*
 ### Column Order (CRITICAL - DO NOT MODIFY)
 ```python
 SEGMENT_COLUMNS = [
-    "file_id",                      # 1.  File identifier
-    "start",                        # 2.  Segment start time (seconds)
-    "end",                          # 3.  Segment end time (seconds)
-    "speaker_id",                   # 4.  Internal speaker ID
-    "speaker_name",                 # 5.  Human-readable speaker name
-    "text",                         # 6.  Transcribed text
-    "valence",                      # 7.  Valence (-1 to +1)
-    "arousal",                      # 8.  Arousal (-1 to +1)
-    "dominance",                    # 9.  Dominance (-1 to +1)
+    "file_id",                      #  1. File identifier
+    "start",                        #  2. Segment start time (seconds)
+    "end",                          #  3. Segment end time (seconds)
+    "speaker_id",                   #  4. Internal speaker ID
+    "speaker_name",                 #  5. Human-readable speaker name
+    "text",                         #  6. Transcribed text
+    "valence",                      #  7. Valence (-1 to +1)
+    "arousal",                      #  8. Arousal (-1 to +1)
+    "dominance",                    #  9. Dominance (-1 to +1)
     "emotion_top",                  # 10. Top speech emotion label
     "emotion_scores_json",          # 11. All 8 emotion scores (JSON)
     "text_emotions_top5_json",      # 12. Top 5 text emotions (JSON)
@@ -812,9 +810,9 @@ SEGMENT_COLUMNS = [
     "intent_top3_json",             # 15. Top 3 intents with confidence (JSON)
     "events_top3_json",             # 16. Top 3 background sounds (JSON)
     "noise_tag",                    # 17. Dominant background class
-    "asr_logprob_avg",              # 18. ASR confidence (avg log prob)
+    "asr_logprob_avg",              # 18. ASR average log probability
     "snr_db",                       # 19. Signal-to-noise ratio estimate
-    "snr_db_sed",                   # 20. SNR from SED noise score
+    "snr_db_sed",                   # 20. SNR from SED noise score/events
     "wpm",                          # 21. Words per minute
     "duration_s",                   # 22. Segment duration
     "words",                        # 23. Word count
@@ -834,6 +832,20 @@ SEGMENT_COLUMNS = [
     "vq_hnr_db",                    # 37. Harmonics-to-Noise Ratio
     "vq_cpps_db",                   # 38. Cepstral Peak Prominence Smoothed
     "voice_quality_hint",           # 39. Human-readable quality interpretation
+    "noise_score",                  # 40. Aggregated background noise score
+    "timeline_event_count",         # 41. Total SED timeline events available
+    "timeline_mode",                # 42. Timeline rendering mode
+    "timeline_inference_mode",      # 43. Timeline inference strategy
+    "timeline_overlap_count",       # 44. Number of timeline events overlapping the segment
+    "timeline_overlap_ratio",       # 45. Fraction of the segment covered by timeline events
+    "timeline_events_path",         # 46. Path to persisted timeline events (if exported)
+    "asr_confidence",               # 47. Decoder-reported confidence (if available)
+    "asr_language",                 # 48. Detected language for the segment
+    "asr_tokens_json",              # 49. Raw ASR token IDs (JSON)
+    "asr_words_json",               # 50. Word-level timing metadata (JSON)
+    "vq_voiced_ratio",              # 51. Fraction of voiced frames in voice-quality window
+    "vq_spectral_slope_db",         # 52. Voice-quality spectral slope (dB)
+    "vq_reliable",                  # 53. Whether voice-quality metrics met reliability thresholds
 ]
 ```
 
