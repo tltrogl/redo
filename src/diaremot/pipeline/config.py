@@ -219,7 +219,9 @@ class PipelineConfig:
         if self.chunk_threshold_minutes < self.chunk_size_minutes:
             raise ValueError("chunk_threshold_minutes must be >= chunk_size_minutes")
 
-        self.sed_mode = self._lower_choice("sed_mode", self.sed_mode, {"auto", "global", "timeline"})
+        self.sed_mode = self._lower_choice(
+            "sed_mode", self.sed_mode, {"auto", "global", "timeline"}
+        )
         _ensure_numeric_range("sed_window_sec", self.sed_window_sec, gt=0.0)
         _ensure_numeric_range("sed_hop_sec", self.sed_hop_sec, gt=0.0)
         _ensure_numeric_range("sed_enter", self.sed_enter, ge=0.0, le=1.0)
@@ -369,9 +371,9 @@ def _collect_dependency_status(
     return mod, min_ver, module, version, import_error, metadata_error
 
 
-def _iter_dependency_status() -> Iterator[
-    tuple[str, str, Any, str | None, Exception | None, Exception | None]
-]:
+def _iter_dependency_status() -> (
+    Iterator[tuple[str, str, Any, str | None, Exception | None, Exception | None]]
+):
     items = list(CORE_DEPENDENCY_REQUIREMENTS.items())
     if not items:
         return

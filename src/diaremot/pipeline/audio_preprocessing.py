@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 import soundfile as sf
 
+from ..utils.video_audio_cache import ensure_cached_audio, is_probably_video
 from .preprocess import (
     AudioHealth,
     ChunkedMemmapAssembler,
@@ -22,7 +23,6 @@ from .preprocess import (
     process_array as run_preprocess_array,
 )
 from .preprocess.io import decode_audio_segment
-from ..utils.video_audio_cache import ensure_cached_audio, is_probably_video
 
 logger = logging.getLogger(__name__)
 
