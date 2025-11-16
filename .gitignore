@@ -54,4 +54,10 @@ AGENTS.md
 frontend/frontend/node_modules/
 frontend/frontend/.next/
 frontend/.next/
+
+# Frontend build artifacts
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+frontend/.next
 .next/

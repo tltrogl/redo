@@ -6,7 +6,7 @@ a JSON schema with metadata for UI rendering.
 
 from __future__ import annotations
 
-from dataclasses import fields
+from dataclasses import MISSING, fields
 from typing import Any
 
 from diaremot.pipeline.config import PipelineConfig
@@ -539,7 +539,15 @@ def generate_config_schema() -> dict[str, Any]:
     for field in config_fields:
         field_name = field.name
         field_type = field.type
-        default_value = field.default if field.default is not field.default_factory else field.default_factory()
+
+        # Handle default values properly
+        if field.default is not MISSING:
+            default_value = field.default
+        elif field.default_factory is not MISSING:
+            default_value = field.default_factory()
+        else:
+            # Field has no default, use None as fallback
+            default_value = None
 
         # Get metadata or create basic entry
         metadata = PARAMETER_METADATA.get(field_name, {})
