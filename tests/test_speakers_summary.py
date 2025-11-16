@@ -7,7 +7,6 @@ from pathlib import Path
 
 from diaremot.summaries.speakers_summary_builder import build_speakers_summary
 
-
 FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "outputs_smoke"
 
 

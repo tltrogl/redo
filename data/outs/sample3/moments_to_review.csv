@@ -1,0 +1,2 @@
+file_id,kind,timestamp,speaker_id,speaker_name,arousal,intent,confidence,text
+sample3.mp3,peak,0.0,Speaker_18,Speaker_18,0.054178789258003235,,,"I need this pipeline to work. Seriously, if I don't get some kind of income soon, I'm gonna end up homeless or worse jail or even dead. Can you believe that? It's infuriating. I ca"

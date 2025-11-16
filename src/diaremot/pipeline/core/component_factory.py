@@ -51,6 +51,10 @@ class ComponentFactoryMixin:
 
         try:
             denoise_mode = "spectral_sub_soft" if cfg.get("noise_reduction", True) else "none"
+            cache_root = Path(cfg.get("cache_root", Path.cwd() / ".cache"))
+            media_cache_dir = cfg.get("media_cache_dir")
+            if not media_cache_dir:
+                media_cache_dir = cache_root / "video_audio"
             self.pp_conf = PreprocessConfig(
                 target_sr=cfg.get("target_sr", 16000),
                 denoise=denoise_mode,
@@ -59,10 +63,13 @@ class ComponentFactoryMixin:
                 chunk_threshold_minutes=cfg.get("chunk_threshold_minutes", 60.0),
                 chunk_size_minutes=cfg.get("chunk_size_minutes", 20.0),
                 chunk_overlap_seconds=cfg.get("chunk_overlap_seconds", 30.0),
+                media_cache_dir=str(media_cache_dir) if media_cache_dir else None,
             )
             self.pre = AudioPreprocessor(self.pp_conf)
 
-            registry_path = cfg.get("registry_path", str(Path("registry") / "speaker_registry.json"))
+            registry_path = cfg.get(
+                "registry_path", str(Path("registry") / "speaker_registry.json")
+            )
             if not Path(registry_path).is_absolute():
                 registry_path = str(Path.cwd() / registry_path)
 
@@ -98,13 +105,26 @@ class ComponentFactoryMixin:
                 max_speakers=cfg.get("max_speakers", None),
                 ecapa_model_path=ecapa_path,
                 vad_backend=cfg.get("vad_backend", "auto"),
-                vad_threshold=cfg.get("vad_threshold", _speaker_diarization.DiarizationConfig.vad_threshold),
-                vad_min_speech_sec=cfg.get("vad_min_speech_sec", _speaker_diarization.DiarizationConfig.vad_min_speech_sec),
-                vad_min_silence_sec=cfg.get("vad_min_silence_sec", _speaker_diarization.DiarizationConfig.vad_min_silence_sec),
-                speech_pad_sec=cfg.get("vad_speech_pad_sec", _speaker_diarization.DiarizationConfig.speech_pad_sec),
+                vad_threshold=cfg.get(
+                    "vad_threshold", _speaker_diarization.DiarizationConfig.vad_threshold
+                ),
+                vad_min_speech_sec=cfg.get(
+                    "vad_min_speech_sec", _speaker_diarization.DiarizationConfig.vad_min_speech_sec
+                ),
+                vad_min_silence_sec=cfg.get(
+                    "vad_min_silence_sec",
+                    _speaker_diarization.DiarizationConfig.vad_min_silence_sec,
+                ),
+                speech_pad_sec=cfg.get(
+                    "vad_speech_pad_sec", _speaker_diarization.DiarizationConfig.speech_pad_sec
+                ),
                 allow_energy_vad_fallback=not bool(cfg.get("disable_energy_vad_fallback", False)),
-                energy_gate_db=cfg.get("energy_gate_db", _speaker_diarization.DiarizationConfig.energy_gate_db),
-                energy_hop_sec=cfg.get("energy_hop_sec", _speaker_diarization.DiarizationConfig.energy_hop_sec),
+                energy_gate_db=cfg.get(
+                    "energy_gate_db", _speaker_diarization.DiarizationConfig.energy_gate_db
+                ),
+                energy_hop_sec=cfg.get(
+                    "energy_hop_sec", _speaker_diarization.DiarizationConfig.energy_hop_sec
+                ),
             )
 
             self.diar = _speaker_diarization.SpeakerDiarizer(self.diar_conf)
@@ -169,7 +189,9 @@ class ComponentFactoryMixin:
                 self.affect = None
             else:
                 self.affect = EmotionIntentAnalyzer(
-                    text_emotion_model=cfg.get("text_emotion_model", "SamLowe/roberta-base-go_emotions"),
+                    text_emotion_model=cfg.get(
+                        "text_emotion_model", "SamLowe/roberta-base-go_emotions"
+                    ),
                     intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
                     affect_backend=affect_backend,
                     affect_text_model_dir=affect_text_model_dir,
@@ -213,7 +235,9 @@ class ComponentFactoryMixin:
             if sed_enabled and (
                 self.sed_tagger is None or not getattr(self.sed_tagger, "available", False)
             ):
-                self.stats.issues.append("background_sed assets unavailable; emitting empty tag summary")
+                self.stats.issues.append(
+                    "background_sed assets unavailable; emitting empty tag summary"
+                )
 
             self.html = HTMLSummaryGenerator()
             self.pdf = PDFSummaryGenerator()
@@ -244,7 +268,9 @@ class ComponentFactoryMixin:
                 "affect_vad_model_dir": affect_vad_model_dir,
                 "affect_intent_model_dir": affect_intent_model_dir,
                 "affect_analyzer_threads": affect_analyzer_threads,
-                "text_emotion_model": cfg.get("text_emotion_model", "SamLowe/roberta-base-go_emotions"),
+                "text_emotion_model": cfg.get(
+                    "text_emotion_model", "SamLowe/roberta-base-go_emotions"
+                ),
                 "disable_affect": bool(cfg.get("disable_affect", False)),
             }
 

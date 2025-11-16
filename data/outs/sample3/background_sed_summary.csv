@@ -1,0 +1,2 @@
+file_id,enabled,noise_score,dominant_label,top_label,top_label_score,top_labels_json,timeline_event_count,timeline_csv,timeline_jsonl,timeline_mode,timeline_inference_mode,timeline_events_path
+sample3.mp3,True,0.050257980823516846,Speech,Speech,0.7533168792724609,"[{""label"": ""Speech"", ""score"": 0.7533168792724609}, {""label"": ""Speech synthesizer"", ""score"": 0.22417274117469788}, {""label"": ""Conversation"", ""score"": 0.07934263348579407}]",0,,,,,

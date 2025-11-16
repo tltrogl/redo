@@ -1,0 +1,2 @@
+file_id,snr_db,dynamic_range_db,silence_ratio,clipping_detected,rms_db,est_lufs,floor_clipping_ratio,is_chunked
+sample2.mp3,42.12585853231617,65.64131216768753,0.13157478932584268,False,-23.862141179704793,-25.870216369628906,0.0,False

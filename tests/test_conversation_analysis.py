@@ -2,7 +2,6 @@ import pytest
 
 from diaremot.summaries import conversation_analysis as ca
 
-
 SEGMENTS = [
     {"speaker_id": "A", "start": 0.0, "end": 10.0, "arousal": 0.5, "text": "hello topic one"},
     {"speaker_id": "B", "start": 10.0, "end": 20.0, "arousal": 0.7, "text": "topic one again"},

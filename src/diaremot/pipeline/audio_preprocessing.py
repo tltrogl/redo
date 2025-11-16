@@ -3,25 +3,26 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import numpy as np
 import soundfile as sf
 
 from .preprocess import (
     AudioHealth,
-    ChunkInfo,
+    ChunkedMemmapAssembler,
     PreprocessConfig,
     PreprocessResult,
-    ChunkedMemmapAssembler,
     combine_chunk_health,
     create_audio_chunks,
     probe_audio_metadata,
     safe_load_audio,
 )
-from .preprocess.io import decode_audio_segment
 from .preprocess import (
     process_array as run_preprocess_array,
 )
+from .preprocess.io import decode_audio_segment
+from ..utils.video_audio_cache import ensure_cached_audio, is_probably_video
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +39,15 @@ class AudioPreprocessor:
 
     def __init__(self, config: PreprocessConfig | None = None):
         self.config = config or PreprocessConfig()
+        self._media_cache_dir = None
+        if self.config.media_cache_dir:
+            self._media_cache_dir = Path(self.config.media_cache_dir).expanduser()
 
     def process_file(self, path: str) -> PreprocessResult:
         """Load ``path`` and run the preprocessing chain."""
 
-        duration, info = probe_audio_metadata(path)
+        media_path = self._prepare_media_input(path)
+        duration, info = probe_audio_metadata(media_path)
         threshold_seconds = self.config.chunk_threshold_minutes * 60.0
 
         if self.config.auto_chunk_enabled and duration >= threshold_seconds:
@@ -51,11 +56,30 @@ class AudioPreprocessor:
                 duration / 60.0,
                 int(self.config.chunk_size_minutes),
             )
-            return self._process_file_chunked(path, duration, info)
+            return self._process_file_chunked(media_path, duration, info)
 
         logger.info("Processing audio normally (%.1fmin)", duration / 60.0)
-        y, sr = safe_load_audio(path, target_sr=self.config.target_sr, mono=self.config.mono)
+        y, sr = safe_load_audio(media_path, target_sr=self.config.target_sr, mono=self.config.mono)
         return self.process_array(y, sr)
+
+    def _prepare_media_input(self, original_path: str) -> str:
+        path_obj = Path(original_path)
+        if not self._media_cache_dir or not is_probably_video(path_obj):
+            return str(path_obj)
+
+        try:
+            cached = ensure_cached_audio(
+                path_obj,
+                cache_dir=self._media_cache_dir,
+                target_sr=self.config.target_sr,
+                channels=1 if self.config.mono else 2,
+            )
+            if cached != path_obj:
+                logger.info("Using cached audio for %s -> %s", path_obj.name, cached.name)
+            return str(cached)
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            logger.warning("Video caching failed for %s (%s)", path_obj, exc)
+            return str(path_obj)
 
     def _process_file_chunked(
         self,

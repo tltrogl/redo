@@ -35,14 +35,14 @@ class SpectralFrameStats:
     @classmethod
     def from_signal(
         cls, y: np.ndarray, n_fft: int, hop: int, window: str = "hann"
-    ) -> "SpectralFrameStats":
+    ) -> SpectralFrameStats:
         S = librosa.stft(y, n_fft=n_fft, hop_length=hop, window=window)
         mag = np.abs(S)
         frame_rms = np.sqrt(np.mean(mag**2, axis=0) + 1e-12)
         frame_db = 20 * np.log10(frame_rms + 1e-12)
         return cls(frame_db=frame_db)
 
-    def apply_gain_db(self, gain_db: np.ndarray) -> "SpectralFrameStats":
+    def apply_gain_db(self, gain_db: np.ndarray) -> SpectralFrameStats:
         gain = np.asarray(gain_db, dtype=self.frame_db.dtype)
         return SpectralFrameStats(frame_db=self.frame_db + gain)
 

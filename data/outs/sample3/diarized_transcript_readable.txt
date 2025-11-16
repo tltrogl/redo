@@ -1,0 +1,6 @@
+[00:00:00 - 00:00:20] Speaker_18
+  Text: I need this pipeline to work. Seriously, if I don't get some kind of income soon, I'm gonna end up homeless or worse jail or even dead. Can you believe that? It's infuriating. I can't just sit here and let this happen. It's unacceptable.
+  Affect: emotion neutral; valence +0.04, arousal +0.05, dominance +0.05; hint neutral-complaint
+  Intent: complaint (top3: complaint 0.95, request 0.82, command 0.81)
+  VAD: stable | SED: Speech, Speech synthesizer, Conversation | Noise tag: Speech
+  Duration: 20.24s | Speech rate: 130.43 wpm

@@ -31,8 +31,8 @@ if "diaremot.pipeline.stages.summaries" not in sys.modules:
         _set(attr_name)
     sys.modules["diaremot.pipeline.stages.summaries"] = summaries_stub
 
-from diaremot.pipeline.stages.base import PipelineState
 from diaremot.pipeline.stages import preprocess
+from diaremot.pipeline.stages.base import PipelineState
 
 
 class _GuardStub:

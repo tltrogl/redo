@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import time
+from pathlib import Path
 
 import soundfile as sf
 
@@ -35,6 +36,8 @@ def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
 
+    media_cache_dir = Path.cwd() / ".cache" / "video_audio"
+
     config = PreprocessConfig(
         target_sr=args.target_sr,
         denoise=args.denoise,
@@ -42,6 +45,7 @@ def main() -> int:
         auto_chunk_enabled=not args.no_chunking,
         chunk_threshold_minutes=args.chunk_threshold,
         chunk_size_minutes=args.chunk_size,
+        media_cache_dir=str(media_cache_dir),
     )
 
     preprocessor = AudioPreprocessor(config)

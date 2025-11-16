@@ -1,0 +1,6 @@
+[00:00:00 - 00:00:26] Speaker_18
+  Text: Alright, so this is a sample audio file, right? And, you know, I'm just like totally sick of trying to get this pipeline to work. Like, I really need it to work, you know? So I can just like stop working on it. I mean, come on. Just make it work already, please.
+  Affect: emotion happy; valence -0.01, arousal -0.00, dominance -0.02; hint neutral-complaint
+  Intent: complaint (top3: complaint 0.92, opinion 0.69, agreement 0.63)
+  VAD: stable | SED: Speech, Sigh, Inside, small room | Noise tag: Speech
+  Duration: 26.48s | Speech rate: 120.09 wpm

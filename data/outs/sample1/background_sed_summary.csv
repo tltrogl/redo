@@ -1,0 +1,2 @@
+file_id,enabled,noise_score,dominant_label,top_label,top_label_score,top_labels_json,timeline_event_count,timeline_csv,timeline_jsonl,timeline_mode,timeline_inference_mode,timeline_events_path
+sample1.mp3,True,0.031505465507507324,Speech,Speech,0.8425073027610779,"[{""label"": ""Speech"", ""score"": 0.8425073027610779}, {""label"": ""Sigh"", ""score"": 0.7564505934715271}, {""label"": ""Inside, small room"", ""score"": 0.23177233338356018}]",0,,,,,

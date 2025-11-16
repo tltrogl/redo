@@ -34,6 +34,8 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 
 **2025-03 update:** long-form preprocessing streams chunks straight from ffmpeg/soundfile without first materialising the full waveform. Processed samples are stitched into a memory-mapped `.npy` artifact that downstream stages load lazily via `PipelineState.ensure_audio()`, keeping peak memory usage bounded even on multi-hour recordings.
 
+**2025-11 update:** Video files (e.g. `.mp4`, `.mkv`, `.mov`) now have their audio tracks extracted via `ffmpeg` and cached per source into `<cache_root>/video_audio` (default `.cache/video_audio`). Repeat runs for the same media reuse the cached 16 kHz mono WAV if the original file is unchanged, so the pipeline never demuxes the same video twice unless the cache is cleared or the media is modified.
+
 ---
 
 ## 11-Stage Processing Pipeline

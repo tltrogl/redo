@@ -10,7 +10,6 @@ from types import ModuleType, SimpleNamespace
 import numpy as np
 import pytest
 
-
 PipelineState: type | None = None
 asr = None
 

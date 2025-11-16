@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterable, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -9,7 +10,6 @@ from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from dataclasses import fields as dataclass_fields
 from importlib import metadata as importlib_metadata
-import os
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +103,7 @@ class PipelineConfig:
     cache_roots: list[Path] = dataclass_field(default_factory=list)
     log_dir: Path = Path("logs")
     checkpoint_dir: Path = Path("checkpoints")
+    media_cache_dir: Path | None = None
     target_sr: int = 16000
     loudness_mode: str = "asr"
     run_id: str | None = None
@@ -128,6 +129,7 @@ class PipelineConfig:
         self.cache_root = Path(self.cache_root)
         self.log_dir = Path(self.log_dir)
         self.checkpoint_dir = Path(self.checkpoint_dir)
+        self.media_cache_dir = _coerce_optional_path(getattr(self, "media_cache_dir", None))
         self.affect_text_model_dir = _coerce_optional_path(self.affect_text_model_dir)
         self.affect_intent_model_dir = _coerce_optional_path(self.affect_intent_model_dir)
         self.affect_ser_model_dir = _coerce_optional_path(

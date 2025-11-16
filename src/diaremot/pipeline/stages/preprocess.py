@@ -5,8 +5,9 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -201,7 +202,7 @@ def _load_diar_tx_caches(
 
 
 def _load_preprocessed_cache(
-    pipeline: "AudioAnalysisPipelineV2",
+    pipeline: AudioAnalysisPipelineV2,
     state: PipelineState,
     cache_dir: Path,
     guard: StageGuard,
@@ -327,7 +328,7 @@ def _load_preprocessed_cache(
 
 
 def _write_preprocessed_cache(
-    pipeline: "AudioAnalysisPipelineV2",
+    pipeline: AudioAnalysisPipelineV2,
     state: PipelineState,
     cache_dir: Path,
     *,

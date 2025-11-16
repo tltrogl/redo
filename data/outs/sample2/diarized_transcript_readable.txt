@@ -1,0 +1,6 @@
+[00:00:00 - 00:00:36] Speaker_38
+  Text: Oh man, I really need this pipeline to work. If I don't get some kind of income soon, I mean, I could end up homeless or worse in jail or even dead. The thought just terrifies me. The uncertainty is consuming me, and I can't shake this feeling of dread. What if everything falls apart? The fear is just paralyzing. I'm constantly haunted by the worst case scenarios. What am I going to do?
+  Affect: emotion neutral; valence +0.00, arousal +0.00, dominance +0.00; hint neutral-question
+  Intent: question (top3: question 0.33, request 0.33, instruction 0.33)
+  VAD: stable | SED: Speech, Gasp, Inside, small room | Noise tag: Speech
+  Duration: 35.60s | Speech rate: 124.72 wpm

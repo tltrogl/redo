@@ -23,6 +23,7 @@ class PreprocessConfig:
     chunk_size_minutes: float = 20.0  # Each chunk duration
     chunk_overlap_seconds: float = 30.0  # Overlap between chunks
     chunk_temp_dir: str | None = None  # Use system temp if None
+    media_cache_dir: str | None = None  # Cached WAVs derived from video inputs
 
     # High-pass
     hpf_hz: float = 80.0

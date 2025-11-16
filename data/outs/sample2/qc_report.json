@@ -1,0 +1,106 @@
+{
+  "run_id": "20251109-095400-e9ad46",
+  "file_id": "sample2.mp3",
+  "schema_version": "2.0.0",
+  "stage_timings_ms": {
+    "dependency_check": 2.5565624237060547,
+    "preprocess": 1815.6695365905762,
+    "background_sed": 2649.0612030029297,
+    "diarize": 2513.8609409332275,
+    "transcribe": 11400.339126586914,
+    "paralinguistics": 4110.737085342407,
+    "affect_and_assemble": 1161.5405082702637,
+    "overlap_interruptions": 0.12326240539550781,
+    "conversation_analysis": 7.699489593505859,
+    "speaker_rollups": 0.33473968505859375
+  },
+  "stage_counts": {
+    "dependency_check": {
+      "skipped": 1
+    },
+    "preprocess": {
+      "duration_s": 35
+    },
+    "diarize": {
+      "turns": 1,
+      "speakers_est": 1
+    },
+    "transcribe": {
+      "segments": 1
+    },
+    "paralinguistics": {
+      "count": 1
+    },
+    "affect_and_assemble": {
+      "segments": 1
+    },
+    "speaker_rollups": {
+      "count": 1
+    }
+  },
+  "warnings": [],
+  "errors": [],
+  "failures": [],
+  "models": {
+    "preprocessor": "AudioPreprocessor",
+    "diarizer": "SpeakerDiarizer",
+    "transcriber": "Transcriber",
+    "affect": "EmotionIntentAnalyzer"
+  },
+  "config_snapshot": {
+    "target_sr": 16000,
+    "noise_reduction": false,
+    "enable_sed": true,
+    "registry_path": "/home/tltrogl_gmail_com/dia/diaremot2-on/speaker_registry.json",
+    "ahc_distance_threshold": 0.15,
+    "whisper_model": "/home/tltrogl_gmail_com/dia/diaremot2-on/models/faster-whisper/tiny.en",
+    "beam_size": 1,
+    "temperature": 0.0,
+    "no_speech_threshold": 0.2,
+    "intent_labels": null,
+    "affect_backend": "onnx",
+    "affect_text_model_dir": null,
+    "affect_ser_model_dir": null,
+    "affect_vad_model_dir": null,
+    "affect_intent_model_dir": null,
+    "affect_analyzer_threads": null,
+    "text_emotion_model": null,
+    "disable_affect": false,
+    "background_sed": {
+      "top": [
+        {
+          "label": "Speech",
+          "score": 0.8876291513442993
+        },
+        {
+          "label": "Gasp",
+          "score": 0.3355126678943634
+        },
+        {
+          "label": "Inside, small room",
+          "score": 0.08706176280975342
+        }
+      ],
+      "dominant_label": "Speech",
+      "noise_score": 0.038980185985565186,
+      "enabled": true,
+      "timeline_event_count": 0
+    }
+  },
+  "audio_health": {
+    "snr_db": 42.12585853231617,
+    "silence_ratio": 0.13157478932584268,
+    "clipping_detected": false,
+    "dynamic_range_db": 65.64131216768753
+  },
+  "counts": {
+    "turns": 1,
+    "segments": 1
+  },
+  "voice_quality_summary": {
+    "vq_jitter_pct_avg": 2.4191594323248276,
+    "vq_shimmer_db_avg": 0.7048440659397354,
+    "vq_hnr_db_avg": 6.300037959749081,
+    "vq_cpps_db_avg": 4.300037959749081
+  }
+}

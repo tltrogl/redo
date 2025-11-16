@@ -2,8 +2,8 @@
 
 from .chain import combine_chunk_health, process_array
 from .chunking import (
-    ChunkInfo,
     ChunkedMemmapAssembler,
+    ChunkInfo,
     cleanup_chunks,
     create_audio_chunks,
     merge_chunked_audio,

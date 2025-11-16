@@ -1,0 +1,2 @@
+file_id,kind,timestamp,speaker_id,speaker_name,arousal,intent,confidence,text
+sample2.mp3,peak,0.0,Speaker_38,Speaker_38,0.0,,,"Oh man, I really need this pipeline to work. If I don't get some kind of income soon, I mean, I could end up homeless or worse in jail or even dead. The thought just terrifies me. "

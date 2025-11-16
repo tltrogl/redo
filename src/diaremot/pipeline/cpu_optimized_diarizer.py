@@ -22,6 +22,11 @@ try:  # Reuse clustering helper from the baseline diarizer if available
 except Exception:  # pragma: no cover - fallback if import fails
     _agglo = None
 
+try:  # Use Silero VAD for proper speech detection if available
+    from .diarization.vad import SileroVAD
+except Exception:  # pragma: no cover - fallback to RMS if Silero unavailable
+    SileroVAD = None
+
 
 @dataclass
 class CPUOptimizationConfig:
@@ -31,7 +36,9 @@ class CPUOptimizationConfig:
     overlap_sec: float = 2.0
     max_speakers: int | None = None
     enable_vad: bool = True
+    vad_mode: str = "silero"  # "silero" (speech-aware) or "rms" (energy-only)
     energy_threshold_db: float = -60.0
+    vad_threshold: float = 0.5  # Silero VAD threshold (0-1)
 
 
 class CPUOptimizedSpeakerDiarizer:
@@ -42,6 +49,17 @@ class CPUOptimizedSpeakerDiarizer:
         self.config = config
         self.logger = logging.getLogger(__name__)
         self._last_segments: list[dict[str, Any]] = []
+        self.silero_vad = None
+        if config.vad_mode == "silero" and SileroVAD is not None:
+            try:
+                self.silero_vad = SileroVAD(
+                    threshold=config.vad_threshold,
+                    speech_pad_sec=0.1
+                )
+                self.logger.info("Silero VAD initialized for chunk pre-filtering")
+            except Exception as e:
+                self.logger.warning(f"Failed to initialize Silero VAD: {e}. Falling back to RMS.")
+                self.silero_vad = None
 
     # ------------------------------------------------------------------
     # Helpers
@@ -84,6 +102,36 @@ class CPUOptimizedSpeakerDiarizer:
         rms = np.sqrt(np.mean(np.square(audio))) + 1e-10
         return 20 * np.log10(rms)
 
+    def _has_speech(self, audio: np.ndarray, sr: int) -> bool:
+        """Check if chunk contains speech using Silero VAD or RMS fallback.
+        
+        Returns True if chunk likely contains speech and should be processed.
+        Returns False if chunk is definitely silence/noise and can be skipped.
+        """
+        if not self.config.enable_vad:
+            return True
+        
+        # Try Silero VAD first (speech-aware)
+        if self.silero_vad is not None:
+            try:
+                speech_regions = self.silero_vad.detect(
+                    audio, sr,
+                    min_speech_sec=0.1,  # Need at least 100ms of speech
+                    min_silence_sec=0.3
+                )
+                has_speech = len(speech_regions) > 0
+                if has_speech:
+                    total_speech_time = sum(end - start for start, end in speech_regions)
+                    if total_speech_time / len(audio) * sr >= 0.05:  # 5% speech threshold
+                        return True
+                return False
+            except Exception as e:
+                self.logger.debug(f"Silero VAD check failed: {e}. Falling back to RMS.")
+        
+        # Fallback to RMS energy check
+        rms = self._rms_db(audio)
+        return rms >= self.config.energy_threshold_db
+
     # ------------------------------------------------------------------
     def diarize_audio(self, audio: np.ndarray, sr: int) -> list[dict[str, Any]]:
         """Diarize ``audio`` using chunked processing and simple energy gating."""
@@ -97,7 +145,7 @@ class CPUOptimizedSpeakerDiarizer:
             for start, end in self._chunks(audio, sr):
                 chunk = audio[start:end]
 
-                if self.config.enable_vad and self._rms_db(chunk) < self.config.energy_threshold_db:
+                if not self._has_speech(chunk, sr):
                     continue
 
                 offset = start / sr
