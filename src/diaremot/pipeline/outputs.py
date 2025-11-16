@@ -634,12 +634,27 @@ def write_background_sed_summary_csv(
         "top_label",
         "top_label_score",
         "top_labels_json",
+        "tagger_available",
+        "tagger_backend",
+        "tagger_error",
+        "tagger_top_k",
+        "tagger_rank_limit",
+        "tagger_ranking_size",
+        "tagger_ranking_json",
         "timeline_event_count",
         "timeline_csv",
         "timeline_jsonl",
         "timeline_mode",
         "timeline_inference_mode",
         "timeline_events_path",
+        "timeline_status",
+        "timeline_error",
+        "timeline_total_duration",
+        "timeline_total_weight",
+        "timeline_label_durations_json",
+        "timeline_label_mean_scores_json",
+        "timeline_artifacts_root",
+        "timeline_artifacts_stale",
     ]
 
     row: dict[str, Any] = {key: None for key in headers}
@@ -663,12 +678,31 @@ def write_background_sed_summary_csv(
         row["top_label"] = top_label
         row["top_label_score"] = top_score
         row["top_labels_json"] = _safe_json(top)
+        row["tagger_available"] = sed_info.get("tagger_available")
+        row["tagger_backend"] = sed_info.get("tagger_backend")
+        row["tagger_error"] = sed_info.get("tagger_error")
+        row["tagger_top_k"] = sed_info.get("tagger_top_k")
+        row["tagger_rank_limit"] = sed_info.get("tagger_rank_limit")
+        row["tagger_ranking_size"] = sed_info.get("tagger_ranking_size")
+        row["tagger_ranking_json"] = _safe_json(sed_info.get("tagger_ranking"))
         row["timeline_event_count"] = sed_info.get("timeline_event_count")
         row["timeline_csv"] = sed_info.get("timeline_csv")
         row["timeline_jsonl"] = sed_info.get("timeline_jsonl")
         row["timeline_mode"] = sed_info.get("timeline_mode")
         row["timeline_inference_mode"] = sed_info.get("timeline_inference_mode")
         row["timeline_events_path"] = sed_info.get("timeline_events_path")
+        row["timeline_status"] = sed_info.get("timeline_status")
+        row["timeline_error"] = sed_info.get("timeline_error")
+        row["timeline_total_duration"] = sed_info.get("timeline_total_duration")
+        row["timeline_total_weight"] = sed_info.get("timeline_total_weight")
+        row["timeline_label_durations_json"] = _safe_json(
+            sed_info.get("timeline_label_durations")
+        )
+        row["timeline_label_mean_scores_json"] = _safe_json(
+            sed_info.get("timeline_label_mean_scores")
+        )
+        row["timeline_artifacts_root"] = sed_info.get("timeline_artifacts_root")
+        row["timeline_artifacts_stale"] = sed_info.get("timeline_artifacts_stale")
 
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=headers)

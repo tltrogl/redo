@@ -119,6 +119,8 @@ class PipelineConfig:
     sed_timeline_jsonl: bool = False
     sed_batch_size: int = 256
     sed_default_min_dur: float = 0.30
+    sed_max_windows: int = 6000
+    sed_rank_export_limit: int | None = None
 
     def __post_init__(self) -> None:  # noqa: D401 - dataclass validation helper
         """Validate and normalise configuration fields."""
@@ -231,6 +233,18 @@ class PipelineConfig:
             self.sed_median_k += 1
         self.sed_batch_size = int(self.sed_batch_size or 1)
         self._validate_positive_int("sed_batch_size", self.sed_batch_size)
+        try:
+            self.sed_max_windows = int(self.sed_max_windows)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("sed_max_windows must be an integer >= 0") from exc
+        if self.sed_max_windows < 0:
+            raise ValueError("sed_max_windows must be >= 0")
+        if self.sed_rank_export_limit is not None:
+            try:
+                rank_limit = int(self.sed_rank_export_limit)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("sed_rank_export_limit must be an integer or None") from exc
+            self.sed_rank_export_limit = rank_limit
         if not isinstance(self.sed_min_dur, dict):
             raise ValueError("sed_min_dur must be a mapping of label to duration")
         cleaned_min_dur: dict[str, float] = {}
