@@ -459,13 +459,9 @@ def write_conversation_metrics_csv(
                 row[key] = payload[key]
 
         row["speaker_dominance_json"] = _safe_json(payload.get("speaker_dominance"))
-        row["response_latency_stats_json"] = _safe_json(
-            payload.get("response_latency_stats")
-        )
+        row["response_latency_stats_json"] = _safe_json(payload.get("response_latency_stats"))
         row["energy_flow_json"] = _safe_json(payload.get("energy_flow"))
-        row["interruptions_per_speaker_json"] = _safe_json(
-            payload.get("interruptions_per_speaker")
-        )
+        row["interruptions_per_speaker_json"] = _safe_json(payload.get("interruptions_per_speaker"))
 
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=headers)
@@ -611,11 +607,53 @@ def write_interruption_events_csv(
                 "end": ev.get("end"),
                 "speaker_id": ev.get("speaker_id") or ev.get("speaker"),
                 "speaker_name": ev.get("speaker_name", ""),
-                "interrupted_speaker_id": ev.get("interrupted_speaker_id") or ev.get("other_speaker"),
+                "interrupted_speaker_id": ev.get("interrupted_speaker_id")
+                or ev.get("other_speaker"),
                 "duration_s": ev.get("duration_s") or ev.get("duration"),
                 "event_type": ev.get("type") or ev.get("kind") or "interruption",
             }
             writer.writerow(row)
+
+
+def write_interruption_events_json(
+    path: Path,
+    events: Iterable[dict[str, Any]] | None,
+    *,
+    file_id: str | None = None,
+    as_jsonl: bool = True,
+) -> None:
+    """Write interruption events as JSON or JSONL.
+
+    This minimal shim provides the expected export used by some callers.
+    When `as_jsonl` is True (default) the function writes one JSON object
+    per line. Otherwise it writes a JSON array.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not events:
+        # write empty array or nothing for JSONL
+        if as_jsonl:
+            path.write_text("", encoding="utf-8")
+        else:
+            path.write_text("[]", encoding="utf-8")
+        return
+
+    if as_jsonl:
+        with path.open("w", encoding="utf-8") as handle:
+            for ev in events:
+                try:
+                    handle.write(json.dumps(ev, ensure_ascii=False) + "\n")
+                except Exception:
+                    handle.write(json.dumps(_make_json_safe(ev), ensure_ascii=False) + "\n")
+    else:
+        arr = []
+        for ev in events:
+            if isinstance(ev, dict):
+                arr.append(_make_json_safe(ev))
+            else:
+                arr.append(ev)
+        path.write_text(json.dumps(arr, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def write_audio_health_csv(
@@ -742,9 +780,7 @@ def write_background_sed_summary_csv(
         row["timeline_error"] = sed_info.get("timeline_error")
         row["timeline_total_duration"] = sed_info.get("timeline_total_duration")
         row["timeline_total_weight"] = sed_info.get("timeline_total_weight")
-        row["timeline_label_durations_json"] = _safe_json(
-            sed_info.get("timeline_label_durations")
-        )
+        row["timeline_label_durations_json"] = _safe_json(sed_info.get("timeline_label_durations"))
         row["timeline_label_mean_scores_json"] = _safe_json(
             sed_info.get("timeline_label_mean_scores")
         )
@@ -821,6 +857,7 @@ __all__ = [
     "write_overlap_summary_csv",
     "write_interruptions_csv",
     "write_interruption_events_csv",
+    "write_interruption_events_json",
     "write_audio_health_csv",
     "write_background_sed_summary_csv",
     "write_moments_csv",
