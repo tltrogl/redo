@@ -571,6 +571,53 @@ def write_interruptions_csv(
             writer.writerow(row)
 
 
+def write_interruption_events_csv(
+    path: Path,
+    events: Iterable[dict[str, Any]] | None,
+    *,
+    file_id: str | None = None,
+) -> None:
+    """Write interruption event rows to CSV.
+
+    Minimal compatibility shim: some pipeline modules import this function
+    and expect a CSV writer for interruption events. This writes a small
+    set of columns (start/end/speaker/duration/type) when provided.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    headers = [
+        "file_id",
+        "start",
+        "end",
+        "speaker_id",
+        "speaker_name",
+        "interrupted_speaker_id",
+        "duration_s",
+        "event_type",
+    ]
+
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=headers)
+        writer.writeheader()
+        if not events:
+            return
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            row = {
+                "file_id": file_id or "",
+                "start": ev.get("start"),
+                "end": ev.get("end"),
+                "speaker_id": ev.get("speaker_id") or ev.get("speaker"),
+                "speaker_name": ev.get("speaker_name", ""),
+                "interrupted_speaker_id": ev.get("interrupted_speaker_id") or ev.get("other_speaker"),
+                "duration_s": ev.get("duration_s") or ev.get("duration"),
+                "event_type": ev.get("type") or ev.get("kind") or "interruption",
+            }
+            writer.writerow(row)
+
+
 def write_audio_health_csv(
     path: Path,
     health: Any,
@@ -773,6 +820,7 @@ __all__ = [
     "write_conversation_metrics_csv",
     "write_overlap_summary_csv",
     "write_interruptions_csv",
+    "write_interruption_events_csv",
     "write_audio_health_csv",
     "write_background_sed_summary_csv",
     "write_moments_csv",
