@@ -3,6 +3,7 @@ import sys
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
+import pytest
 
 
 def _noop(*_args, **_kwargs):  # noqa: ANN001
@@ -65,11 +66,36 @@ class _StatsStub:
 
 
 class _TaggerStub:
-    def tag(self, audio, sr):  # noqa: ANN001
+    backend = "stub"
+    available = True
+    model_paths = None
+    labels = None
+
+    def tag(self, audio, sr, *, rank_limit=None):  # noqa: ANN001
+        base_ranking = [
+            {"label": "music", "score": 0.91},
+            {"label": "speech", "score": 0.32},
+            {"label": "noise", "score": 0.18},
+        ]
+        if rank_limit is None:
+            ranking = []
+        else:
+            try:
+                limit = int(rank_limit)
+            except (TypeError, ValueError):
+                limit = None
+            if limit is None:
+                ranking = []
+            elif limit <= 0:
+                ranking = list(base_ranking)
+            else:
+                ranking = base_ranking[:limit]
         return {
             "top": [{"label": "music", "score": 0.91}],
             "dominant_label": "music",
             "noise_score": 0.6,
+            "top_k": 5,
+            "ranking": ranking,
         }
 
 
@@ -80,6 +106,7 @@ class _PipelineStub:
         self.cfg = {
             "enable_sed": True,
             "sed_mode": "timeline",
+            "sed_rank_export_limit": 3,
         }
         self.stats = _StatsStub()
         self.corelog = _CoreLogStub()
@@ -120,6 +147,17 @@ def test_background_sed_persists_timeline_sidecar(tmp_path, monkeypatch):  # noq
     assert state.sed_info is not None
     assert "timeline_events" not in state.sed_info
     assert state.sed_info.get("timeline_event_count") == 1
+    assert state.sed_info.get("timeline_status") == "generated"
+    assert state.sed_info.get("timeline_total_duration") == pytest.approx(0.5)
+    assert state.sed_info.get("timeline_total_weight") == pytest.approx(0.45)
+    assert state.sed_info.get("timeline_label_durations", {}).get("music") == pytest.approx(0.5)
+    assert state.sed_info.get("timeline_label_mean_scores", {}).get("music") == pytest.approx(0.9)
+    assert state.sed_info.get("timeline_artifacts_stale") is False
+    assert state.sed_info.get("tagger_top_k") == 5
+    assert state.sed_info.get("tagger_rank_limit") == 3
+    assert state.sed_info.get("tagger_ranking_size") == 3
+    ranking = state.sed_info.get("tagger_ranking")
+    assert isinstance(ranking, list) and ranking[0]["label"] == "music"
     events_path = state.sed_info.get("timeline_events_path")
     assert events_path is not None
 
@@ -132,6 +170,13 @@ def test_background_sed_persists_timeline_sidecar(tmp_path, monkeypatch):  # noq
     assert "timeline_events" not in sed_info
     assert sed_info["timeline_event_count"] == 1
     assert sed_info["timeline_events_path"] == events_path
+    assert sed_info.get("timeline_total_duration") == pytest.approx(0.5)
+    assert sed_info.get("timeline_label_durations", {}).get("music") == pytest.approx(0.5)
+    assert sed_info.get("timeline_label_mean_scores", {}).get("music") == pytest.approx(0.9)
+    assert sed_info.get("tagger_top_k") == 5
+    assert sed_info.get("tagger_rank_limit") == 3
+    assert sed_info.get("tagger_ranking_size") == 3
+    assert sed_info.get("tagger_ranking")[0]["label"] == "music"
 
     events_payload = json.loads((cache_dir / "sed.timeline_events.json").read_text(encoding="utf-8"))
     assert events_payload["events"] == [{"start": 0.0, "end": 0.5, "label": "music", "score": 0.9}]
@@ -171,6 +216,12 @@ def test_background_sed_upgrades_inlined_events(tmp_path):  # noqa: ANN001
     assert state.sed_info is not None
     assert "timeline_events" not in state.sed_info
     assert state.sed_info.get("timeline_event_count") == 1
+    assert state.sed_info.get("timeline_total_duration") == pytest.approx(0.2)
+    assert state.sed_info.get("timeline_label_durations", {}).get("speech") == pytest.approx(0.2)
+    assert state.sed_info.get("tagger_rank_limit") == 3
+    assert state.sed_info.get("tagger_top_k") == 0
+    assert state.sed_info.get("tagger_ranking") == []
+    assert state.sed_info.get("tagger_ranking_size") == 0
 
     payload = json.loads(sed_cache.read_text(encoding="utf-8"))
     sed_info = payload["sed_info"]

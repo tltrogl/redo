@@ -9,8 +9,16 @@ from ...summaries.conversation_analysis import ConversationMetrics
 from ...summaries.narrative_builder import build_narrative
 from ..outputs import (
     ensure_segment_keys,
+    write_audio_health_csv,
+    write_background_sed_summary_csv,
+    write_conversation_metrics_csv,
     write_human_transcript,
+    write_interruption_events_csv,
+    write_interruption_events_json,
+    write_interruptions_csv,
+    write_moments_csv,
     write_narrative_report,
+    write_overlap_summary_csv,
     write_qc_report,
     write_segments_csv,
     write_segments_jsonl,
@@ -31,6 +39,7 @@ class OutputMixin:
         turns: list[dict[str, Any]],
         overlap_stats: dict[str, Any],
         per_speaker_interrupts: dict[str, Any],
+        interruption_events: list[dict[str, Any]],
         conv_metrics: ConversationMetrics | None,
         duration_s: float,
         sed_info: dict[str, Any] | None,
@@ -48,6 +57,70 @@ class OutputMixin:
             segments=segments_final,
         )
         write_speakers_summary(outp / "speakers_summary.csv", speakers_summary)
+
+        speaker_labels: dict[str, str] = {}
+        for segment in segments_final or []:
+            if not isinstance(segment, dict):
+                continue
+            speaker_id = str(segment.get("speaker_id") or "").strip()
+            if not speaker_id:
+                continue
+            speaker_name = (segment.get("speaker_name") or "").strip()
+            if speaker_id not in speaker_labels or (
+                not speaker_labels[speaker_id] and speaker_name
+            ):
+                speaker_labels[speaker_id] = speaker_name
+
+        write_conversation_metrics_csv(
+            outp / "conversation_metrics.csv",
+            conv_metrics,
+            file_id=self.stats.file_id,
+            duration_s=duration_s,
+        )
+        write_overlap_summary_csv(
+            outp / "overlap_summary.csv",
+            overlap_stats,
+            file_id=self.stats.file_id,
+            duration_s=duration_s,
+        )
+        write_interruptions_csv(
+            outp / "interruptions_by_speaker.csv",
+            per_speaker_interrupts,
+            speaker_labels=speaker_labels,
+            conv_metrics=conv_metrics,
+            file_id=self.stats.file_id,
+        )
+        write_interruption_events_csv(
+            outp / "interruption_events.csv",
+            interruption_events,
+            speaker_labels=speaker_labels,
+            file_id=self.stats.file_id,
+        )
+        write_interruption_events_json(
+            outp / "interruption_events.json",
+            interruption_events,
+            speaker_labels=speaker_labels,
+            file_id=self.stats.file_id,
+        )
+        write_audio_health_csv(
+            outp / "audio_health.csv",
+            health,
+            file_id=self.stats.file_id,
+        )
+        write_background_sed_summary_csv(
+            outp / "background_sed_summary.csv",
+            sed_info,
+            file_id=self.stats.file_id,
+        )
+
+        moments = self._moments_to_check(segments_final)
+        actions = self._action_items(segments_final)
+        write_moments_csv(
+            outp / "moments_to_review.csv",
+            moments,
+            actions,
+            file_id=self.stats.file_id,
+        )
 
         narrative = build_narrative(
             segments_final,
@@ -179,12 +252,16 @@ class OutputMixin:
         out: list[dict[str, Any]] = []
         for i, _ in picks:
             s = segments[i]
+            speaker_id = str(s.get("speaker_id", "Unknown"))
+            speaker_name = s.get("speaker_name") or ""
             out.append(
                 {
                     "timestamp": float(s.get("start", 0.0) or 0.0),
-                    "speaker": str(s.get("speaker_id", "Unknown")),
-                    "description": (s.get("text") or "")[:180],
+                    "speaker_id": speaker_id,
+                    "speaker_name": speaker_name,
+                    "text": (s.get("text") or "")[:180],
                     "type": "peak",
+                    "arousal": float(s.get("arousal", 0.0) or 0.0),
                 }
             )
         out.sort(key=lambda m: m["timestamp"])
@@ -195,6 +272,8 @@ class OutputMixin:
         for s in segments:
             text = (s.get("text") or "").lower()
             intent = str(s.get("intent_top") or s.get("intent") or "")
+            speaker_id = str(s.get("speaker_id", "Unknown"))
+            speaker_name = s.get("speaker_name") or ""
             if (
                 intent in {"command", "instruction", "request", "suggestion"}
                 or "let's " in text
@@ -204,10 +283,12 @@ class OutputMixin:
                     {
                         "type": "action",
                         "text": s.get("text") or "",
-                        "speaker": str(s.get("speaker_id", "Unknown")),
+                        "speaker_id": speaker_id,
+                        "speaker_name": speaker_name,
                         "timestamp": float(s.get("start", 0.0) or 0.0),
                         "confidence": 0.8,
                         "intent": intent or "unknown",
+                        "arousal": float(s.get("arousal", 0.0) or 0.0),
                     }
                 )
         return out

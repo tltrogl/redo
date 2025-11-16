@@ -376,7 +376,7 @@ class SpeakerAccumulator:
         top5 = [{"label": key, "score": float(score)} for key, score in _top_k(normalized, 5)]
         return normalized, top5
 
-    def finalize(self) -> dict[str, Any]:
+    def finalize(self, *, overlap_available: bool = True) -> dict[str, Any]:
         total_dur = self.duration_total
         total_minutes = total_dur / 60.0 if total_dur > 0 else 0.0
         avg_wpm = (self.words_total / total_minutes) if total_minutes > 0 else self._median(self.per_seg_wpm, 0.0)
@@ -407,6 +407,7 @@ class SpeakerAccumulator:
             "interruptions_made": int(self.interruptions_made),
             "interruptions_received": int(self.interruptions_received),
             "overlap_ratio": round(self.overlap_ratio, 3) if self.overlap_ratio is not None else "",
+            "overlap_data_available": bool(overlap_available),
             "f0_mean_hz": round(self._median(self.f0_mean, 0.0), 2),
             "f0_std_hz": round(self._median(self.f0_std, 0.0), 2),
             "loudness_rms_med": round(float(loud_med), 3),
@@ -465,4 +466,8 @@ def build_speakers_summary(
         if speaker_id in accumulators:
             accumulators[speaker_id].merge_interruptions(payload)
 
-    return [acc.finalize() for acc in accumulators.values()]
+    overlap_available = True
+    if isinstance(overlap_stats, dict):
+        overlap_available = bool(overlap_stats.get("available", True))
+
+    return [acc.finalize(overlap_available=overlap_available) for acc in accumulators.values()]

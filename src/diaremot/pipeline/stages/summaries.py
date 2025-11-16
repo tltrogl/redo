@@ -26,10 +26,12 @@ __all__ = [
 def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     overlap_stats = {"overlap_total_sec": 0.0, "overlap_ratio": 0.0}
     per_speaker = {}
+    available = False
     try:
         module = getattr(pipeline, "paralinguistics_module", None)
         if module and hasattr(module, "compute_overlap_and_interruptions"):
             overlap = module.compute_overlap_and_interruptions(state.turns) or {}
+            available = True
         else:
             overlap = {}
         overlap_stats = {
@@ -82,8 +84,13 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
             "warn",
             message=f"skipped: {exc}. Install paralinguistics extras or validate overlap feature inputs.",
         )
+        available = False
+        per_speaker = {}
     state.overlap_stats = overlap_stats
     state.per_speaker_interrupts = per_speaker
+    state.overlap_available = available
+    state.overlap_stats["available"] = available
+    pipeline.stats.config_snapshot["overlap_available"] = available
     guard.done()
 
 

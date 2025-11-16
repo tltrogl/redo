@@ -231,6 +231,7 @@ class AudioAnalysisPipelineV2(
                     state.turns,
                     state.overlap_stats,
                     state.per_speaker_interrupts,
+                    state.interruption_events,
                     state.conv_metrics,
                     state.duration_s,
                     state.sed_info,
@@ -251,6 +252,27 @@ class AudioAnalysisPipelineV2(
                 str(Path("registry") / "speaker_registry.json"),
             ),
         }
+
+        outputs.update(
+            {
+                "conversation_metrics_csv": str((outp / "conversation_metrics.csv").resolve()),
+                "overlap_summary_csv": str((outp / "overlap_summary.csv").resolve()),
+                "interruptions_by_speaker_csv": str(
+                    (outp / "interruptions_by_speaker.csv").resolve()
+                ),
+                "interruption_events_csv": str(
+                    (outp / "interruption_events.csv").resolve()
+                ),
+                "interruption_events_json": str(
+                    (outp / "interruption_events.json").resolve()
+                ),
+                "audio_health_csv": str((outp / "audio_health.csv").resolve()),
+                "background_sed_summary_csv": str(
+                    (outp / "background_sed_summary.csv").resolve()
+                ),
+                "moments_to_review_csv": str((outp / "moments_to_review.csv").resolve()),
+            }
+        )
 
         if state.sed_info:
             timeline_csv = state.sed_info.get("timeline_csv")

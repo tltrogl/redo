@@ -21,6 +21,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 
 - **README.md** (this file) - User guide and reference
 - **DATAFLOW.md** - Detailed pipeline data flow documentation
+- **docs/pipeline_stage_analysis.md** - Stage responsibilities, rationale, and cross-stage observations
 - **MODEL_MAP.md** - Complete model inventory and search paths
 - **GEMINI.md** - Project context for AI assistants (Gemini, Claude, etc.)
 - **AGENTS.md** - Setup guide for autonomous agents
@@ -94,7 +95,7 @@ Audio File (WAV/MP3/M4A)
     ↓ {para_map: {seg_idx: {wpm, f0_mean_hz, vq_jitter_pct, ...}}}
     ↓
 [7] affect_and_assemble → Audio (VAD+SER8) + Text (GoEmotions+BART-MNLI) + SED context
-    ↓ {segments_final: 39 columns per segment}
+    ↓ {segments_final: 53 columns per segment}
     ↓
 [8] overlap_interruptions → Detect overlaps + classify interruptions with sweep-line \(\mathcal{O}(n \log n)\) analytics
     ↓ {overlap_stats, per_speaker_interrupts}
@@ -108,7 +109,7 @@ Audio File (WAV/MP3/M4A)
 [11] outputs → Write CSV/JSONL/HTML/PDF/QC reports
     ↓
 Output Files:
-  • diarized_transcript_with_emotion.csv (39 columns)
+  • diarized_transcript_with_emotion.csv (53 columns)
   • segments.jsonl
   • timeline.csv
   • diarized_transcript_readable.txt
@@ -128,7 +129,7 @@ Output Files:
 
 ### Primary Outputs
 
-**`diarized_transcript_with_emotion.csv`** - 39-column master transcript
+**`diarized_transcript_with_emotion.csv`** - 53-column master transcript
 - **Temporal**: start, end, duration_s
 - **Speaker**: speaker_id, speaker_name
 - **Content**: text, asr_logprob_avg
@@ -158,6 +159,7 @@ Output Files:
 - Voice quality metrics
 - Turn-taking patterns
 - Dominance scores
+- Availability flag indicating whether overlap metrics were computed for the run
 
 ### Supporting Files
 
@@ -167,6 +169,12 @@ Output Files:
 - **`timeline.csv`** – Simplified timeline for quick review
 - **`qc_report.json`** – Quality control metrics and processing diagnostics
 - **`summary.pdf`** – PDF version of HTML report (requires wkhtmltopdf and succeeds only when the dependency is installed)
+- **`conversation_metrics.csv`** – One-row summary of turn-taking balance, interruption rate, coherence, and latency metrics
+- **`overlap_summary.csv`** – Conversation-level overlap totals with normalization against total duration and an `overlap_available` flag
+- **`interruptions_by_speaker.csv`** – Per-speaker interruption counts, received interruptions, and overlap seconds
+- **`audio_health.csv`** – Snapshot of preprocessing QA metrics (SNR, loudness, silence ratio, clipping flags)
+- **`background_sed_summary.csv`** – Ambient sound detection overview with dominant labels, tagger backend/availability, timeline status, aggregated duration/score metrics, and artifact references
+- **`moments_to_review.csv`** – High-arousal peaks and inferred action items with timestamps for rapid follow-up
 
 ---
 
@@ -293,6 +301,13 @@ export NUMEXPR_MAX_THREADS=4
 # Disable tokenizer parallelism warnings
 export TOKENIZERS_PARALLELISM=false
 ```
+
+### Sound Event Detection configuration
+
+- The SED stage honours timeline parameters (`sed_mode`, window sizes, thresholds) provided via `build_pipeline_config`/CLI.
+- `sed_max_windows` now caps the total number of inference windows (0 disables the cap). Values are validated on startup to avoid runaway timelines on very long recordings.
+- `sed_rank_export_limit` controls how many ranked labels are persisted from the raw classifier scores. Omit the field to disable ranking export, set it to a positive integer to capture the top-N classes, or use `0`/negative values to retain the full 527-class ordering when deeper analysis is required.
+- `background_sed_summary.csv` records the tagger backend/availability plus timeline status, total duration, label-wise durations, weighted scores, and any exported ranking metadata (`tagger_top_k`, configured limit, JSON ranking payload) so downstream tooling can reason about cached or regenerated artifacts without parsing the raw timeline payloads.
 
 ### Local-first model resolution
 
@@ -608,6 +623,10 @@ diaremot run sample1.mp3 --disable-sed --disable-affect
 # Resume from checkpoint
 diaremot resume --input audio/sample1.mp3
 
+# Two-phase run: core pass then enrichment using cached diarization/ASR
+diaremot core audio/sample1.mp3 --outdir outputs/core_pass
+diaremot enrich audio/sample1.mp3 --outdir outputs/core_pass_enrich
+
 # Clear cache before run
 diaremot run sample1.mp3 --clear-cache
 
@@ -778,20 +797,20 @@ Transcription module employs sophisticated batching:
 
 ## CSV Schema Reference
 
-The primary output `diarized_transcript_with_emotion.csv` contains **39 columns** (in this exact order):
+The primary output `diarized_transcript_with_emotion.csv` contains **53 columns** (in this exact order):
 
 ### Column Order (CRITICAL - DO NOT MODIFY)
 ```python
 SEGMENT_COLUMNS = [
-    "file_id",                      # 1.  File identifier
-    "start",                        # 2.  Segment start time (seconds)
-    "end",                          # 3.  Segment end time (seconds)
-    "speaker_id",                   # 4.  Internal speaker ID
-    "speaker_name",                 # 5.  Human-readable speaker name
-    "text",                         # 6.  Transcribed text
-    "valence",                      # 7.  Valence (-1 to +1)
-    "arousal",                      # 8.  Arousal (-1 to +1)
-    "dominance",                    # 9.  Dominance (-1 to +1)
+    "file_id",                      #  1. File identifier
+    "start",                        #  2. Segment start time (seconds)
+    "end",                          #  3. Segment end time (seconds)
+    "speaker_id",                   #  4. Internal speaker ID
+    "speaker_name",                 #  5. Human-readable speaker name
+    "text",                         #  6. Transcribed text
+    "valence",                      #  7. Valence (-1 to +1)
+    "arousal",                      #  8. Arousal (-1 to +1)
+    "dominance",                    #  9. Dominance (-1 to +1)
     "emotion_top",                  # 10. Top speech emotion label
     "emotion_scores_json",          # 11. All 8 emotion scores (JSON)
     "text_emotions_top5_json",      # 12. Top 5 text emotions (JSON)
@@ -800,9 +819,9 @@ SEGMENT_COLUMNS = [
     "intent_top3_json",             # 15. Top 3 intents with confidence (JSON)
     "events_top3_json",             # 16. Top 3 background sounds (JSON)
     "noise_tag",                    # 17. Dominant background class
-    "asr_logprob_avg",              # 18. ASR confidence (avg log prob)
+    "asr_logprob_avg",              # 18. ASR average log probability
     "snr_db",                       # 19. Signal-to-noise ratio estimate
-    "snr_db_sed",                   # 20. SNR from SED noise score
+    "snr_db_sed",                   # 20. SNR from SED noise score/events
     "wpm",                          # 21. Words per minute
     "duration_s",                   # 22. Segment duration
     "words",                        # 23. Word count
@@ -822,6 +841,20 @@ SEGMENT_COLUMNS = [
     "vq_hnr_db",                    # 37. Harmonics-to-Noise Ratio
     "vq_cpps_db",                   # 38. Cepstral Peak Prominence Smoothed
     "voice_quality_hint",           # 39. Human-readable quality interpretation
+    "noise_score",                  # 40. Aggregated background noise score
+    "timeline_event_count",         # 41. Total SED timeline events available
+    "timeline_mode",                # 42. Timeline rendering mode
+    "timeline_inference_mode",      # 43. Timeline inference strategy
+    "timeline_overlap_count",       # 44. Number of timeline events overlapping the segment
+    "timeline_overlap_ratio",       # 45. Fraction of the segment covered by timeline events
+    "timeline_events_path",         # 46. Path to persisted timeline events (if exported)
+    "asr_confidence",               # 47. Decoder-reported confidence (if available)
+    "asr_language",                 # 48. Detected language for the segment
+    "asr_tokens_json",              # 49. Raw ASR token IDs (JSON)
+    "asr_words_json",               # 50. Word-level timing metadata (JSON)
+    "vq_voiced_ratio",              # 51. Fraction of voiced frames in voice-quality window
+    "vq_spectral_slope_db",         # 52. Voice-quality spectral slope (dB)
+    "vq_reliable",                  # 53. Whether voice-quality metrics met reliability thresholds
 ]
 ```
 
@@ -917,6 +950,10 @@ diaremot run -i audio.wav -o out/ --ahc-distance-threshold 0.20
 diaremot run -i audio.wav -o out/ --vad-speech-pad-sec 0.30
 ```
 
+> **Tip:** Strongly single-speaker clips (for example, the bundled `data/sample2.mp3`) may require a much higher agglomerative
+> distance threshold. Setting `--ahc-distance-threshold 0.9` yielded a natural single-speaker diarization without relying on
+> `--speaker-limit`; see [`docs/runs/sample2_pipeline_run.md`](docs/runs/sample2_pipeline_run.md) for the full tuning log.
+
 **Slow processing**
 ```bash
 # Use int8 quantization
@@ -938,6 +975,13 @@ diaremot run -i long_audio.wav -o out/ \
     --chunk-threshold-minutes 15.0 \
     --chunk-size-minutes 10.0 \
     --chunk-overlap-seconds 20.0
+```
+
+**`RuntimeError: Type not yet supported: <type> | None` when launching the CLI**
+```bash
+# Typer < 0.12 cannot introspect PEP 604 optional hints.
+# All bundled commands now annotate optionals with `typing.Optional[...]`.
+# If you add new CLI options, follow the same pattern or upgrade Typer.
 ```
 
 ### Debug Logging
@@ -1061,7 +1105,7 @@ redo/
 │       │   │   ├── postprocess.py    # Transcript redistribution helpers
 │       │   │   └── scheduler.py      # Async engine & batching heuristics
 │       │   ├── transcription_module.py  # Transcriber façade delegating to package
-│       │   ├── outputs.py           # CSV schema (39 columns)
+│       │   ├── outputs.py           # CSV schema (53 columns)
 │       │   ├── config.py
 │       │   ├── runtime_env.py
 │       │   ├── pipeline_checkpoint_system.py

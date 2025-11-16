@@ -75,7 +75,7 @@ Input Audio File
 │   - Attach top-3 background sounds from SED                  │
 │   - Estimate SED-derived SNR (`snr_db_sed`)                   │
 │ • Merge all features into segments_final                     │
-│ Output: segments_final (39 columns per SEGMENT_COLUMNS)     │
+│ Output: segments_final (53 columns per SEGMENT_COLUMNS)     │
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -179,11 +179,17 @@ PipelineState:
 ### Stage 3: background_sed
 **Input:** `state.y`, `state.sr`  
 **Process:**
-1. Run PANNs CNN14 on entire audio
-2. Generate global background classification
-3. If noise_score ≥ 0.30 (or mode="timeline"):
-   - Create detailed event timeline
-   - Save to events_timeline.csv, events.jsonl
+1. Run PANNs CNN14 on the entire audio clip, recording backend/availability metadata for diagnostics.
+2. Populate the global tag summary (top labels, dominant label, noise score) and surface any tagging exceptions in `tagger_error`, `tagger_top_k`, and (when configured) the exported ranking metadata.
+3. Evaluate the configured timeline policy (`sed_mode`/`sed_max_windows`):
+   - `auto` enables the timeline when `noise_score ≥ 0.30`.
+   - `timeline` forces execution regardless of noise score.
+   - `global` (or missing assets) records a descriptive `timeline_status`.
+4. When the timeline runs successfully:
+   - Limit window count using `sed_max_windows` (0 disables the cap).
+   - Persist CSV/JSONL artifacts and cache the raw events to `sed.timeline_events.json`.
+   - Aggregate total duration, per-label durations, and weighted mean scores (`timeline_total_duration`, `timeline_label_*`).
+5. All skip/failure reasons are captured in `timeline_status`/`timeline_error` so cache hits can distinguish stale artifacts from intentional skips.
 
 **Output:**
 ```python
@@ -194,10 +200,25 @@ PipelineState:
       "dominant_label": str,                         # Most common class
       "noise_score": float,                          # 0.0-1.0
       "enabled": bool,                               # True if ran
+      "tagger_available": bool,                      # Whether PANNs backend initialised
+      "tagger_backend": str?,                        # "onnx" / "pytorch" / "auto" / None
+      "tagger_error": str?,                          # Exception or skip reason (if any)
+      "tagger_top_k": int,                           # Requested top-k from the tagger
+      "tagger_rank_limit": int | None,               # Configured ranking export limit (None disables)
+      "tagger_ranking": list[dict[str, float]],      # Optional ranking payload (label/score pairs)
+      "tagger_ranking_size": int,                    # Number of ranking entries retained
       "timeline_csv": str?,                          # Path if generated
       "timeline_jsonl": str?,                        # Path if generated
       "timeline_event_count": int?,                  # Number of timeline events persisted
       "timeline_events_path": str?,                  # JSON file with full event payload
+      "timeline_total_duration": float,              # Sum of event durations (seconds)
+      "timeline_total_weight": float,                # Sum(score * duration) across events
+      "timeline_label_durations": dict[str, float],  # Duration per label (seconds)
+      "timeline_label_mean_scores": dict[str, float],# Weighted mean score per label
+      "timeline_status": str,                        # generated / skipped:* / error
+      "timeline_error": str?,                        # Captured exception (if any)
+      "timeline_artifacts_root": str?,               # Output directory where artifacts were written
+      "timeline_artifacts_stale": bool,              # True when cache reused under new out_dir
     }
 ```
 
@@ -363,7 +384,7 @@ PipelineState:
    - Implementation note: `EmotionAnalyzer` now delegates to modular analyzers under
      `diaremot.affect.analyzers` (`text`, `speech`, `vad`, `intent`) so each component can
      be unit-tested and swapped independently.
-2. Assemble final segment structure with all 39 columns
+2. Assemble final segment structure with all 53 columns
 3. Compute derived fields:
    - affect_hint (e.g., "calm-positive", "agitated-negative")
    - voice_quality_hint (interpretation of Praat metrics)
@@ -389,10 +410,13 @@ PipelineState:
         # Content
         "text": str,
         "words": int,
-        "language": str?,
-        
+
         # ASR
         "asr_logprob_avg": float,
+        "asr_confidence": float?,
+        "asr_language": str?,
+        "asr_tokens_json": str,
+        "asr_words_json": str,
         "low_confidence_ser": bool,
         
         # Audio Emotion
@@ -413,6 +437,13 @@ PipelineState:
         # Background
         "events_top3_json": str,    # JSON: Top 3 sounds
         "noise_tag": str,           # Dominant background class
+        "noise_score": float?,      # Aggregated background noise score
+        "timeline_event_count": int,
+        "timeline_mode": str?,
+        "timeline_inference_mode": str?,
+        "timeline_overlap_count": int,
+        "timeline_overlap_ratio": float,
+        "timeline_events_path": str?,
         
         # Signal Quality
         "snr_db": float,
@@ -434,6 +465,9 @@ PipelineState:
         "vq_shimmer_db": float,
         "vq_hnr_db": float,
         "vq_cpps_db": float,
+        "vq_voiced_ratio": float,
+        "vq_spectral_slope_db": float,
+        "vq_reliable": bool,
         "voice_quality_hint": str,
         
         # Hints/Flags
@@ -548,14 +582,21 @@ PipelineState:
 ### Stage 11: outputs
 **Input:** All state data  
 **Process:**
-1. Write primary CSV (39 columns, fixed order)
+1. Write primary CSV (53 columns, fixed order)
 2. Write JSONL segments
 3. Write timeline CSV
 4. Write human-readable transcript
-5. Generate HTML summary with interactivity
-6. Generate PDF summary (if wkhtmltopdf available)
-7. Write QC report with processing stats
-8. Write speaker summary CSV
+5. Persist analytics CSVs:
+   - `conversation_metrics.csv` (one row per run)
+   - `overlap_summary.csv`
+   - `interruptions_by_speaker.csv`
+   - `audio_health.csv`
+   - `background_sed_summary.csv`
+   - `moments_to_review.csv`
+6. Generate HTML summary with interactivity
+7. Generate PDF summary (if wkhtmltopdf available)
+8. Write QC report with processing stats
+9. Write speaker summary CSV
 
 **Output:**
 ```python
@@ -572,6 +613,12 @@ manifest: dict
       "summary_pdf": str,          # summary.pdf
       "qc_report": str,            # qc_report.json
       "speakers_summary": str,     # speakers_summary.csv
+      "conversation_metrics_csv": str,   # conversation_metrics.csv
+      "overlap_summary_csv": str,        # overlap_summary.csv
+      "interruptions_by_speaker_csv": str,  # interruptions_by_speaker.csv
+      "audio_health_csv": str,           # audio_health.csv
+      "background_sed_summary_csv": str, # background_sed_summary.csv
+      "moments_to_review_csv": str,      # moments_to_review.csv
       "events_timeline": str?,     # events_timeline.csv (if SED ran)
       "events_jsonl": str?,        # events.jsonl (if SED ran)
       "speaker_registry": str,     # speaker_registry.json
@@ -586,48 +633,62 @@ manifest: dict
 
 ## Key Data Structures
 
-### SEGMENT_COLUMNS (39 columns, fixed order)
+### SEGMENT_COLUMNS (53 columns, fixed order)
 ```python
 SEGMENT_COLUMNS = [
-    "file_id",              # 1
-    "start",                # 2
-    "end",                  # 3
-    "speaker_id",           # 4
-    "speaker_name",         # 5
-    "text",                 # 6
-    "valence",              # 7
-    "arousal",              # 8
-    "dominance",            # 9
-    "emotion_top",          # 10
-    "emotion_scores_json",  # 11
-    "text_emotions_top5_json",   # 12
-    "text_emotions_full_json",   # 13
-    "intent_top",           # 14
-    "intent_top3_json",     # 15
-    "events_top3_json",     # 16
-    "noise_tag",            # 17
-    "asr_logprob_avg",      # 18
-    "snr_db",               # 19
-    "snr_db_sed",           # 20
-    "wpm",                  # 21
-    "duration_s",           # 22
-    "words",                # 23
-    "pause_ratio",          # 24
-    "low_confidence_ser",   # 25
-    "vad_unstable",         # 26
-    "affect_hint",          # 27
-    "pause_count",          # 28
-    "pause_time_s",         # 29
-    "f0_mean_hz",           # 30
-    "f0_std_hz",            # 31
-    "loudness_rms",         # 32
-    "disfluency_count",     # 33
-    "error_flags",          # 34
-    "vq_jitter_pct",        # 35
-    "vq_shimmer_db",        # 36
-    "vq_hnr_db",            # 37
-    "vq_cpps_db",           # 38
-    "voice_quality_hint",   # 39
+    "file_id",                      # 1
+    "start",                        # 2
+    "end",                          # 3
+    "speaker_id",                   # 4
+    "speaker_name",                 # 5
+    "text",                         # 6
+    "valence",                      # 7
+    "arousal",                      # 8
+    "dominance",                    # 9
+    "emotion_top",                  # 10
+    "emotion_scores_json",          # 11
+    "text_emotions_top5_json",      # 12
+    "text_emotions_full_json",      # 13
+    "intent_top",                   # 14
+    "intent_top3_json",             # 15
+    "events_top3_json",             # 16
+    "noise_tag",                    # 17
+    "asr_logprob_avg",              # 18
+    "snr_db",                       # 19
+    "snr_db_sed",                   # 20
+    "wpm",                          # 21
+    "duration_s",                   # 22
+    "words",                        # 23
+    "pause_ratio",                  # 24
+    "low_confidence_ser",           # 25
+    "vad_unstable",                 # 26
+    "affect_hint",                  # 27
+    "pause_count",                  # 28
+    "pause_time_s",                 # 29
+    "f0_mean_hz",                   # 30
+    "f0_std_hz",                    # 31
+    "loudness_rms",                 # 32
+    "disfluency_count",             # 33
+    "error_flags",                  # 34
+    "vq_jitter_pct",                # 35
+    "vq_shimmer_db",                # 36
+    "vq_hnr_db",                    # 37
+    "vq_cpps_db",                   # 38
+    "voice_quality_hint",           # 39
+    "noise_score",                  # 40
+    "timeline_event_count",         # 41
+    "timeline_mode",                # 42
+    "timeline_inference_mode",      # 43
+    "timeline_overlap_count",       # 44
+    "timeline_overlap_ratio",       # 45
+    "timeline_events_path",         # 46
+    "asr_confidence",               # 47
+    "asr_language",                 # 48
+    "asr_tokens_json",              # 49
+    "asr_words_json",               # 50
+    "vq_voiced_ratio",              # 51
+    "vq_spectral_slope_db",         # 52
+    "vq_reliable",                  # 53
 ]
 ```
 

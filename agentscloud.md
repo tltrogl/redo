@@ -242,7 +242,7 @@ Any missing artifact, schema mismatch, or fallback indicator is a **hard failure
 - **CLI:** `src/diaremot/cli.py`
 - **Pipeline orchestrator:** `src/diaremot/pipeline/orchestrator.py`
 - **Stage registry:** `src/diaremot/pipeline/stages/__init__.py`
-- **Outputs & schema:** `src/diaremot/pipeline/outputs.py` (39 columns)
+- **Outputs & schema:** `src/diaremot/pipeline/outputs.py` (53 columns)
 - **Affect / SED / Intent:** `src/diaremot/affect/`, `src/diaremot/sed/`, `src/diaremot/intent/`
 - **Model utilities:** `src/diaremot/io/onnx_utils.py`, `src/diaremot/utils/model_paths.py`
 - **Tests:** `tests/`
@@ -297,7 +297,8 @@ A run is successful only if **all** criteria below are satisfied:
    - `timeline.csv`
    - `qc_report.json`
    - `events_timeline.csv` whenever the manifest exposes an events timeline (absence is acceptable only if the SED timeline path didn’t trigger).
-2. **CSV contract:** `diarized_transcript_with_emotion.csv` has **39 columns** covering affect (V/A/D), SER-8, text-emotion top-5 JSON, intent, SED overlaps, noise/SNR metrics.
+2. **CSV contract:** `diarized_transcript_with_emotion.csv` has **53 columns** covering affect (V/A/D), SER-8, text-emotion top-5 JSON, intent, SED overlaps, noise/SNR metrics, extended affect metadata (noise score, timeline events, ASR confidence/language/tokens, voice quality reliability).
+2. **CSV contract:** `diarized_transcript_with_emotion.csv` has **53 columns** covering affect (V/A/D), SER-8, text-emotion JSON payloads, intent, ASR confidences/tokens, SED timeline metadata, and noise/SNR metrics.
 3. **All features exercised:** Quiet-Boost, background SED (ON), diarization, ASR, affect V/A/D, speech emotion 8-class, text emotions 28-class, intent. **VAD_dim is mandatory.**
 4. **No fallbacks used:** Any fallback, placeholder, or disabled component is a failure.
 5. **Lint/tests:** `ruff` and `pytest` (if tests exist) complete with **zero hard failures**.
