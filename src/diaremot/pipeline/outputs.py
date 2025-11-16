@@ -569,91 +569,85 @@ def write_interruptions_csv(
 
 def write_interruption_events_csv(
     path: Path,
-    events: Iterable[dict[str, Any]] | None,
+    events: list[dict[str, Any]] | None,
     *,
+    speaker_labels: dict[str, str] | None = None,
     file_id: str | None = None,
 ) -> None:
-    """Write interruption event rows to CSV.
-
-    Minimal compatibility shim: some pipeline modules import this function
-    and expect a CSV writer for interruption events. This writes a small
-    set of columns (start/end/speaker/duration/type) when provided.
-    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
     headers = [
         "file_id",
-        "start",
-        "end",
-        "speaker_id",
-        "speaker_name",
-        "interrupted_speaker_id",
-        "duration_s",
-        "event_type",
+        "timestamp",
+        "interrupter_id",
+        "interrupter_name",
+        "interrupted_id",
+        "interrupted_name",
+        "overlap_sec",
     ]
+
+    def _to_float(value: Any) -> float | None:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    speaker_labels = speaker_labels or {}
 
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=headers)
         writer.writeheader()
-        if not events:
-            return
-        for ev in events:
-            if not isinstance(ev, dict):
+
+        for event in events or []:
+            if not isinstance(event, dict):
                 continue
+            interrupter = str(event.get("interrupter") or "").strip()
+            interrupted = str(event.get("interrupted") or "").strip()
             row = {
                 "file_id": file_id or "",
-                "start": ev.get("start"),
-                "end": ev.get("end"),
-                "speaker_id": ev.get("speaker_id") or ev.get("speaker"),
-                "speaker_name": ev.get("speaker_name", ""),
-                "interrupted_speaker_id": ev.get("interrupted_speaker_id")
-                or ev.get("other_speaker"),
-                "duration_s": ev.get("duration_s") or ev.get("duration"),
-                "event_type": ev.get("type") or ev.get("kind") or "interruption",
+                "timestamp": _to_float(event.get("at") or event.get("timestamp")),
+                "interrupter_id": interrupter,
+                "interrupter_name": speaker_labels.get(interrupter, ""),
+                "interrupted_id": interrupted,
+                "interrupted_name": speaker_labels.get(interrupted, ""),
+                "overlap_sec": _to_float(event.get("overlap_sec")),
             }
             writer.writerow(row)
 
 
 def write_interruption_events_json(
     path: Path,
-    events: Iterable[dict[str, Any]] | None,
+    events: list[dict[str, Any]] | None,
     *,
+    speaker_labels: dict[str, str] | None = None,
     file_id: str | None = None,
-    as_jsonl: bool = True,
 ) -> None:
-    """Write interruption events as JSON or JSONL.
-
-    This minimal shim provides the expected export used by some callers.
-    When `as_jsonl` is True (default) the function writes one JSON object
-    per line. Otherwise it writes a JSON array.
-    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    if not events:
-        # write empty array or nothing for JSONL
-        if as_jsonl:
-            path.write_text("", encoding="utf-8")
-        else:
-            path.write_text("[]", encoding="utf-8")
-        return
+    payload: list[dict[str, Any]] = []
+    speaker_labels = speaker_labels or {}
 
-    if as_jsonl:
-        with path.open("w", encoding="utf-8") as handle:
-            for ev in events:
-                try:
-                    handle.write(json.dumps(ev, ensure_ascii=False) + "\n")
-                except Exception:
-                    handle.write(json.dumps(_make_json_safe(ev), ensure_ascii=False) + "\n")
-    else:
-        arr = []
-        for ev in events:
-            if isinstance(ev, dict):
-                arr.append(_make_json_safe(ev))
-            else:
-                arr.append(ev)
-        path.write_text(json.dumps(arr, ensure_ascii=False, indent=2), encoding="utf-8")
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        interrupter = str(event.get("interrupter") or "").strip()
+        interrupted = str(event.get("interrupted") or "").strip()
+        payload.append(
+            {
+                "file_id": file_id or "",
+                "timestamp": event.get("at") or event.get("timestamp"),
+                "interrupter_id": interrupter,
+                "interrupter_name": speaker_labels.get(interrupter, ""),
+                "interrupted_id": interrupted,
+                "interrupted_name": speaker_labels.get(interrupted, ""),
+                "overlap_sec": event.get("overlap_sec"),
+            }
+        )
+
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
 
 
 def write_audio_health_csv(

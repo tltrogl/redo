@@ -78,6 +78,7 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
             slot["received"] = int(slot.get("received", 0)) + 1
 
         per_speaker = per_speaker_map
+        state.interruption_events = list(overlap.get("interruptions") or [])
     except (AttributeError, RuntimeError, ValueError) as exc:
         pipeline.corelog.stage(
             "overlap_interruptions",
@@ -86,6 +87,7 @@ def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
         )
         available = False
         per_speaker = {}
+        state.interruption_events = []
     state.overlap_stats = overlap_stats
     state.per_speaker_interrupts = per_speaker
     state.overlap_available = available

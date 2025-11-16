@@ -4,19 +4,21 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ...affect.emotion_analyzer import EmotionIntentAnalyzer
-from ...affect.intent_defaults import INTENT_LABELS_DEFAULT
-from ...affect.sed_panns import PANNSEventTagger, SEDConfig  # type: ignore
-from ...summaries.html_summary_generator import HTMLSummaryGenerator
-from ...summaries.pdf_summary_generator import PDFSummaryGenerator
-from .. import speaker_diarization as _speaker_diarization
-from ..audio_preprocessing import AudioPreprocessor, PreprocessConfig
-from ..auto_tuner import AutoTuner
 from ..errors import coerce_stage_error
 from ..runtime_env import DEFAULT_WHISPER_MODEL, WINDOWS_MODELS_ROOT
-from ..transcription_module import Transcriber
+
+if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
+    from ...affect.emotion_analyzer import EmotionIntentAnalyzer
+    from ...affect.intent_defaults import INTENT_LABELS_DEFAULT
+    from ...affect.sed_panns import PANNSEventTagger, SEDConfig
+    from ...summaries.html_summary_generator import HTMLSummaryGenerator
+    from ...summaries.pdf_summary_generator import PDFSummaryGenerator
+    from .. import speaker_diarization as _speaker_diarization
+    from ..audio_preprocessing import AudioPreprocessor, PreprocessConfig
+    from ..auto_tuner import AutoTuner
+    from ..transcription_module import Transcriber
 
 # Local imports that are heavy should live inside functions to keep module load
 # time minimal.  The mixin therefore only references lightweight shims here and
@@ -27,6 +29,16 @@ class ComponentFactoryMixin:
     """Encapsulates component bootstrap logic used by the pipeline executor."""
 
     def _init_components(self, cfg: dict[str, Any]) -> None:
+        from ...affect.emotion_analyzer import EmotionIntentAnalyzer
+        from ...affect.intent_defaults import INTENT_LABELS_DEFAULT
+        from ...affect.sed_panns import PANNSEventTagger, SEDConfig  # type: ignore
+        from ...summaries.html_summary_generator import HTMLSummaryGenerator
+        from ...summaries.pdf_summary_generator import PDFSummaryGenerator
+        from .. import speaker_diarization as _speaker_diarization
+        from ..audio_preprocessing import AudioPreprocessor, PreprocessConfig
+        from ..auto_tuner import AutoTuner
+        from ..transcription_module import Transcriber
+
         self.pre = None
         self.diar = None
         self.tx = None
