@@ -12,7 +12,7 @@ import numpy as np
 from ..logging_utils import StageGuard
 from ..pipeline_checkpoint_system import ProcessingStage
 from .base import PipelineState
-from .utils import atomic_write_json
+from .utils import atomic_write_json, build_cache_payload
 
 if TYPE_CHECKING:
     from ..orchestrator import AudioAnalysisPipelineV2
@@ -235,13 +235,15 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         if state.cache_dir:
             try:
                 turns_json, embeddings = _prepare_turn_cache(turns)
-                payload = {
-                    "version": pipeline.cache_version,
-                    "audio_sha16": state.audio_sha16,
-                    "pp_signature": state.pp_sig,
-                    "turns": turns_json,
-                    "saved_at": time.time(),
-                }
+                payload = build_cache_payload(
+                    version=pipeline.cache_version,
+                    audio_sha16=state.audio_sha16,
+                    pp_signature=state.pp_sig,
+                    extra={
+                        "turns": turns_json,
+                        "saved_at": time.time(),
+                    },
+                )
                 if vad_stats:
                     payload["diagnostics"] = vad_stats
                 atomic_write_json(state.cache_dir / "diar.json", payload)
