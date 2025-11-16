@@ -127,7 +127,7 @@ Output Files:
 
 ### Primary Outputs
 
-**`diarized_transcript_with_emotion.csv`** - 39-column master transcript
+**`diarized_transcript_with_emotion.csv`** - 53-column master transcript
 - **Temporal**: start, end, duration_s
 - **Speaker**: speaker_id, speaker_name
 - **Content**: text, asr_logprob_avg

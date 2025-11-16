@@ -49,7 +49,7 @@ Audio File → preprocess → background_sed → diarize → transcribe → para
 - `state.turns` - Diarization segments with speaker labels
 - `state.norm_tx` - Transcribed segments with text + confidence
 - `state.para_map` - Per-segment voice quality + prosody metrics
-- `state.segments_final` - Complete 39-column segments
+- `state.segments_final` - Complete 53-column segments
 - `state.speakers_summary` - Aggregated per-speaker statistics
 
 ### Processing Pipeline (11 Stages)
@@ -356,7 +356,7 @@ python -m diaremot.cli smoke --outdir outputs/
 1. **Make changes** in appropriate module
 2. **Run linter:** `ruff check src/ tests/`
 3. **Run tests:** `pytest tests/ -v`
-4. **Verify schema:** Check `SEGMENT_COLUMNS` count is still 40
+4. **Verify schema:** Check `SEGMENT_COLUMNS` count is still 53
 5. **Integration test:** Run on sample audio
 6. **Check outputs:** Verify CSV structure unchanged
 
