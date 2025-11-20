@@ -192,7 +192,6 @@ class AudioAnalysisPipelineV2(
         # Initialize components with error handling
         self._init_components(cfg)
 
-
     def process_audio_file(self, input_audio_path: str, out_dir: str) -> dict[str, Any]:
         """Main processing entry point coordinating modular stages."""
 
@@ -212,14 +211,23 @@ class AudioAnalysisPipelineV2(
             )
             StageExecutor(pipeline=self, session=session).run_all()
         except StageExecutionError as exc:
-            self.corelog.error(f"Pipeline failed: {exc}")
+            # Log full traceback and underlying cause to aid debugging of stage failures
+            try:
+                import traceback
+
+                tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+                cause = getattr(exc, "__cause__", None)
+                cause_info = f"\nCause: {repr(cause)}\n" if cause is not None else ""
+                self.corelog.error(f"Pipeline failed: {exc}{cause_info}{tb}")
+            except Exception:
+                # Fall back to simple logging if traceback formatting fails
+                self.corelog.error(f"Pipeline failed: {exc}")
             raise
         except Exception as exc:
             self.corelog.error(f"Pipeline failed with unhandled error: {exc}")
             if not state.segments_final and state.norm_tx:
                 state.segments_final = [
-                    self.ensure_segment(seg, self.stats.file_id)
-                    for seg in state.norm_tx
+                    self.ensure_segment(seg, self.stats.file_id) for seg in state.norm_tx
                 ]
             try:
                 self._write_outputs(
@@ -260,16 +268,10 @@ class AudioAnalysisPipelineV2(
                 "interruptions_by_speaker_csv": str(
                     (outp / "interruptions_by_speaker.csv").resolve()
                 ),
-                "interruption_events_csv": str(
-                    (outp / "interruption_events.csv").resolve()
-                ),
-                "interruption_events_json": str(
-                    (outp / "interruption_events.json").resolve()
-                ),
+                "interruption_events_csv": str((outp / "interruption_events.csv").resolve()),
+                "interruption_events_json": str((outp / "interruption_events.json").resolve()),
                 "audio_health_csv": str((outp / "audio_health.csv").resolve()),
-                "background_sed_summary_csv": str(
-                    (outp / "background_sed_summary.csv").resolve()
-                ),
+                "background_sed_summary_csv": str((outp / "background_sed_summary.csv").resolve()),
                 "moments_to_review_csv": str((outp / "moments_to_review.csv").resolve()),
             }
         )
@@ -362,4 +364,3 @@ class AudioAnalysisPipelineV2(
             progress=100.0,
         )
         return manifest
-

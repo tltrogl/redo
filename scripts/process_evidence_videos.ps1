@@ -22,6 +22,7 @@ PARAMETERS
     -LogFileName: Name of the metadata log file under OutputsSubDir (default: 'processing.log')
     -Single     : Path to a single video file to process (optional)
     -DryRun     : Show intended commands and append DryRun entries to log
+    -CoreOnly   : Use `diaremot core` (preprocess->diarize->transcribe) and skip enrichment/output-heavy stages
 #>
 
 param(
@@ -31,7 +32,9 @@ param(
     [string]$ModelRoot = "./models",
     [string]$LogFileName = "processing.log",
     [string]$Single = "",
-    [switch]$DryRun
+    [int]$SpeakerLimit = 10,
+    [switch]$DryRun,
+    [switch]$CoreOnly
 )
 
 function _resolve-path-trust($p) {
@@ -81,14 +84,31 @@ function _run-one {
     $envPython = Join-Path (Get-Location).Path '.balls\Scripts\python.exe'
     if (Test-Path $envPython) { $pythonExe = $envPython }
 
-    $pythonArgs = @(
-        '-m','diaremot.cli','run',
-        '--input',"$videoPath",
-        '--outdir',"$videoOut",
-        '--model-root',"$ModelRoot",
-        '--registry-path',"$RegistryPath",
-        '--disable-affect','--disable-sed'
-    )
+    $cmd = if ($CoreOnly) { 'core' } else { 'run' }
+
+    if ($CoreOnly) {
+        # `core` expects the input as a positional argument; it does not accept --registry-path
+        $pythonArgs = @(
+            '-m','diaremot.cli','core',
+            "$videoPath",
+            '--outdir',"$videoOut",
+            '--model-root',"$ModelRoot"
+        )
+    }
+    else {
+        $pythonArgs = @(
+            '-m','diaremot.cli','run',
+            '--input',"$videoPath",
+            '--outdir',"$videoOut",
+            '--model-root',"$ModelRoot",
+            '--registry-path',"$RegistryPath",
+            '--disable-affect','--disable-sed'
+        )
+    }
+
+    if ($SpeakerLimit -gt 0) {
+        $pythonArgs += @('--speaker-limit',$SpeakerLimit)
+    }
 
     $start = Get-Date
     if ($DryRun) {

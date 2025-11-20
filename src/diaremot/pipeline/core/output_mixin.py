@@ -44,136 +44,147 @@ class OutputMixin:
         duration_s: float,
         sed_info: dict[str, Any] | None,
     ) -> None:
-        write_segments_csv(outp / "diarized_transcript_with_emotion.csv", segments_final)
-        write_segments_jsonl(outp / "segments.jsonl", segments_final)
-        write_timeline_csv(outp / "timeline.csv", segments_final)
-        write_human_transcript(outp / "diarized_transcript_readable.txt", segments_final)
-        write_qc_report(
-            outp / "qc_report.json",
-            self.stats,
-            health,
-            n_turns=len(turns),
-            n_segments=len(segments_final),
-            segments=segments_final,
-        )
-        write_speakers_summary(outp / "speakers_summary.csv", speakers_summary)
-
-        speaker_labels: dict[str, str] = {}
-        for segment in segments_final or []:
-            if not isinstance(segment, dict):
-                continue
-            speaker_id = str(segment.get("speaker_id") or "").strip()
-            if not speaker_id:
-                continue
-            speaker_name = (segment.get("speaker_name") or "").strip()
-            if speaker_id not in speaker_labels or (
-                not speaker_labels[speaker_id] and speaker_name
-            ):
-                speaker_labels[speaker_id] = speaker_name
-
-        write_conversation_metrics_csv(
-            outp / "conversation_metrics.csv",
-            conv_metrics,
-            file_id=self.stats.file_id,
-            duration_s=duration_s,
-        )
-        write_overlap_summary_csv(
-            outp / "overlap_summary.csv",
-            overlap_stats,
-            file_id=self.stats.file_id,
-            duration_s=duration_s,
-        )
-        write_interruptions_csv(
-            outp / "interruptions_by_speaker.csv",
-            per_speaker_interrupts,
-            speaker_labels=speaker_labels,
-            conv_metrics=conv_metrics,
-            file_id=self.stats.file_id,
-        )
-        write_interruption_events_csv(
-            outp / "interruption_events.csv",
-            interruption_events,
-            speaker_labels=speaker_labels,
-            file_id=self.stats.file_id,
-        )
-        write_interruption_events_json(
-            outp / "interruption_events.json",
-            interruption_events,
-            speaker_labels=speaker_labels,
-            file_id=self.stats.file_id,
-        )
-        write_audio_health_csv(
-            outp / "audio_health.csv",
-            health,
-            file_id=self.stats.file_id,
-        )
-        write_background_sed_summary_csv(
-            outp / "background_sed_summary.csv",
-            sed_info,
-            file_id=self.stats.file_id,
-        )
-
-        moments = self._moments_to_check(segments_final)
-        actions = self._action_items(segments_final)
-        write_moments_csv(
-            outp / "moments_to_review.csv",
-            moments,
-            actions,
-            file_id=self.stats.file_id,
-        )
-
-        narrative = build_narrative(
-            segments_final,
-            speakers_summary,
-            conv_metrics,
-            total_duration=duration_s,
-        )
-        narrative_path = None
         try:
-            write_narrative_report(outp / "conversation_report.md", narrative)
-            narrative_path = str(outp / "conversation_report.md")
-        except Exception as exc:  # pragma: no cover - narrative is best effort
+            write_segments_csv(outp / "diarized_transcript_with_emotion.csv", segments_final)
+            write_segments_jsonl(outp / "segments.jsonl", segments_final)
+            write_timeline_csv(outp / "timeline.csv", segments_final)
+            write_human_transcript(outp / "diarized_transcript_readable.txt", segments_final)
+            write_qc_report(
+                outp / "qc_report.json",
+                self.stats,
+                health,
+                n_turns=len(turns),
+                n_segments=len(segments_final),
+                segments=segments_final,
+            )
+            write_speakers_summary(outp / "speakers_summary.csv", speakers_summary)
+
+            speaker_labels: dict[str, str] = {}
+            for segment in segments_final or []:
+                if not isinstance(segment, dict):
+                    continue
+                speaker_id = str(segment.get("speaker_id") or "").strip()
+                if not speaker_id:
+                    continue
+                speaker_name = (segment.get("speaker_name") or "").strip()
+                if speaker_id not in speaker_labels or (
+                    not speaker_labels[speaker_id] and speaker_name
+                ):
+                    speaker_labels[speaker_id] = speaker_name
+
+            write_conversation_metrics_csv(
+                outp / "conversation_metrics.csv",
+                conv_metrics,
+                file_id=self.stats.file_id,
+                duration_s=duration_s,
+            )
+            write_overlap_summary_csv(
+                outp / "overlap_summary.csv",
+                overlap_stats,
+                file_id=self.stats.file_id,
+                duration_s=duration_s,
+            )
+            write_interruptions_csv(
+                outp / "interruptions_by_speaker.csv",
+                per_speaker_interrupts,
+                speaker_labels=speaker_labels,
+                conv_metrics=conv_metrics,
+                file_id=self.stats.file_id,
+            )
+            write_interruption_events_csv(
+                outp / "interruption_events.csv",
+                interruption_events,
+                speaker_labels=speaker_labels,
+                file_id=self.stats.file_id,
+            )
+            write_interruption_events_json(
+                outp / "interruption_events.json",
+                interruption_events,
+                speaker_labels=speaker_labels,
+                file_id=self.stats.file_id,
+            )
+            write_audio_health_csv(
+                outp / "audio_health.csv",
+                health,
+                file_id=self.stats.file_id,
+            )
+            write_background_sed_summary_csv(
+                outp / "background_sed_summary.csv",
+                sed_info,
+                file_id=self.stats.file_id,
+            )
+
+            moments = self._moments_to_check(segments_final)
+            actions = self._action_items(segments_final)
+            write_moments_csv(
+                outp / "moments_to_review.csv",
+                moments,
+                actions,
+                file_id=self.stats.file_id,
+            )
+
+            narrative = build_narrative(
+                segments_final,
+                speakers_summary,
+                conv_metrics,
+                total_duration=duration_s,
+            )
             narrative_path = None
-            self.corelog.warn(
-                f"Narrative report skipped: {exc}. Review segment data or permissions."
-            )
+            try:
+                write_narrative_report(outp / "conversation_report.md", narrative)
+                narrative_path = str(outp / "conversation_report.md")
+            except Exception as exc:  # pragma: no cover - narrative is best effort
+                narrative_path = None
+                self.corelog.warn(
+                    f"Narrative report skipped: {exc}. Review segment data or permissions."
+                )
 
-        try:
-            html_path = self.html.render_to_html(
-                out_dir=str(outp),
-                file_id=self.stats.file_id,
-                segments=segments_final,
-                speakers_summary=speakers_summary,
-                overlap_stats=overlap_stats,
-                narrative=narrative,
-            )
-        except (RuntimeError, ValueError, OSError, ImportError) as exc:
-            html_path = None
-            self.corelog.warn(
-                f"HTML summary skipped: {exc}. Verify HTML template assets or install report dependencies."
-            )
+            try:
+                html_path = self.html.render_to_html(
+                    out_dir=str(outp),
+                    file_id=self.stats.file_id,
+                    segments=segments_final,
+                    speakers_summary=speakers_summary,
+                    overlap_stats=overlap_stats,
+                    narrative=narrative,
+                )
+            except (RuntimeError, ValueError, OSError, ImportError) as exc:
+                html_path = None
+                self.corelog.warn(
+                    f"HTML summary skipped: {exc}. Verify HTML template assets or install report dependencies."
+                )
 
-        try:
-            pdf_path = self.pdf.render_to_pdf(
-                out_dir=str(outp),
-                file_id=self.stats.file_id,
-                segments=segments_final,
-                speakers_summary=speakers_summary,
-                overlap_stats=overlap_stats,
-                narrative=narrative,
-            )
-        except (RuntimeError, ValueError, OSError, ImportError) as exc:
-            pdf_path = None
-            self.corelog.warn(
-                f"PDF summary skipped: {exc}. Ensure wkhtmltopdf/LaTeX prerequisites are installed."
-            )
+            try:
+                pdf_path = self.pdf.render_to_pdf(
+                    out_dir=str(outp),
+                    file_id=self.stats.file_id,
+                    segments=segments_final,
+                    speakers_summary=speakers_summary,
+                    overlap_stats=overlap_stats,
+                    narrative=narrative,
+                )
+            except (RuntimeError, ValueError, OSError, ImportError) as exc:
+                pdf_path = None
+                self.corelog.warn(
+                    f"PDF summary skipped: {exc}. Ensure wkhtmltopdf/LaTeX prerequisites are installed."
+                )
 
-        self.checkpoints.create_checkpoint(
-            input_audio_path,
-            ProcessingStage.SUMMARY_GENERATION,
-            {"html": html_path, "pdf": pdf_path, "report": narrative_path},
-            progress=90.0,
-        )
+            self.checkpoints.create_checkpoint(
+                input_audio_path,
+                ProcessingStage.SUMMARY_GENERATION,
+                {"html": html_path, "pdf": pdf_path, "report": narrative_path},
+                progress=90.0,
+            )
+        except Exception as exc:  # pragma: no cover - surface underlying error
+            log_message = f"Output writer failure ({type(exc).__name__}): {exc}"
+            self.corelog.error(log_message)
+            self.corelog.event(
+                "outputs",
+                "trace",
+                message=log_message,
+                exception_type=type(exc).__name__,
+            )
+            raise
 
     def _summarize_speakers(
         self,
@@ -241,7 +252,9 @@ class OutputMixin:
             tone = "positive"
         elif v < -0.2:
             tone = "negative"
-        return f"{len(speakers)} speakers over {int(duration_s // 60)} min; most-active tone {tone}."
+        return (
+            f"{len(speakers)} speakers over {int(duration_s // 60)} min; most-active tone {tone}."
+        )
 
     def _moments_to_check(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not segments:

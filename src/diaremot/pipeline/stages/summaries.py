@@ -164,6 +164,7 @@ def run_outputs(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
         state.turns,
         state.overlap_stats,
         state.per_speaker_interrupts,
+        state.interruption_events,
         state.conv_metrics,
         state.duration_s,
         state.sed_info,
