@@ -1,16 +1,19 @@
 # GEMINI.md — Project Context for AI Assistants
 
-**Project:** DiaRemot2-On  
-**Version:** 2.2.0  
-**Language:** Python 3.11-3.12  
-**Purpose:** CPU-only speech intelligence pipeline for long-form audio analysis
+**Project:** DiaRemot2-On
+**Version:** 2.2.0
+**Language:** Python 3.11-3.12
+**Last Updated:** 2025-11-22
+**Purpose:** CPU-only speech intelligence pipeline for long-form audio analysis with web interface
 
 This document provides persistent context about the DiaRemot project for AI assistants like Gemini, Claude, and other LLM-based development tools.
 
 > **See Also:**
+> - [README.md](README.md) - Complete user guide and installation
+> - [CLAUDE.md](CLAUDE.md) - Comprehensive AI assistant guide (Claude-specific)
 > - [DATAFLOW.md](DATAFLOW.md) - Complete pipeline data flow documentation
 > - [MODEL_MAP.md](MODEL_MAP.md) - Model inventory and search paths
-> - [README.md](README.md) - User guide and installation
+> - [WEB_API_README.md](WEB_API_README.md) - Web API installation and usage
 > - [AGENTS.md](AGENTS.md) - Autonomous agent setup guide
 
 ---
@@ -28,6 +31,13 @@ DiaRemot is a production-grade audio intelligence pipeline that transforms long-
 - **Conversation analytics** (turn-taking, dominance, flow)
 
 **Key constraint:** CPU-only, no GPU required. Optimized for inference on commodity hardware.
+
+### Deployment Options
+
+- **CLI** - Command-line interface via Typer (primary usage mode)
+- **Programmatic API** - Python library import for integration into applications
+- **Web API** - FastAPI REST/WebSocket server (optional, requires `pip install -e ".[web]"`)
+- **Web UI** - Next.js 14 frontend with interactive configuration (optional, see `/frontend/`)
 
 ---
 
@@ -125,6 +135,18 @@ PIPELINE_STAGES = [
 - **typer:** CLI framework (NOT Click)
 - **rich:** ≥13.7 (console formatting)
 - **tqdm:** ≥4.66 (progress bars)
+
+### Web API (Optional - requires `[web]` extras)
+- **FastAPI:** ≥0.104 (REST API framework)
+- **Uvicorn:** ≥0.24 (ASGI server)
+- **python-multipart:** ≥0.0.6 (file upload support)
+- **websockets:** ≥12.0 (real-time progress streaming)
+- **pydantic:** ≥2.0 (data validation)
+
+**Frontend (Optional):**
+- **Next.js 14** (React framework)
+- **TypeScript** (type-safe JavaScript)
+- **Tailwind CSS** (utility-first CSS)
 
 ---
 
@@ -247,8 +269,17 @@ src/diaremot/
 │   ├── onnx_utils.py                   # ONNX loading helpers
 │   └── speaker_registry_manager.py     # Persistent speakers
 │
-└── utils/
-    └── model_paths.py                  # Model resolution logic
+├── utils/
+│   └── model_paths.py                  # Model resolution logic
+│
+└── web/                                # Web API (optional, requires [web] extras)
+    ├── api/
+    │   ├── app.py                      # FastAPI application
+    │   ├── models.py                   # Pydantic request/response models
+    │   ├── routes/                     # API route modules
+    │   └── websocket.py                # WebSocket handlers
+    ├── config_schema.py                # Configuration schema for UI
+    └── server.py                       # Development server launcher
 ```
 
 ### Model Directory Structure
@@ -350,6 +381,42 @@ python -m diaremot.cli resume -i audio.wav -o outputs/
 ```bash
 python -m diaremot.cli smoke --outdir outputs/
 ```
+
+### Web API Workflow (Optional)
+
+**Installation:**
+```bash
+# Install with web dependencies
+pip install -e ".[web]"
+```
+
+**Running the API server:**
+```bash
+# Development mode (auto-reload)
+python src/diaremot/web/server.py
+# or
+uvicorn diaremot.web.api.app:app --reload --port 8000
+
+# Production mode
+uvicorn diaremot.web.api.app:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+**Frontend development:**
+```bash
+cd frontend/frontend
+npm install
+npm run dev     # Development server at http://localhost:3000
+npm run build   # Production build
+npm start       # Production server
+```
+
+**API endpoints:**
+- `GET /health` - Health check
+- `GET /config/schema` - Get configuration schema with 70+ parameters
+- `POST /process` - Process audio file
+- `WebSocket /ws/progress` - Real-time progress updates
+
+**See:** [WEB_API_README.md](WEB_API_README.md) for complete API documentation
 
 ### Development Workflow
 
