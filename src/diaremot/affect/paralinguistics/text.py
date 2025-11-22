@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
 from functools import lru_cache
-
-import numpy as np
 
 from .config import COMPREHENSIVE_FILLER_WORDS, VOWELS
 
@@ -64,7 +61,7 @@ def advanced_disfluency_detection(words: tuple[str, ...], raw_text: str) -> tupl
     single_word_fillers = COMPREHENSIVE_FILLER_WORDS - {
         phrase for phrase in multi_word_fillers if " " in phrase
     }
-    
+
     # Use tuple.count which is implemented in C and faster than numpy iteration for strings
     for filler in single_word_fillers:
         if " " not in filler:

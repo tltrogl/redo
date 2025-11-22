@@ -20,7 +20,9 @@ def get_optimized_frame_params(sr: int, frame_ms: int, hop_ms: int) -> tuple[int
     return frame_length, hop_length
 
 
-def vectorized_silence_detection(rms_db: np.ndarray, threshold_db: float, memory_efficient: bool) -> np.ndarray:
+def vectorized_silence_detection(
+    rms_db: np.ndarray, threshold_db: float, memory_efficient: bool
+) -> np.ndarray:
     """Return a boolean mask for frames considered silent."""
 
     if rms_db.size == 0:
@@ -41,7 +43,9 @@ def vectorized_silence_detection(rms_db: np.ndarray, threshold_db: float, memory
                     smoothed[idx:end_idx] = smoothed_chunk.astype(bool)
                 silence_mask = smoothed
             else:
-                silence_mask = scipy_signal.medfilt(silence_mask.astype(np.uint8), kernel_size).astype(bool)
+                silence_mask = scipy_signal.medfilt(
+                    silence_mask.astype(np.uint8), kernel_size
+                ).astype(bool)
 
     return silence_mask
 
@@ -100,7 +104,9 @@ def get_cached_pitch_params(sr: int, cfg: ParalinguisticsConfig) -> dict[str, An
     }
 
 
-def robust_pitch_extraction(audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig) -> tuple[np.ndarray, np.ndarray]:
+def robust_pitch_extraction(
+    audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig
+) -> tuple[np.ndarray, np.ndarray]:
     """Extract pitch using PYIN/YIN with chunked fallbacks."""
 
     if not LIBROSA_AVAILABLE or audio.size == 0:
@@ -138,7 +144,9 @@ def robust_pitch_extraction(audio: np.ndarray, sr: int, cfg: ParalinguisticsConf
     return single_pitch_extraction(audio, sr, cfg)
 
 
-def single_pitch_extraction(audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig) -> tuple[np.ndarray, np.ndarray]:
+def single_pitch_extraction(
+    audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig
+) -> tuple[np.ndarray, np.ndarray]:
     """Single pass pitch extraction with graceful fallbacks."""
 
     if not LIBROSA_AVAILABLE:
@@ -154,13 +162,17 @@ def single_pitch_extraction(audio: np.ndarray, sr: int, cfg: ParalinguisticsConf
         voiced_flag = ~np.isnan(f0)
         return f0, voiced_flag
     except Exception as exc:
-        warnings.warn(f"Primary pitch extraction failed: {exc}, trying fallback", RuntimeWarning, stacklevel=2)
+        warnings.warn(
+            f"Primary pitch extraction failed: {exc}, trying fallback", RuntimeWarning, stacklevel=2
+        )
         try:
             f0 = librosa.yin(audio, fmin=cfg.f0_min_hz, fmax=cfg.f0_max_hz)
             voiced_flag = ~np.isnan(f0)
             return f0, voiced_flag
         except Exception as inner_exc:
-            warnings.warn(f"All pitch extraction methods failed: {inner_exc}", RuntimeWarning, stacklevel=2)
+            warnings.warn(
+                f"All pitch extraction methods failed: {inner_exc}", RuntimeWarning, stacklevel=2
+            )
             return np.array([]), np.array([])
 
 
@@ -203,7 +215,9 @@ def enhanced_pitch_statistics(
                 times_sub = times[voiced_flag][indices]
                 f0_sub = voiced_f0[indices]
             else:
-                times_sub = times[voiced_flag] if len(times) == len(f0) else np.arange(len(voiced_f0))
+                times_sub = (
+                    times[voiced_flag] if len(times) == len(f0) else np.arange(len(voiced_f0))
+                )
                 f0_sub = voiced_f0
 
             if len(f0_sub) >= 3:
@@ -223,7 +237,9 @@ def enhanced_pitch_statistics(
     return median_f0, iqr_f0, slope_f0
 
 
-def optimized_spectral_features(audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig) -> tuple[float, float, float]:
+def optimized_spectral_features(
+    audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig
+) -> tuple[float, float, float]:
     """Compute spectral centroid/flatness statistics with fallbacks."""
 
     if not LIBROSA_AVAILABLE or audio.size == 0:
@@ -308,19 +324,19 @@ def advanced_audio_quality_assessment(audio: np.ndarray, sr: int) -> tuple[float
             return -30.0, False, "insufficient_length"
 
         hop_size = frame_size // 2
-        
+
         # Vectorized energy calculation using cumsum
         squared = audio**2
         integral = np.zeros(squared.size + 1, dtype=squared.dtype)
         np.cumsum(squared, out=integral[1:])
-        
+
         num_frames = (len(audio) - frame_size) // hop_size + 1
         if num_frames < 5:
-             return -30.0, False, "insufficient_frames"
-             
+            return -30.0, False, "insufficient_frames"
+
         starts = np.arange(num_frames) * hop_size
         ends = starts + frame_size
-        
+
         window_sums = integral[ends] - integral[starts]
         energies = window_sums / frame_size
 
@@ -336,10 +352,7 @@ def advanced_audio_quality_assessment(audio: np.ndarray, sr: int) -> tuple[float
         dynamic_range_db = 10 * np.log10((np.max(energies) + 1e-12) / (noise_floor + 1e-12))
 
         reliable = (
-            duration >= 0.2
-            and snr_db >= 6.0
-            and clipping_ratio < 0.03
-            and dynamic_range_db >= 12.0
+            duration >= 0.2 and snr_db >= 6.0 and clipping_ratio < 0.03 and dynamic_range_db >= 12.0
         )
 
         if not reliable:
@@ -380,10 +393,10 @@ def compute_rms_fallback(audio: np.ndarray, frame_length: int, hop_length: int) 
 
     # Calculate start and end indices for all frames
     num_frames = max(1, (len(audio) - frame_length) // hop_length + 1)
-    
+
     starts = np.arange(num_frames) * hop_length
     ends = starts + frame_length
-    
+
     # Ensure we don't go out of bounds (though the formula above should be safe)
     valid_mask = ends <= len(audio)
     if not np.all(valid_mask):
@@ -396,10 +409,10 @@ def compute_rms_fallback(audio: np.ndarray, frame_length: int, hop_length: int) 
 
     # Sum of squares in each window
     window_sums = integral[ends] - integral[starts]
-    
+
     # Mean of squares
     mean_squares = window_sums / frame_length
-    
+
     # RMS
     rms_values = np.sqrt(mean_squares)
 
