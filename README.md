@@ -15,14 +15,24 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 - **Paralinguistics** – Prosody, speech rate (WPM), pause patterns, disfluency detection
 - **Persistent Speaker Registry** – Cross-file speaker tracking via embedding centroids
 
+## Deployment Options
+
+- **CLI** – Command-line interface via Typer (primary usage)
+- **Programmatic API** – Python library import for integration
+- **Web API** – FastAPI REST/WebSocket server (optional, requires `[web]` extras)
+- **Web UI** – Next.js 14 frontend with interactive configuration (optional)
+
 ---
 
 ## Documentation
 
 - **README.md** (this file) - User guide and reference
 - **DATAFLOW.md** - Detailed pipeline data flow documentation
+- **WEB_API_README.md** - Web API installation and usage guide
+- **WEB_APP_PROGRESS.md** - Frontend development progress
 - **docs/pipeline_stage_analysis.md** - Stage responsibilities, rationale, and cross-stage observations
 - **MODEL_MAP.md** - Complete model inventory and search paths
+- **CLAUDE.md** - Comprehensive AI assistant guide (Claude-specific)
 - **GEMINI.md** - Project context for AI assistants (Gemini, Claude, etc.)
 - **AGENTS.md** - Setup guide for autonomous agents
 - **CLOUD_BUILD_GUIDE.md** - Cloud deployment instructions
@@ -287,6 +297,49 @@ ruff check src/ tests/
 # Type check
 mypy src/
 ```
+
+### Web API Setup (Optional)
+
+DiaRemot includes an optional web interface with FastAPI backend and Next.js frontend.
+
+**Backend Installation:**
+```bash
+# Install with web dependencies
+pip install -e ".[web]"
+
+# Verify installation
+python -c "from diaremot.web.api.app import app; print('✓ Web API ready')"
+
+# Run development server
+python src/diaremot/web/server.py
+# Or using uvicorn directly
+uvicorn diaremot.web.api.app:app --reload --port 8000
+```
+
+**Frontend Installation:**
+```bash
+# Navigate to frontend directory
+cd frontend/frontend
+
+# Install dependencies
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+npm start
+```
+
+**Features:**
+- RESTful API for pipeline execution
+- WebSocket support for real-time progress updates
+- Interactive configuration panel with 70+ adjustable parameters
+- File upload and download for audio processing
+- Responsive web interface
+
+**See:** [WEB_API_README.md](WEB_API_README.md) for complete API documentation and usage examples.
 
 ---
 
