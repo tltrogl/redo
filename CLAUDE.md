@@ -3,8 +3,8 @@
 **Project:** DiaRemot (Speech Intelligence Pipeline)
 **Version:** 2.2.0
 **Language:** Python 3.11-3.12
-**Last Updated:** 2025-01-15
-**Purpose:** CPU-only speech intelligence pipeline for long-form audio analysis
+**Last Updated:** 2025-11-22
+**Purpose:** CPU-only speech intelligence pipeline for long-form audio analysis with web interface
 
 This document provides comprehensive context for Claude AI assistants working with the DiaRemot codebase. It covers architecture, conventions, workflows, and best practices.
 
@@ -12,6 +12,7 @@ This document provides comprehensive context for Claude AI assistants working wi
 > - [README.md](README.md) - Complete user guide and installation
 > - [DATAFLOW.md](DATAFLOW.md) - Detailed pipeline data flow documentation
 > - [MODEL_MAP.md](MODEL_MAP.md) - Model inventory and search paths
+> - [WEB_API_README.md](WEB_API_README.md) - Web API installation and usage
 > - [GEMINI.md](GEMINI.md) - General AI assistant context
 > - [AGENTS.md](AGENTS.md) - Autonomous agent setup guide
 
@@ -51,6 +52,12 @@ DiaRemot is a **production-ready, CPU-only speech intelligence system** that pro
 
 **Key Constraint:** CPU-only, no GPU dependencies. Optimized for commodity hardware.
 
+**Deployment Options:**
+- **CLI** - Command-line interface via Typer (main usage)
+- **Programmatic API** - Python library import
+- **Web API** - FastAPI REST/WebSocket server (optional, requires `[web]` extras)
+- **Web UI** - Next.js 14 frontend with interactive configuration (optional)
+
 ### Technology Stack
 
 **Core Runtime:**
@@ -72,8 +79,10 @@ DiaRemot is a **production-ready, CPU-only speech intelligence system** that pro
 
 **CLI/API:**
 - Typer 0.9.0 (CLI framework)
-- FastAPI (Cloud Run API)
+- FastAPI ≥0.104 (Web API framework)
+- Uvicorn ≥0.24 (ASGI server)
 - rich 13.7.1 (console output)
+- WebSockets ≥12.0 (real-time progress streaming)
 
 ---
 
@@ -339,9 +348,18 @@ redo/
 │       │   └── speakers_summary_builder.py
 │       ├── tools/                    # Dependency checks, diagnostics
 │       │   └── deps_check.py
-│       └── utils/                    # Utilities
-│           ├── model_paths.py       # Model path resolution
-│           └── hash.py              # Hashing utilities
+│       ├── utils/                    # Utilities
+│       │   ├── model_paths.py       # Model path resolution
+│       │   └── hash.py              # Hashing utilities
+│       │
+│       └── web/                      # Web API and server (optional)
+│           ├── api/                 # FastAPI application
+│           │   ├── app.py          # Main FastAPI app and endpoints
+│           │   ├── models.py       # Pydantic models for API
+│           │   ├── routes/         # API route modules
+│           │   └── websocket.py    # WebSocket handlers for progress
+│           ├── config_schema.py    # Configuration schema for web UI
+│           └── server.py           # Development server launcher
 │
 ├── tests/                            # Test suite (mirrors src/ structure)
 │   ├── conftest.py                  # Test configuration (adds src/ to path)
@@ -363,6 +381,14 @@ redo/
 │   ├── pipeline_stage_analysis.md  # Stage responsibilities & rationale
 │   ├── pipeline_optimization_opportunities.md
 │   └── runs/                       # Example execution logs
+│
+├── frontend/                         # Web frontend (Next.js 14)
+│   └── frontend/                    # Next.js application root
+│       ├── app/                    # Next.js app directory
+│       ├── components/             # React components
+│       ├── public/                 # Static assets
+│       ├── package.json            # Frontend dependencies
+│       └── next.config.mjs         # Next.js configuration
 │
 ├── data/                             # Sample audio files
 ├── checkpoints/                      # Pipeline checkpoints
@@ -387,6 +413,8 @@ redo/
 ├── AGENTS.md                        # Agent setup guide
 ├── DATAFLOW.md                      # Pipeline data flow
 ├── MODEL_MAP.md                     # Model inventory
+├── WEB_API_README.md                # Web API installation and usage
+├── WEB_APP_PROGRESS.md              # Frontend development progress
 └── CLOUD_BUILD_GUIDE.md            # Cloud build instructions
 ```
 
@@ -428,6 +456,27 @@ redo/
 - `conftest.py` adds `src/` to Python path
 - Stage-specific tests in `pipeline/`
 - Component tests in `affect/`, `transcription/`, etc.
+
+#### `/src/diaremot/web/`
+**Purpose:** Web API and server (optional feature)
+- **api/app.py** - Main FastAPI application with REST endpoints
+- **api/models.py** - Pydantic models for request/response validation
+- **api/routes/** - Modular API route handlers
+- **api/websocket.py** - WebSocket endpoints for real-time progress streaming
+- **config_schema.py** - Configuration schema for 70+ pipeline parameters
+- **server.py** - Development server launcher script
+
+**Installation:** Requires `pip install -e ".[web]"` for FastAPI dependencies
+
+#### `/frontend/`
+**Purpose:** Next.js 14 web interface (optional)
+- **TypeScript + Tailwind CSS** modern React application
+- **Interactive configuration panel** with 70+ adjustable parameters
+- **Real-time processing updates** via WebSocket connection
+- **File upload and download** for audio processing
+- **Responsive design** for desktop and mobile
+
+**Setup:** `cd frontend/frontend && npm install`
 
 ---
 
@@ -1459,7 +1508,82 @@ print(f"Output: {result['out_dir']}")
    python -c "import pandas as pd; df = pd.read_csv('/tmp/test_output/diarized_transcript_with_emotion.csv'); print(f'Columns: {len(df.columns)}')"
    ```
 
-### 6. Debugging Pipeline Issues
+### 6. Working with the Web API
+
+**Installing web dependencies:**
+```bash
+# Install with web extras
+pip install -e ".[web]"
+
+# Verify installation
+python -c "from diaremot.web.api.app import app; print('✓ Web API ready')"
+```
+
+**Running the development server:**
+```bash
+# Option 1: Helper script
+python src/diaremot/web/server.py
+
+# Option 2: Uvicorn directly with hot reload
+uvicorn diaremot.web.api.app:app --reload --port 8000
+
+# Option 3: Custom port
+uvicorn diaremot.web.api.app:app --reload --port 9000
+```
+
+**Testing the API:**
+```bash
+# Run the provided test script
+python test_web_api.py
+
+# Or test manually with curl
+curl http://localhost:8000/health
+curl http://localhost:8000/config/schema
+```
+
+**Frontend development:**
+```bash
+# Install dependencies
+cd frontend/frontend
+npm install
+
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+npm start
+```
+
+**Common API patterns:**
+
+1. **Adding a new endpoint:**
+   ```python
+   # In src/diaremot/web/api/app.py or api/routes/
+   @app.post("/api/my-endpoint")
+   async def my_endpoint(request: MyRequestModel):
+       """New API endpoint."""
+       # Implementation
+       return {"status": "success"}
+   ```
+
+2. **Adding WebSocket functionality:**
+   ```python
+   # In src/diaremot/web/api/websocket.py
+   @app.websocket("/ws/my-stream")
+   async def my_stream(websocket: WebSocket):
+       await websocket.accept()
+       # Stream data to client
+       await websocket.send_json({"progress": 50})
+   ```
+
+3. **Updating configuration schema:**
+   ```python
+   # In src/diaremot/web/config_schema.py
+   # Add new parameter to PARAMETER_SCHEMA
+   ```
+
+### 7. Debugging Pipeline Issues
 
 **Enable debug logging:**
 ```python
@@ -1641,9 +1765,21 @@ from diaremot.pipeline.audio_pipeline_core import run_pipeline
 result = run_pipeline("audio.wav", "outputs/")
 ```
 
-**API (Cloud Run):**
+**Web API:**
+```bash
+# Development server
+python src/diaremot/web/server.py
+
+# Or using uvicorn directly
+uvicorn diaremot.web.api.app:app --reload --port 8000
+
+# Production mode
+uvicorn diaremot.web.api.app:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+**API (Programmatic):**
 ```python
-from diaremot.api import app  # FastAPI app
+from diaremot.web.api.app import app  # FastAPI app
 ```
 
 ### Key Files
@@ -1657,6 +1793,8 @@ from diaremot.api import app  # FastAPI app
 | `src/diaremot/pipeline/outputs.py` | SEGMENT_COLUMNS (53 cols) |
 | `src/diaremot/pipeline/config.py` | PipelineConfig schema |
 | `src/diaremot/pipeline/errors.py` | Structured exceptions |
+| `src/diaremot/web/api/app.py` | FastAPI web application |
+| `src/diaremot/web/config_schema.py` | Web UI configuration schema |
 | `pyproject.toml` | Package configuration |
 | `requirements.txt` | Python dependencies |
 
@@ -1674,6 +1812,13 @@ diaremot smoke --outdir /tmp/test
 
 # Diagnostics
 diaremot diagnostics
+
+# Web API (requires pip install -e ".[web]")
+python src/diaremot/web/server.py
+uvicorn diaremot.web.api.app:app --reload
+
+# Frontend (requires npm install in frontend/frontend)
+cd frontend/frontend && npm run dev
 
 # Run tests
 pytest tests/ -v
@@ -1761,10 +1906,11 @@ export DIAREMOT_SER_ONNX=/path/to/ser8/model.int8.onnx
 - Adding new design patterns
 - Modifying architecture
 
-**Last reviewed:** 2025-01-15
+**Last reviewed:** 2025-11-22
 **Review frequency:** Every major version bump
 **Schema version:** v3 (53 columns)
 **Pipeline stages:** 11
+**Major updates since v2.2.0:** Web API + Next.js frontend added
 
 ---
 
@@ -1772,6 +1918,8 @@ export DIAREMOT_SER_ONNX=/path/to/ser8/model.int8.onnx
 
 - [README.md](README.md) - Complete user guide (1200 lines)
 - [DATAFLOW.md](DATAFLOW.md) - Detailed pipeline data flow (600+ lines)
+- [WEB_API_README.md](WEB_API_README.md) - Web API installation and usage guide
+- [WEB_APP_PROGRESS.md](WEB_APP_PROGRESS.md) - Frontend development progress
 - [GEMINI.md](GEMINI.md) - General AI assistant context
 - [AGENTS.md](AGENTS.md) - Autonomous agent setup
 - [MODEL_MAP.md](MODEL_MAP.md) - Model inventory and paths

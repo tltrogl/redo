@@ -241,10 +241,15 @@ Any missing artifact, schema mismatch, or fallback indicator is a **hard failure
 
 ## 7) Repo Layout & Entry Points
 
-- **CLI:** `src/diaremot/cli.py`
+- **CLI (Primary):** `src/diaremot/cli.py`
   - `diaremot run` — full pipeline in one pass
   - `diaremot core` — core pass (preprocess → diarize → ASR) without enrichment
   - `diaremot enrich` — enrichment (paralinguistics/affect/SED + reports) reusing caches
+- **Web API (Optional):** `src/diaremot/web/api/app.py`
+  - Requires `pip install -e ".[web]"` for FastAPI dependencies
+  - Run with `uvicorn diaremot.web.api.app:app --port 8000`
+  - Provides REST endpoints + WebSocket progress streaming
+  - See [WEB_API_README.md](WEB_API_README.md) for details
 - **Pipeline orchestrator:** `src/diaremot/pipeline/orchestrator.py`
 - **Stage registry:** `src/diaremot/pipeline/stages/__init__.py`
 - **Outputs & schema:** `src/diaremot/pipeline/outputs.py` (53 columns)
