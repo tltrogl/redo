@@ -41,17 +41,12 @@ def enhanced_word_tokenization(text: str) -> tuple[str, ...]:
     return tuple(words)
 
 
-def _count_occurrences(haystack: Iterable[str], needle: str) -> int:
-    return int(np.sum(np.fromiter((token == needle for token in haystack), dtype=np.int32)))
-
-
 def advanced_disfluency_detection(words: tuple[str, ...], raw_text: str) -> tuple[int, int, int]:
     """Return counts for filler words, repetitions, and false starts."""
 
     if not words:
         return 0, 0, 0
 
-    words_array = np.array(words)
     text_lower = f" {raw_text.lower()} "
 
     filler_count = 0
@@ -69,9 +64,11 @@ def advanced_disfluency_detection(words: tuple[str, ...], raw_text: str) -> tupl
     single_word_fillers = COMPREHENSIVE_FILLER_WORDS - {
         phrase for phrase in multi_word_fillers if " " in phrase
     }
+    
+    # Use tuple.count which is implemented in C and faster than numpy iteration for strings
     for filler in single_word_fillers:
         if " " not in filler:
-            filler_count += _count_occurrences(words_array, filler)
+            filler_count += words.count(filler)
 
     repetition_count = 0
     if len(words) > 1:

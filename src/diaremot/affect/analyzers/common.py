@@ -42,6 +42,7 @@ __all__ = [
     "ort_session",
 ]
 
+
 def json_dumps(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
@@ -123,7 +124,7 @@ class EmotionOutputs:
 
 @dataclass
 class TextEmotionResult:
-    top5: list[dict[str, float]]
+    top5: list[dict[str, Any]]
     full: dict[str, float]
 
 
@@ -144,7 +145,7 @@ class VadEmotionResult:
 @dataclass
 class IntentResult:
     top: str
-    top3: list[dict[str, float]]
+    top3: list[dict[str, Any]]
 
 
 GOEMOTIONS_LABELS: list[str] = [
@@ -235,18 +236,15 @@ def softmax(x: np.ndarray) -> np.ndarray:
     return e / denom
 
 
-def topk_distribution(scores: Mapping[str, float], *, k: int = 5) -> list[dict[str, float]]:
+def topk_distribution(scores: Mapping[str, float], *, k: int = 5) -> list[dict[str, Any]]:
     items = [
         (str(label), float(score))
         for label, score in scores.items()
-        if isinstance(score, (int, float)) and math.isfinite(float(score))
+        if isinstance(score, int | float) and math.isfinite(float(score))
     ]
     items.sort(key=lambda item: item[1], reverse=True)
     limited = items[: max(0, min(k, len(items)))]
-    return [
-        {"label": label, "score": float(score)}
-        for label, score in limited
-    ]
+    return [{"label": label, "score": float(score)} for label, score in limited]
 
 
 def target_sample_rate() -> int:
@@ -407,9 +405,7 @@ def _descend_casefold(base: Path, parts: Sequence[str]) -> list[Path]:
     return nodes
 
 
-def resolve_component_dir(
-    cli_value: str | None, env_key: str, *default_subpath: str
-) -> Path:
+def resolve_component_dir(cli_value: str | None, env_key: str, *default_subpath: str) -> Path:
     candidates: list[Path] = []
     if cli_value:
         candidates.append(Path(cli_value).expanduser())

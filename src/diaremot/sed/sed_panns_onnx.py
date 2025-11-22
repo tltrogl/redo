@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from scipy.signal import medfilt
+from scipy.signal import medfilt, resample
 
 try:  # Optional at import time; resolved lazily in run_sed
     import soundfile as sf
@@ -269,8 +269,18 @@ def _load_audio(path: Path, sr_target: int) -> tuple[np.ndarray, int]:
     if sr != sr_target:
         import librosa  # Local import to keep module import light
 
-        data = librosa.resample(data, orig_sr=sr, target_sr=sr_target)
-        sr = sr_target
+        resampled = False
+        try:
+            num_samples = int(len(data) * sr_target / sr)
+            data = resample(data, num_samples)
+            sr = sr_target
+            resampled = True
+        except Exception:
+            pass
+
+        if not resampled:
+            data = librosa.resample(data, orig_sr=sr, target_sr=sr_target)
+            sr = sr_target
     return data.astype(np.float32, copy=False), sr
 
 

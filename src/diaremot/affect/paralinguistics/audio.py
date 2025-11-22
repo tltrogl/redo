@@ -308,12 +308,22 @@ def advanced_audio_quality_assessment(audio: np.ndarray, sr: int) -> tuple[float
             return -30.0, False, "insufficient_length"
 
         hop_size = frame_size // 2
-        frame_energies = [np.mean(audio[idx : idx + frame_size] ** 2) for idx in range(0, len(audio) - frame_size, hop_size)]
+        
+        # Vectorized energy calculation using cumsum
+        squared = audio**2
+        integral = np.zeros(squared.size + 1, dtype=squared.dtype)
+        np.cumsum(squared, out=integral[1:])
+        
+        num_frames = (len(audio) - frame_size) // hop_size + 1
+        if num_frames < 5:
+             return -30.0, False, "insufficient_frames"
+             
+        starts = np.arange(num_frames) * hop_size
+        ends = starts + frame_size
+        
+        window_sums = integral[ends] - integral[starts]
+        energies = window_sums / frame_size
 
-        if len(frame_energies) < 5:
-            return -30.0, False, "insufficient_frames"
-
-        energies = np.array(frame_energies)
         noise_floor = np.percentile(energies, 5)
         signal_level = np.percentile(energies, 85)
 
@@ -351,7 +361,7 @@ def advanced_audio_quality_assessment(audio: np.ndarray, sr: int) -> tuple[float
 
 
 def compute_rms_fallback(audio: np.ndarray, frame_length: int, hop_length: int) -> np.ndarray:
-    """Compute RMS using numpy when librosa is unavailable."""
+    """Compute RMS using numpy with vectorized operations."""
 
     if audio.size == 0:
         return np.array([])
@@ -360,15 +370,38 @@ def compute_rms_fallback(audio: np.ndarray, frame_length: int, hop_length: int) 
     if frame_length < 1:
         return np.array([])
 
-    num_frames = max(1, (len(audio) - frame_length) // hop_length + 1)
-    rms_values = np.zeros(num_frames)
+    # Square the signal
+    squared = audio**2
 
-    for idx in range(num_frames):
-        start_idx = idx * hop_length
-        end_idx = min(start_idx + frame_length, len(audio))
-        if end_idx > start_idx:
-            frame = audio[start_idx:end_idx]
-            rms_values[idx] = np.sqrt(np.mean(frame**2))
+    # Use cumsum for O(N) sliding window sum
+    # Pad with one zero at the beginning to handle the first window subtraction easily
+    integral = np.zeros(squared.size + 1, dtype=squared.dtype)
+    np.cumsum(squared, out=integral[1:])
+
+    # Calculate start and end indices for all frames
+    num_frames = max(1, (len(audio) - frame_length) // hop_length + 1)
+    
+    starts = np.arange(num_frames) * hop_length
+    ends = starts + frame_length
+    
+    # Ensure we don't go out of bounds (though the formula above should be safe)
+    valid_mask = ends <= len(audio)
+    if not np.all(valid_mask):
+        starts = starts[valid_mask]
+        ends = ends[valid_mask]
+        num_frames = len(starts)
+
+    if num_frames == 0:
+        return np.array([])
+
+    # Sum of squares in each window
+    window_sums = integral[ends] - integral[starts]
+    
+    # Mean of squares
+    mean_squares = window_sums / frame_length
+    
+    # RMS
+    rms_values = np.sqrt(mean_squares)
 
     return 20 * np.log10(rms_values + 1e-12)
 

@@ -20,7 +20,7 @@ except Exception:  # pragma: no cover - runtime dependent
     _HAVE_LIBROSA = False
 
 try:  # pragma: no cover - optional dependency
-    from scipy.signal import medfilt
+    from scipy.signal import medfilt, resample
 
     _HAVE_SCIPY = True
 except Exception:  # pragma: no cover - runtime dependent
@@ -142,7 +142,9 @@ def run_sed_timeline(
 
     supports_batch = _supports_batch(session)
     if not supports_batch and batch_size > 1:
-        logger.info("[sed.timeline] Model input has fixed batch; falling back to single-window inference")
+        logger.info(
+            "[sed.timeline] Model input has fixed batch; falling back to single-window inference"
+        )
         batch_size = 1
 
     scores: np.ndarray | None = None
@@ -163,7 +165,10 @@ def run_sed_timeline(
                         )
             else:
                 for start in range(0, len(windows), batch_size):
-                    batch = windows[start : start + batch_size]
+                    if hasattr(windows, "get_batch"):
+                        batch = windows.get_batch(start, batch_size)
+                    else:
+                        batch = windows[start : start + batch_size]
                     preds = _run_session(session, input_name, batch, mode, allow_batch=True)
                     if preds is None:
                         raise RuntimeError("no predictions returned")
@@ -325,6 +330,13 @@ def _resample_to_sr(audio: np.ndarray, sr: int, *, target: int) -> tuple[np.ndar
             return y.astype(np.float32), target
         except Exception:
             pass
+    if _HAVE_SCIPY:
+        try:
+            num_samples = int(len(audio) * float(target) / sr)
+            y = resample(audio, num_samples)
+            return y.astype(np.float32), target
+        except Exception:
+            pass
     ratio = target / float(sr)
     new_len = int(round(len(audio) * ratio))
     if new_len <= 1:
@@ -401,20 +413,22 @@ def _fallback_logmel(
     else:
         padded = np.pad(audio, (pad, pad), mode="reflect")
     window = np.hanning(win_length).astype(np.float32)
-    frames: list[np.ndarray] = []
-    limit = len(padded) - win_length
-    idx = 0
-    while idx <= limit:
-        frame = padded[idx : idx + win_length]
-        frames.append((frame * window).astype(np.float32))
-        idx += hop_length
-    if not frames:
+
+    # Vectorized framing
+    n_frames = (len(padded) - win_length) // hop_length + 1
+    if n_frames > 0:
+        from numpy.lib.stride_tricks import as_strided
+
+        strides = (hop_length * padded.itemsize, padded.itemsize)
+        frames_view = as_strided(padded, shape=(n_frames, win_length), strides=strides)
+        frame_arr = frames_view * window
+    else:
+        # Fallback for very short audio
         frame = np.zeros(win_length, dtype=np.float32)
         take = min(len(audio), win_length)
         frame[:take] = audio[:take]
-        frames.append(frame * window)
+        frame_arr = (frame * window)[np.newaxis, :]
 
-    frame_arr = np.stack(frames, axis=0)
     fft = np.fft.rfft(frame_arr, n=n_fft, axis=1)
     power = (fft.real**2 + fft.imag**2).astype(np.float32)
     filters = _mel_filterbank(sr, n_fft, n_mels, fmin, fmax)
@@ -526,7 +540,9 @@ class _LazyMelWindows(Sequence[np.ndarray]):
         if mel_clip.shape[0] < self._fpw:
             pad = self._fpw - mel_clip.shape[0]
             if mel_clip.size == 0:
-                n_mels = self._mel.shape[1] if self._mel.ndim == 2 and self._mel.shape[1] > 0 else 64
+                n_mels = (
+                    self._mel.shape[1] if self._mel.ndim == 2 and self._mel.shape[1] > 0 else 64
+                )
                 mel_clip = np.zeros((self._fpw, n_mels), dtype=np.float32)
             else:
                 tail = mel_clip[-1:, :]
@@ -540,6 +556,30 @@ class _LazyMelWindows(Sequence[np.ndarray]):
             rng = range(*key.indices(len(self)))
             return [self._get_one(i) for i in rng]
         return self._get_one(int(key))
+
+    def get_batch(self, start_idx: int, count: int) -> np.ndarray:
+        end_idx = min(start_idx + count, len(self._starts))
+        real_count = end_idx - start_idx
+        if real_count <= 0:
+            return np.empty((0, self._mel.shape[1], self._fpw), dtype=np.float32)
+
+        batch = np.zeros((real_count, self._mel.shape[1], self._fpw), dtype=np.float32)
+        for i in range(real_count):
+            idx = int(self._starts[start_idx + i])
+            mel_clip = self._mel[idx : idx + self._fpw]
+            if mel_clip.shape[0] < self._fpw:
+                pad = self._fpw - mel_clip.shape[0]
+                if mel_clip.size == 0:
+                    n_mels = (
+                        self._mel.shape[1] if self._mel.ndim == 2 and self._mel.shape[1] > 0 else 64
+                    )
+                    mel_clip = np.zeros((self._fpw, n_mels), dtype=np.float32)
+                else:
+                    tail = mel_clip[-1:, :]
+                    mel_pad = np.repeat(tail, pad, axis=0)
+                    mel_clip = np.vstack([mel_clip, mel_pad])
+            batch[i] = mel_clip.T
+        return batch
 
 
 def _prepare_windows(
@@ -636,9 +676,12 @@ def _run_session(
         return None
 
 
-def _stack_batch(batch_samples: Sequence[np.ndarray], mode: str) -> np.ndarray | None:
-    if not batch_samples:
+def _stack_batch(batch_samples: Sequence[np.ndarray] | np.ndarray, mode: str) -> np.ndarray | None:
+    if batch_samples is None or len(batch_samples) == 0:
         return None
+
+    if isinstance(batch_samples, np.ndarray):
+        return batch_samples
 
     if mode == "waveform":
         normalized: list[np.ndarray] = []
@@ -673,7 +716,7 @@ def _stack_batch(batch_samples: Sequence[np.ndarray], mode: str) -> np.ndarray |
 
 def _candidate_arrays(batch: np.ndarray, mode: str) -> Iterator[np.ndarray]:
     """Generate candidate array shapes for CNN14 inference.
-    
+
     CNN14 expects:
     - Waveform mode: (batch, samples) - rank 2
     - Mel mode: (batch, n_mels, time_frames) or (batch, time_frames, n_mels) - rank 3

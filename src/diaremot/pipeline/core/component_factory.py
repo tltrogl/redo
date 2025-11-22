@@ -10,15 +10,7 @@ from ..errors import coerce_stage_error
 from ..runtime_env import DEFAULT_WHISPER_MODEL, WINDOWS_MODELS_ROOT
 
 if TYPE_CHECKING:  # pragma: no cover - imported for static typing only
-    from ...affect.emotion_analyzer import EmotionIntentAnalyzer
-    from ...affect.intent_defaults import INTENT_LABELS_DEFAULT
-    from ...affect.sed_panns import PANNSEventTagger, SEDConfig
-    from ...summaries.html_summary_generator import HTMLSummaryGenerator
-    from ...summaries.pdf_summary_generator import PDFSummaryGenerator
-    from .. import speaker_diarization as _speaker_diarization
-    from ..audio_preprocessing import AudioPreprocessor, PreprocessConfig
-    from ..auto_tuner import AutoTuner
-    from ..transcription_module import Transcriber
+    pass
 
 # Local imports that are heavy should live inside functions to keep module load
 # time minimal.  The mixin therefore only references lightweight shims here and
@@ -110,7 +102,7 @@ class ComponentFactoryMixin:
             self.diar_conf = _speaker_diarization.DiarizationConfig(
                 target_sr=self.pp_conf.target_sr,
                 registry_path=registry_path,
-                ahc_distance_threshold=cfg.get("ahc_distance_threshold", 0.15),
+                ahc_distance_threshold=cfg.get("ahc_distance_threshold", 0.45),
                 speaker_limit=cfg.get("speaker_limit", None),
                 clustering_backend=str(cfg.get("clustering_backend", "ahc")),
                 min_speakers=cfg.get("min_speakers", None),

@@ -614,11 +614,9 @@ class SpeakerDiarizer:
             return turns
         dynamic_thresh = base_thresh
         if len(centroids) >= max(6, min_speakers + 5):
-            fallback = float(getattr(self.config, "single_speaker_centroid_threshold", 0.0) or 0.0)
-            if fallback > 0.0:
-                dynamic_thresh = max(dynamic_thresh, min(1.0, fallback * 2.0))
-            else:
-                dynamic_thresh = max(dynamic_thresh, 0.40)
+            # Use a conservative boost to encourage merging when we have many speakers,
+            # but avoid using single_speaker_centroid_threshold which is for a different purpose.
+            dynamic_thresh = max(dynamic_thresh, 0.35)
         thresh = dynamic_thresh
         changed = True
         while changed and len(centroids) > max(1, min_speakers):

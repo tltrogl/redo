@@ -19,7 +19,7 @@ class DiarizationConfig:
     min_embedtable_sec: float = 0.6
     topk_windows: int = 3
     ahc_linkage: str = "average"
-    ahc_distance_threshold: float = 0.14
+    ahc_distance_threshold: float = 0.45
     speaker_limit: int | None = None
     clustering_backend: str = "ahc"
     clustering_progress_interval_sec: float = 60.0
@@ -28,7 +28,7 @@ class DiarizationConfig:
     collar_sec: float = 0.25
     min_turn_sec: float = 1.50
     max_gap_to_merge_sec: float = 1.00
-    post_merge_distance_threshold: float = 0.30
+    post_merge_distance_threshold: float = 0.45
     post_merge_min_speakers: int | None = None
     registry_path: str = "registry/speaker_registry.json"
     auto_assign_cosine: float = 0.70

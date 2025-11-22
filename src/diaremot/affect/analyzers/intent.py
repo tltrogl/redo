@@ -5,6 +5,7 @@ import logging
 import os
 from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -198,9 +199,7 @@ class IntentAnalyzer:
             self._intent_tokenizer = AutoTokenizer.from_pretrained(
                 self.model_dir, local_files_only=True
             )
-            self._intent_config = AutoConfig.from_pretrained(
-                self.model_dir, local_files_only=True
-            )
+            self._intent_config = AutoConfig.from_pretrained(self.model_dir, local_files_only=True)
         except Exception as exc_local:  # noqa: BLE001
             logger.warning("Intent tokenizer/config not found locally: %s", exc_local)
             self._record_issue(
@@ -223,9 +222,7 @@ class IntentAnalyzer:
                 self._intent_session = None
                 self._intent_tokenizer = None
                 self._intent_config = None
-                self._record_issue(
-                    f"Intent tokenizer/config fallback failed: {exc_remote}"
-                )
+                self._record_issue(f"Intent tokenizer/config fallback failed: {exc_remote}")
                 return False
 
         id2label_raw = getattr(self._intent_config, "id2label", {})
@@ -279,19 +276,26 @@ class IntentAnalyzer:
 
         entail_idx = self._intent_entail_idx
         contra_idx = self._intent_contra_idx
-        results: list[dict[str, float]] = []
 
-        for label in self.labels:
-            hypothesis = self._intent_hypothesis_template.format(label)
-            encoded = self._intent_tokenizer(
-                text,
-                hypothesis,
-                return_tensors="np",
-                truncation=True,
-            )
-            inputs = {name: np.asarray(value, dtype=np.int64) for name, value in encoded.items()}
-            logits = self._intent_session.run(None, inputs)[0]
-            arr = np.array(logits, dtype=np.float32).ravel()
+        # Batch all hypotheses for this text
+        hypotheses = [self._intent_hypothesis_template.format(label) for label in self.labels]
+        texts = [text] * len(self.labels)
+
+        encoded = self._intent_tokenizer(
+            texts,
+            hypotheses,
+            return_tensors="np",
+            truncation=True,
+            padding=True,
+        )
+        inputs = {name: np.asarray(value, dtype=np.int64) for name, value in encoded.items()}
+
+        # Run inference for all labels in one batch
+        logits_batch = self._intent_session.run(None, inputs)[0]
+
+        results: list[dict[str, Any]] = []
+        for i, label in enumerate(self.labels):
+            arr = np.array(logits_batch[i], dtype=np.float32).ravel()
 
             if (
                 entail_idx is not None
