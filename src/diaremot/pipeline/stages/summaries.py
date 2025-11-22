@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...summaries.conversation_analysis import (
+    ConversationAnalysisError,
     ConversationMetrics,
     analyze_conversation_flow,
 )
@@ -107,7 +108,7 @@ def run_conversation(
             coherence=metrics.topic_coherence_score,
         )
         state.conv_metrics = metrics
-    except (RuntimeError, ValueError, ZeroDivisionError) as exc:
+    except (RuntimeError, ValueError, ZeroDivisionError, ConversationAnalysisError) as exc:
         pipeline.corelog.stage(
             "conversation_analysis",
             "warn",
