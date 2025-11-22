@@ -12,6 +12,10 @@ except Exception:  # noqa: S110 - broad except to gracefully fall back when pand
     pd = None  # type: ignore[assignment]
 
 
+class ConversationAnalysisError(Exception):
+    """Exception raised when conversation analysis fails."""
+
+
 @dataclass
 class ConversationMetrics:
     turn_taking_balance: float  # entropy of speaker participation
