@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DiaRemot Control Room</title>
+    <link rel="stylesheet" href="/app/static/app.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">DiaRemot &bull; v2.2.0</p>
+          <h1>Control Room</h1>
+          <p class="lede">
+            Upload audio, explore every knob, and run the full CPU-only speech intelligence pipeline from your browser.
+          </p>
+        </div>
+        <div class="header-actions">
+          <label class="file-picker">
+            <span>Select audio</span>
+            <input id="audio-file" type="file" accept="audio/*" />
+          </label>
+          <button id="run-btn" class="primary" disabled>Run pipeline</button>
+        </div>
+      </header>
+
+      <section class="options-card">
+        <div class="options-header">
+          <div>
+            <h2>Configuration</h2>
+            <p>Every CLI option is grouped below. Adjust anything before launching a run.</p>
+          </div>
+          <div class="options-controls">
+            <label class="toggle-advanced">
+              <input type="checkbox" id="toggle-advanced" />
+              Show advanced options
+            </label>
+            <input
+              type="search"
+              id="option-search"
+              class="option-search"
+              placeholder="Search options"
+              aria-label="Search options"
+            />
+          </div>
+        </div>
+        <div id="option-groups" class="option-groups" aria-live="polite"></div>
+        <p id="option-empty" class="option-empty hidden">No options match your search.</p>
+      </section>
+
+      <section class="preview-card">
+        <div class="preview-header">
+          <div>
+            <h2>Configuration preview</h2>
+            <p>Review the CLI command and payload that mirrors your selections.</p>
+          </div>
+          <button id="copy-cli" type="button" class="ghost">Copy CLI command</button>
+        </div>
+        <div class="preview-grid">
+          <div class="preview-column">
+            <p class="eyebrow">CLI command</p>
+            <textarea id="cli-preview" readonly spellcheck="false">diaremot run &lt;audio-path&gt;</textarea>
+          </div>
+          <div class="preview-column">
+            <p class="eyebrow">App payload</p>
+            <pre id="config-preview">{}</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="status-card">
+        <div class="status-header">
+          <h2>Run status</h2>
+          <button id="reset-btn" type="button" class="ghost" disabled>Reset form</button>
+        </div>
+        <div id="status-log" class="status-log" aria-live="polite">
+          <p>Upload audio and press <strong>Run pipeline</strong> to start.</p>
+        </div>
+        <div id="result-panel" class="result-panel hidden">
+          <div class="result-summary">
+            <div>
+              <p class="eyebrow">Job ID</p>
+              <p id="result-job"></p>
+            </div>
+            <div>
+              <p class="eyebrow">Outputs</p>
+              <a id="download-link" href="#" download>Download ZIP</a>
+            </div>
+          </div>
+          <details>
+            <summary>Manifest preview</summary>
+            <pre id="manifest-preview"></pre>
+          </details>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/app/static/app.js"></script>
+  </body>
+</html>

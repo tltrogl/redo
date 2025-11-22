@@ -1,0 +1,324 @@
+:root {
+  color-scheme: dark;
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.4;
+  background: radial-gradient(circle at top, #1d283a, #0d1117 65%);
+  color: #f5f7fb;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+.app-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem clamp(1.5rem, 3vw, 3rem) 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+
+.app-header,
+.options-card,
+.status-card,
+.preview-card {
+  background: rgba(13, 17, 23, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: clamp(1.5rem, 3vw, 2.25rem);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 25px 65px rgba(0, 0, 0, 0.35);
+}
+
+.app-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.file-picker {
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  padding: 0.75rem 1.25rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #d3e3ff;
+}
+
+.file-picker input {
+  display: none;
+}
+
+button {
+  border: none;
+  border-radius: 999px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0.85rem 1.5rem;
+  font-size: 0.95rem;
+}
+
+button.primary {
+  background: linear-gradient(120deg, #60a5fa, #4f46e5);
+  color: white;
+  box-shadow: 0 15px 35px rgba(99, 102, 241, 0.4);
+}
+
+button.primary:disabled,
+button.ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  background: transparent;
+  color: #cbd5f5;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.options-card h2,
+.status-card h2,
+.app-header h1 {
+  margin: 0 0 0.25rem;
+}
+
+.lede {
+  margin: 0;
+  max-width: 540px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0 0 0.15rem;
+}
+
+.options-header,
+.status-header,
+.result-summary,
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.options-controls {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.option-search {
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(5, 8, 14, 0.65);
+  color: #f5f7fb;
+  padding: 0.4rem 1rem;
+  font-size: 0.9rem;
+  min-width: 180px;
+}
+
+.toggle-advanced {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.option-groups {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.option-group {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.option-group summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem 1rem;
+}
+
+.option-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.option-field label {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.option-field input,
+.option-field select,
+.option-field textarea {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(5, 8, 14, 0.75);
+  color: #f5f7fb;
+  padding: 0.55rem 0.65rem;
+  font-size: 0.95rem;
+  width: 100%;
+}
+
+.option-field textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+.option-field small {
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 0.75rem;
+}
+
+.option-field.advanced {
+  display: none;
+}
+
+body.show-advanced .option-field.advanced {
+  display: flex;
+}
+
+.search-hidden {
+  display: none !important;
+}
+
+.option-empty {
+  margin: 1rem 0 0;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.option-empty.hidden {
+  display: none;
+}
+
+.status-log {
+  min-height: 80px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 1rem;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.9rem;
+}
+
+.status-log p {
+  margin: 0;
+}
+
+.result-panel {
+  margin-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 1.25rem;
+}
+
+.result-panel.hidden {
+  display: none;
+}
+
+.result-summary {
+  margin-bottom: 1rem;
+}
+
+.result-summary a {
+  color: #93c5fd;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+pre#manifest-preview {
+  max-height: 300px;
+  overflow: auto;
+  padding: 0.85rem;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1.25rem;
+}
+
+.preview-column textarea,
+.preview-column pre {
+  width: 100%;
+  min-height: 180px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.35);
+  color: #f5f7fb;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 0.85rem;
+  padding: 0.85rem;
+}
+
+.preview-column textarea {
+  resize: vertical;
+}
+
+.preview-column pre {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.preview-card button.ghost {
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .options-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

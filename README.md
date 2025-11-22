@@ -634,6 +634,29 @@ diaremot run sample1.mp3 --clear-cache
 diaremot smoke --outdir outputs/
 ```
 
+### Interactive Web App
+
+Prefer a visual control room? Run the bundled FastAPI service and open the browser UI to tweak every CLI option (profiles, diarization/VAD tuning, async ASR, chunking, background SED, affect paths, etc.) without memorising flags.
+
+```bash
+uvicorn diaremot.api:app --host 0.0.0.0 --port 8000
+# Then open http://localhost:8000/app
+```
+
+Each job stores its outputs under `.cache/app_runs/<job_id>/` and exposes REST endpoints:
+
+- `/app/jobs/<job_id>` – download the zipped CSV/JSON/HTML bundle
+- `/app/jobs/<job_id>/manifest` – fetch the manifest JSON
+
+The UI streams QC summaries inline and keeps a manifest preview so you can verify runs before downloading artifacts.
+
+**New control room perks:**
+
+- 🔍 **Global search** – filter hundreds of toggles instantly. Matching cards stay open while non-matching groups collapse automatically.
+- ⚙️ **Advanced toggle memory** – collapse noisy options until you explicitly opt in, and search respects the toggle state so you only see actionable controls.
+- 🧭 **Live configuration preview** – a dedicated card now mirrors every slider tweak with (a) the exact `diaremot run` command you could paste into a terminal and (b) the JSON payload that hits the API. Use the “Copy CLI command” shortcut to move from the UI to scripts without retyping flags.
+- 🧾 **Payload sanity checks** – the preview re-renders on every change, making it obvious when you are about to send non-default compute types, alternate model paths, or cache-clearing requests.
+
 ### Key CLI Flags
 
 **Input/Output:**
