@@ -49,12 +49,20 @@ class OnnxAudioEmotion:
 
     def _as_waveform_input(self, y: np.ndarray) -> dict[str, np.ndarray]:
         arr = y.astype(np.float32)
+        # Force rank-2 input [batch, time] for models expecting it (like wav2vec2)
+        if self._input_rank == 2:
+            if arr.ndim == 1:
+                return {self._input_name: arr[None, :]}
+            return {self._input_name: arr}
+
         if self._input_rank <= 1:
             return {self._input_name: arr}
-        if self._input_rank == 2:
-            return {self._input_name: arr[None, :]}
         if self._input_rank == 3:
-            return {self._input_name: arr[None, None, :]}
+            if arr.ndim == 1:
+                return {self._input_name: arr[None, None, :]}
+            if arr.ndim == 2:
+                return {self._input_name: arr[None, :]}
+            return {self._input_name: arr}
         raise RuntimeError("Waveform input unsupported for rank>=4")
 
     def _as_mel_input(self, y: np.ndarray) -> dict[str, np.ndarray] | None:
@@ -69,6 +77,8 @@ class OnnxAudioEmotion:
 
     def __call__(self, y: np.ndarray, sr: int) -> tuple[str, dict[str, float]]:
         y = ensure_16k_mono(y, sr)
+        if y.size == 0:
+            return "neutral", {l: 1.0 / len(self.labels) for l in self.labels}
         y = trim_max_len(y, sr=target_sample_rate(), max_seconds=20.0)
         out = None
         if self._input_rank < 4:

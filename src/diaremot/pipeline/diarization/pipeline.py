@@ -116,7 +116,9 @@ class SpeakerDiarizer:
 
         return dict(self._last_vad_stats)
 
-    def diarize_audio(self, wav: np.ndarray, sr: int) -> list[dict[str, Any]]:
+    def diarize_audio(
+        self, wav: np.ndarray, sr: int, speech_regions: list[tuple[float, float]] | None = None
+    ) -> list[dict[str, Any]]:
         self._last_turns = []
         self._last_vad_stats = {
             "vad_boundary_flips": 0.0,
@@ -140,9 +142,15 @@ class SpeakerDiarizer:
             )
         except Exception:
             pass
-        speech_regions = self.vad.detect(
-            wav, sr, self.config.vad_min_speech_sec, self.config.vad_min_silence_sec
-        )
+        # If caller provided explicit speech_regions (e.g. from SED timeline), use that
+        if speech_regions is None:
+            speech_regions = self.vad.detect(
+                wav, sr, self.config.vad_min_speech_sec, self.config.vad_min_silence_sec
+            )
+        else:
+            # Provide VAD stats so diagnostics still meaningful
+            self._last_vad_stats["vad_boundary_flips"] = float(len(speech_regions) or 0)
+            self._last_vad_stats["speech_regions"] = float(len(speech_regions) or 0)
         if not speech_regions and self.config.allow_energy_vad_fallback:
             logger.info("Using energy VAD fallback")
             speech_regions = energy_vad_fallback(

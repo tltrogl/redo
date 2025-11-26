@@ -94,6 +94,8 @@ class PipelineConfig:
     segment_timeout_sec: float = 300.0
     batch_timeout_sec: float = 1200.0
     cpu_diarizer: bool = False
+    # When true, prefer SED timeline events as diarization segment split points
+    diar_use_sed_timeline: bool = False
     # Prefer local model assets before any remote download/caching.
     local_first: bool = True
     validate_dependencies: bool = False
@@ -122,6 +124,8 @@ class PipelineConfig:
     sed_default_min_dur: float = 0.30
     sed_max_windows: int = 6000
     sed_rank_export_limit: int | None = None
+    # When true, prefer SED timeline events as speech split points for diarization
+    diar_use_sed_timeline: bool = False
 
     def __post_init__(self) -> None:  # noqa: D401 - dataclass validation helper
         """Validate and normalise configuration fields."""
@@ -188,6 +192,11 @@ class PipelineConfig:
             raise ValueError("enable_sed must be a boolean value")
         self.enable_sed = bool(self.enable_sed)
         self.enable_async_transcription = bool(self.enable_async_transcription)
+        # Ensure diar_use_sed_timeline is boolean
+        if isinstance(self.diar_use_sed_timeline, (int, float)):
+            self.diar_use_sed_timeline = bool(self.diar_use_sed_timeline)
+        elif not isinstance(self.diar_use_sed_timeline, bool):
+            raise ValueError("diar_use_sed_timeline must be a boolean value")
         _ensure_numeric_range("vad_threshold", self.vad_threshold, ge=0.0, le=1.0)
         _ensure_numeric_range("temperature", self.temperature, ge=0.0, le=1.0)
         _ensure_numeric_range("no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0)

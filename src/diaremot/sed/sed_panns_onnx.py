@@ -25,6 +25,7 @@ import csv
 import json
 import logging
 import math
+import os
 import time
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
@@ -613,6 +614,26 @@ def run_sed(
         frame_posteriors[idx] = clipwise[0]
     inference_elapsed = time.perf_counter() - inference_start
 
+    # Diagnostic logging: frame and posterior statistics (gated)
+    try:
+        if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+            LOGGER.debug(
+                "SED frames=%d, frame_samples=%d, hop_samples=%d, start_indices=%d",
+                frames.shape[0],
+                frame_samples,
+                hop_samples,
+                start_indices.shape[0],
+            )
+            LOGGER.debug(
+                "frame_posteriors stats: min=%.6f max=%.6f mean=%.6f",
+                float(frame_posteriors.min()),
+                float(frame_posteriors.max()),
+                float(frame_posteriors.mean()),
+            )
+    except Exception:
+        if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+            LOGGER.debug("SED diagnostics: unable to compute frame/posterior stats")
+
     coarse_posteriors, coarse_labels, frame_topk = _collapse_labels(
         frame_posteriors, coarse_mapping, topk
     )
@@ -653,6 +674,19 @@ def run_sed(
         fine_labels=label_names,
         fine_posteriors=frame_posteriors,
     )
+
+    # Extra diagnostics (gated)
+    try:
+        if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+            LOGGER.debug(
+                "SED coarse_posteriors shape=%s, coarse_labels=%d, detected_frames=%d",
+                coarse_posteriors.shape,
+                len(coarse_labels),
+                frame_topk and len(frame_topk) or 0,
+            )
+    except Exception:
+        if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+            LOGGER.debug("SED diagnostics: unable to compute coarse posterior stats")
 
     elapsed = time.perf_counter() - start_time
     LOGGER.info(

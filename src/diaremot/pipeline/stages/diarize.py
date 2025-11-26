@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -30,7 +31,7 @@ def _fallback_turn(duration_s: float) -> dict[str, Any]:
 
 
 def _prepare_turn_cache(
-    turns: list[dict[str, Any]]
+    turns: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], np.ndarray | None]:
     json_turns: list[dict[str, Any]] = []
     embeddings: list[np.ndarray] = []
@@ -147,6 +148,38 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
 
     state.ensure_audio()
 
+    # Emit diagnostics about the diarization configuration and state
+    try:
+        cfg = getattr(pipeline, "diar", None).config if getattr(pipeline, "diar", None) else None
+        diag = {
+            "resume_tx": bool(state.resume_tx),
+            "resume_diar": bool(state.resume_diar),
+            "duration_s": float(duration_s),
+        }
+        if cfg is not None:
+            diag.update(
+                {
+                    "vad_threshold": getattr(cfg, "vad_threshold", None),
+                    "vad_min_speech_sec": getattr(cfg, "vad_min_speech_sec", None),
+                    "vad_min_silence_sec": getattr(cfg, "vad_min_silence_sec", None),
+                    "speaker_limit": getattr(cfg, "speaker_limit", None),
+                    "clustering_backend": getattr(cfg, "clustering_backend", None),
+                    "allow_energy_vad_fallback": getattr(cfg, "allow_energy_vad_fallback", None),
+                    "single_speaker_collapse": getattr(cfg, "single_speaker_collapse", None),
+                }
+            )
+        pipeline.corelog.stage(
+            "diarize", "progress", message="diarize config/diagnostics", diagnostics=diag
+        )
+    except Exception:
+        # Don't fail the stage for logging errors
+        try:
+            pipeline.corelog.stage(
+                "diarize", "debug", message="diarize diagnostics generation failed"
+            )
+        except Exception:
+            pass
+
     if (
         state.resume_tx
         and not state.diar_cache
@@ -179,6 +212,18 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         guard.progress(
             f"resume (tx cache) estimated {speakers_est} speakers across {turn_count} turns",
         )
+        try:
+            pipeline.corelog.stage(
+                "diarize",
+                "progress",
+                message="resume tx cache details",
+                diagnostics={
+                    "tx_cache_present": bool(state.tx_cache),
+                    "tx_segments_count": len(tx_segments),
+                },
+            )
+        except Exception:
+            pass
         guard.done(turns=turn_count, speakers_est=speakers_est)
     elif state.resume_diar and state.diar_cache:
         turns = state.diar_cache.get("turns", []) or []
@@ -198,10 +243,101 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             f"resume (diar cache) estimated {speakers_est} speakers across {turn_count} turns",
         )
         guard.done(turns=turn_count, speakers_est=speakers_est)
+        try:
+            pipeline.corelog.stage(
+                "diarize",
+                "progress",
+                message="resume diar cache details",
+                diagnostics={
+                    "diar_cache_present": bool(state.diar_cache),
+                    "diar_cache_turns": len(turns),
+                    "cached_vad_stats": cached_stats,
+                },
+            )
+        except Exception:
+            pass
     else:
         vad_stats: dict[str, float] = {}
         try:
-            turns = pipeline.diar.diarize_audio(state.y, state.sr) or []
+            # If configured, prefer SED timeline for diarization speech regions.
+            use_sed_for_split = False
+            try:
+                cfg_val = (
+                    pipeline.cfg.get("diar_use_sed_timeline") if hasattr(pipeline, "cfg") else None
+                )
+            except Exception:
+                cfg_val = getattr(pipeline.cfg, "diar_use_sed_timeline", False)
+            use_sed_for_split = bool(cfg_val)
+
+            sed_regions = None
+            if use_sed_for_split and state.sed_info:
+                events_path = state.sed_info.get("timeline_events_path") or state.sed_info.get(
+                    "timeline_events"
+                )
+                event_list = None
+                if events_path and isinstance(events_path, str):
+                    try:
+                        with open(events_path, encoding="utf-8") as fh:
+                            payload = json.load(fh)
+                            event_list = (
+                                payload.get("events") if isinstance(payload, dict) else None
+                            )
+                    except Exception:
+                        event_list = None
+                elif events_path and isinstance(events_path, list):
+                    event_list = events_path
+                if event_list:
+                    # Build speech-like regions from SED timeline using simple heuristics
+                    speech_like = {"speech", "conversation", "crowd", "talk", "voice", "dialogue"}
+                    min_map = (
+                        getattr(pipeline.cfg, "sed_min_dur", {}) if hasattr(pipeline, "cfg") else {}
+                    )
+                    default_min = float(getattr(pipeline.cfg, "sed_default_min_dur", 0.3) or 0.3)
+                    pad = float(getattr(pipeline.cfg, "vad_speech_pad_sec", 0.0) or 0.0)
+                    regions: list[tuple[float, float]] = []
+                    for ev in event_list:
+                        try:
+                            label = str(ev.get("label", "")).strip().lower()
+                            start = float(ev.get("start", 0.0) or 0.0)
+                            end = float(ev.get("end", 0.0) or 0.0)
+                        except Exception:
+                            continue
+                        duration = max(0.0, end - start)
+                        min_dur = float(min_map.get(label, default_min) or default_min)
+                        if duration < min_dur:
+                            continue
+                        if (
+                            any(k in label for k in speech_like)
+                            or str(state.sed_info.get("dominant_label", "")).strip().lower()
+                            in label
+                        ):
+                            s = max(0.0, start - pad)
+                            e = end + pad
+                            regions.append((s, e))
+                    # Merge overlapping / adjacent regions if necessary
+                    regions.sort()
+                    merged: list[tuple[float, float]] = []
+                    for s, e in regions:
+                        if not merged:
+                            merged.append((s, e))
+                        else:
+                            last_s, last_e = merged[-1]
+                            if s <= last_e + 0.1:
+                                merged[-1] = (last_s, max(last_e, e))
+                            else:
+                                merged.append((s, e))
+                    if merged:
+                        sed_regions = merged
+                        try:
+                            pipeline.corelog.stage(
+                                "diarize",
+                                "progress",
+                                message="using SED timeline for diarization speech regions",
+                                diagnostics={"sed_regions": len(sed_regions)},
+                            )
+                        except Exception:
+                            pass
+            turns = pipeline.diar.diarize_audio(state.y, state.sr, speech_regions=sed_regions) or []
         except (
             RuntimeError,
             ValueError,
@@ -216,9 +352,32 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     f"{exc}; reverting to single-speaker assumption. Verify ECAPA/pyannote assets."
                 ),
             )
+            try:
+                pipeline.corelog.stage(
+                    "diarize",
+                    "warn",
+                    message="Diarization exception diagnostic",
+                    diagnostics={"exception_type": type(exc).__name__, "exception_str": str(exc)},
+                )
+            except Exception:
+                pass
             turns = []
         if not turns:
-            pipeline.corelog.stage("diarize", "warn", message="Diarizer returned 0 turns; using fallback")
+            try:
+                pipeline.corelog.stage(
+                    "diarize",
+                    "warn",
+                    message="Diarizer returned 0 turns; using fallback",
+                    diagnostics={
+                        "vad_stats": vad_stats or {},
+                        "resume_tx": bool(state.resume_tx),
+                        "resume_diar": bool(state.resume_diar),
+                    },
+                )
+            except Exception:
+                pipeline.corelog.stage(
+                    "diarize", "warn", message="Diarizer returned 0 turns; using fallback"
+                )
             turns = [_fallback_turn(duration_s)]
         stats_getter = getattr(pipeline.diar, "get_vad_statistics", None)
         if callable(stats_getter):
@@ -231,6 +390,38 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         speakers_est, turn_count = _speaker_metrics(turns)
         guard.progress(f"estimated {speakers_est} speakers across {turn_count} turns")
         guard.done(turns=turn_count, speakers_est=speakers_est)
+
+        # Emit additional diagnostics when diarization collapsed to single speaker
+        try:
+            if speakers_est <= 1:
+                embeddings = []
+                seg_embs = []
+                try:
+                    seg_embs = getattr(pipeline.diar, "get_segment_embeddings", lambda: [])() or []
+                except Exception:
+                    seg_embs = []
+                embedding_count = len([e for e in seg_embs if e.get("embedding") is not None])
+                diag = {
+                    "speakers_est": int(speakers_est),
+                    "turn_count": int(turn_count),
+                    "embedding_count": int(embedding_count),
+                    "vad_stats": vad_stats or {},
+                    "resume_tx": bool(state.resume_tx),
+                    "resume_diar": bool(state.resume_diar),
+                }
+                pipeline.corelog.stage(
+                    "diarize",
+                    "warn",
+                    message="Diarization collapsed to single speaker; diagnostic payload",
+                    diagnostics=diag,
+                )
+        except Exception:
+            try:
+                pipeline.corelog.stage(
+                    "diarize", "debug", message="diarize single-speaker diagnostics failed"
+                )
+            except Exception:
+                pass
 
         if state.cache_dir:
             try:

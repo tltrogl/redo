@@ -50,6 +50,10 @@ web = [
   "pydantic>=2.0",
 ]
 
+gui = [
+  "PyQt6>=6.6.0",
+]
+
 [project.urls]
 
 

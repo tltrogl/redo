@@ -182,7 +182,7 @@ PipelineState:
 1. Run PANNs CNN14 on the entire audio clip, recording backend/availability metadata for diagnostics.
 2. Populate the global tag summary (top labels, dominant label, noise score) and surface any tagging exceptions in `tagger_error`, `tagger_top_k`, and (when configured) the exported ranking metadata.
 3. Evaluate the configured timeline policy (`sed_mode`/`sed_max_windows`):
-   - `auto` enables the timeline when `noise_score ≥ 0.30`.
+   - `auto` enables the timeline by default (previously conditional on noise score).
    - `timeline` forces execution regardless of noise score.
    - `global` (or missing assets) records a descriptive `timeline_status`.
 4. When the timeline runs successfully:

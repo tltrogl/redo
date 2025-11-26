@@ -783,7 +783,8 @@ def run_background_sed(
     if tl_cfg["mode"] == "timeline":
         run_timeline = True
     elif tl_cfg["mode"] == "auto":
-        run_timeline = noise_score >= 0.30
+        # Force detailed SED timeline generation regardless of noise score
+        run_timeline = True
 
     if run_timeline and state.out_dir is None:
         timeline_status = "skipped:no_out_dir"

@@ -23,6 +23,8 @@ class OnnxVADEmotion:
         self.sess = ort_session(model_path)
 
     def __call__(self, y: np.ndarray, sr: int) -> tuple[float, float, float]:
+        if y.size == 0:
+            return 0.0, 0.0, 0.0
         if y.ndim > 1:
             y = np.mean(y, axis=1)
         target_sr = target_sample_rate()

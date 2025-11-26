@@ -18,6 +18,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 ## Deployment Options
 
 - **CLI** – Command-line interface via Typer (primary usage)
+- **Desktop GUI** – PySimpleGUI-based desktop application
 - **Programmatic API** – Python library import for integration
 - **Web API** – FastAPI REST/WebSocket server (optional, requires `[web]` extras)
 - **Web UI** – Next.js 14 frontend with interactive configuration (optional)
@@ -225,7 +226,16 @@ cd redo
 .\setup.ps1
 ```
 
-**Option 2: Manual Setup**
+**Option 2: Desktop GUI**
+```powershell
+# Install GUI dependencies
+pip install -e ".[gui]"
+
+# Launch GUI
+diaremot gui
+```
+
+**Option 3: Manual Setup**
 Install ffmpeg on path
 ```powershell
 # 1. Clone repository
@@ -698,32 +708,56 @@ diaremot run sample1.mp3 --clear-cache
 diaremot smoke --outdir outputs/
 ```
 
-### Key CLI Flags
+### Desktop GUI
 
-**Input/Output:**
+DiaRemot includes a desktop interface for easier operation.
+
+**Installation:**
+```bash
+pip install -e ".[gui]"
+```
+
+**Launch:**
+```bash
+diaremot gui
+# or
+python -m diaremot.cli gui
+```
+
+**Features:**
+- File selection for input audio
+- Output directory configuration
+- Toggle switches for Affect, SED, and Noise Reduction
+- Real-time log viewing
+- Non-blocking execution
+
+### Key CLI Flags
+```bash
+# Input/Output:
 - `--input, -i` – Audio file path (WAV, MP3, M4A, FLAC)
 - `--outdir, -o` – Output directory (defaults to <input parent>/outs/<input stem>)
 - `scripts/diaremot_run.sh` – Wrapper that activates `.balls`, detects vCPUs (via `nproc`), and sets `CT2_NUM_THREADS`/`OMP_NUM_THREADS`/`MKL_NUM_THREADS`. Accepts optional `--threads N`.
 
-**Performance:**
+# Performance:
 - `--asr-compute-type` – `int8` (default) | `float32` | `int8_float16`
 - `--asr-cpu-threads` – Thread count for CPU operations (default: 1)
 
-**VAD/Diarization:**
+# VAD/Diarization:
 - `--vad-threshold` – Override adaptive VAD threshold (0.0-1.0)
 - `--vad-min-speech-sec` – Minimum speech segment duration
 - `--vad-speech-pad-sec` – Padding around speech segments
 - `--ahc-distance-threshold` – Speaker clustering threshold
 - `--clustering-backend` – Clustering method (ahc or spectral)
 
-**Features:**
+# Features:
 - `--disable-sed` / `--enable-sed` – Toggle sound event detection
 - `--disable-affect` – Skip emotion/intent analysis
 - `--profile` – Preset configuration (default|fast|accurate|offline)
 
-**Diagnostics:**
+# Diagnostics:
 - `--quiet` – Reduce console output
 - `--strict` – Enforce strict dependency versions (diagnostics command)
+```
 
 ### Profile Presets
 

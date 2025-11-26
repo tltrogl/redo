@@ -63,8 +63,14 @@ class ECAPAEncoder:
 
     def embed_batch(self, batch: list[np.ndarray], sr: int) -> list[np.ndarray | None]:
         if self.session is None or not batch:
+            if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+                logger.info(
+                    "ECAPA embed_batch: session unavailable or empty batch (len=%d)", len(batch)
+                )
             return [None] * len(batch)
         try:
+            if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+                logger.info("ECAPA embed_batch: received batch_size=%d, sr=%s", len(batch), sr)
             mel_specs = []
             max_frames = 0
             for x in batch:
@@ -87,6 +93,20 @@ class ECAPAEncoder:
                 mel_specs.append(mel)
                 if mel.shape[0] > max_frames:
                     max_frames = mel.shape[0]
+            # Log mel frame statistics for diagnostics
+            try:
+                frames_per_clip = [m.shape[0] for m in mel_specs]
+                if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+                    logger.debug(
+                        "ECAPA mel_specs: clips=%d, frames_min=%d, frames_max=%d, frames_mean=%.2f",
+                        len(frames_per_clip),
+                        int(min(frames_per_clip)),
+                        int(max(frames_per_clip)),
+                        float(sum(frames_per_clip) / len(frames_per_clip)),
+                    )
+            except Exception:
+                if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+                    logger.debug("ECAPA mel_specs: unable to compute frame stats")
             padded = []
             for mel in mel_specs:
                 pad_width = max(0, max_frames - mel.shape[0])
@@ -94,6 +114,8 @@ class ECAPAEncoder:
                     mel = np.pad(mel, ((0, pad_width), (0, 0)), mode="edge")
                 padded.append(mel)
             inputs = np.stack(padded, axis=0).astype(np.float32)
+            if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+                logger.debug("ECAPA inputs stacked: shape=%s, dtype=%s", inputs.shape, inputs.dtype)
             ort_inputs = {self.input_name: inputs}
             outputs = self.session.run([self.output_name], ort_inputs)
             embeddings = []
@@ -101,9 +123,24 @@ class ECAPAEncoder:
                 vec = np.asarray(arr, dtype=np.float32).reshape(-1)
                 norm = np.linalg.norm(vec)
                 embeddings.append(vec / (norm + 1e-8))
+            # Log embedding diagnostics
+            try:
+                emb_shapes = [emb.shape if emb is not None else None for emb in embeddings]
+                non_none = sum(1 for e in embeddings if e is not None)
+                if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+                    logger.info(
+                        "ECAPA produced %d embeddings (non-None=%d); sample_shapes=%s",
+                        len(embeddings),
+                        non_none,
+                        str(emb_shapes[:3]),
+                    )
+            except Exception:
+                if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+                    logger.info("ECAPA produced embeddings (unable to summarize shapes)")
             return embeddings
         except Exception as exc:
-            logger.error("ECAPA embedding inference failed: %s", exc)
+            if os.getenv("DIAREMOT_VERBOSE_DIAR"):
+                logger.exception("ECAPA embedding inference failed: %s", exc)
             return [None] * len(batch)
 
 
