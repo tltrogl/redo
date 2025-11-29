@@ -329,15 +329,48 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     if merged:
                         sed_regions = merged
                         try:
+                            # compute simple region stats
+                            durations = [round(e - s, 3) for s, e in sed_regions]
+                            total_dur = round(sum(durations), 3)
+                            min_dur = round(min(durations or [0.0]), 3)
+                            max_dur = round(max(durations or [0.0]), 3)
+                            median_dur = round(np.median(durations).item() if durations else 0.0, 3)
                             pipeline.corelog.stage(
                                 "diarize",
                                 "progress",
                                 message="using SED timeline for diarization speech regions",
-                                diagnostics={"sed_regions": len(sed_regions)},
+                                diagnostics={
+                                    "sed_regions": len(sed_regions),
+                                    "sed_regions_total_s": total_dur,
+                                    "sed_regions_min_s": min_dur,
+                                    "sed_regions_median_s": median_dur,
+                                    "sed_regions_max_s": max_dur,
+                                    "diar_use_sed_timeline": bool(use_sed_for_split),
+                                },
                             )
                         except Exception:
                             pass
             turns = pipeline.diar.diarize_audio(state.y, state.sr, speech_regions=sed_regions) or []
+            # If SED-driven splitting was requested but no timeline was available, log it
+            if use_sed_for_split and not state.sed_info:
+                try:
+                    pipeline.corelog.stage(
+                        "diarize",
+                        "debug",
+                        message="diar_use_sed_timeline requested but no state.sed_info present",
+                    )
+                except Exception:
+                    pass
+            elif use_sed_for_split and state.sed_info and not event_list:
+                try:
+                    pipeline.corelog.stage(
+                        "diarize",
+                        "debug",
+                        message="diar_use_sed_timeline requested but parsed SED timeline event list is empty",
+                        diagnostics={"sed_info_present": True},
+                    )
+                except Exception:
+                    pass
         except (
             RuntimeError,
             ValueError,

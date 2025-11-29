@@ -296,6 +296,15 @@ class MainWindow(QMainWindow):
         self.chk_cpu_diar = QCheckBox("Use CPU-Optimized Diarizer")
         layout.addWidget(self.chk_cpu_diar)
 
+        # VAD speech pad (seconds)
+        layout.addWidget(QLabel("VAD Speech Pad (s):"))
+        self.spin_vad_pad = QDoubleSpinBox()
+        self.spin_vad_pad.setRange(0.0, 5.0)
+        self.spin_vad_pad.setSingleStep(0.05)
+        self.spin_vad_pad.setValue(0.1)
+        self.spin_vad_pad.setToolTip("Padding (seconds) applied around detected VAD speech regions")
+        layout.addWidget(self.spin_vad_pad)
+
         # Use SED Timeline for Diarization
         self.chk_use_sed_for_diar = QCheckBox("Use SED Timeline for Diarization Splitting")
         self.chk_use_sed_for_diar.setToolTip(
@@ -433,6 +442,7 @@ class MainWindow(QMainWindow):
             "vad_threshold": self.spin_vad.value(),
             "vad_min_speech_sec": self.spin_min_speech.value(),
             "vad_min_silence_sec": self.spin_min_silence.value(),
+            "vad_speech_pad_sec": self.spin_vad_pad.value(),
             "speaker_limit": self.spin_speakers.value() if self.spin_speakers.value() > 0 else None,
             "diar_use_sed_timeline": self.chk_use_sed_for_diar.isChecked(),
             # Advanced

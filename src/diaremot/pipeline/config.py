@@ -73,19 +73,19 @@ class PipelineConfig:
     affect_ser_model_dir: Path | None = None
     affect_vad_model_dir: Path | None = None
     affect_analyzer_threads: int | None = None
-    beam_size: int = 1
+    beam_size: int = 4
     temperature: float = 0.0
     no_speech_threshold: float = 0.20
-    noise_reduction: bool = False
+    noise_reduction: bool = True
     enable_sed: bool = True
     auto_chunk_enabled: bool = True
-    chunk_threshold_minutes: float = 60.0
-    chunk_size_minutes: float = 20.0
-    chunk_overlap_seconds: float = 30.0
-    vad_threshold: float = 0.22
-    vad_min_speech_sec: float = 0.25
-    vad_min_silence_sec: float = 0.25
-    vad_speech_pad_sec: float = 0.2
+    chunk_threshold_minutes: float = 30.0
+    chunk_size_minutes: float = 15.0
+    chunk_overlap_seconds: float = 12.0
+    vad_threshold: float = 0.32
+    vad_min_speech_sec: float = 0.50
+    vad_min_silence_sec: float = 0.40
+    vad_speech_pad_sec: float = 0.1
     vad_backend: str = "auto"
     disable_energy_vad_fallback: bool = False
     energy_gate_db: float = -33.0
@@ -95,7 +95,7 @@ class PipelineConfig:
     batch_timeout_sec: float = 1200.0
     cpu_diarizer: bool = False
     # When true, prefer SED timeline events as diarization segment split points
-    diar_use_sed_timeline: bool = False
+    diar_use_sed_timeline: bool = True
     # Prefer local model assets before any remote download/caching.
     local_first: bool = True
     validate_dependencies: bool = False
@@ -113,10 +113,10 @@ class PipelineConfig:
     sed_mode: str = "auto"
     sed_window_sec: float = 1.0
     sed_hop_sec: float = 0.5
-    sed_enter: float = 0.50
-    sed_exit: float = 0.35
+    sed_enter: float = 0.34
+    sed_exit: float = 0.18
     sed_min_dur: dict[str, float] = dataclass_field(default_factory=dict)
-    sed_merge_gap: float = 0.20
+    sed_merge_gap: float = 0.50
     sed_classmap_csv: Path | None = None
     sed_median_k: int = 5
     sed_timeline_jsonl: bool = False
@@ -208,6 +208,9 @@ class PipelineConfig:
         _ensure_numeric_range("batch_timeout_sec", self.batch_timeout_sec, gt=0.0)
         self._validate_positive_int("target_sr", self.target_sr)
         _ensure_numeric_range("ahc_distance_threshold", self.ahc_distance_threshold, ge=0.0)
+        # Prevent extreme over-segmentation from overly strict clustering
+        if self.ahc_distance_threshold < 0.25:
+            self.ahc_distance_threshold = 0.25
 
         # Diarization clustering backend validation
         self.clustering_backend = self._lower_choice(
