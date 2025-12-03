@@ -114,3 +114,43 @@ def test_collapse_respects_true_multi_speaker():
     assert label is None
     assert reason is None
     assert {turn.speaker for turn in turns} == {"Speaker_A", "Speaker_B"}
+
+
+def test_collapse_skipped_when_secondary_ratio_exceeds_threshold():
+    turns = [
+        _turn("Speaker_1", 0.0, 9.5),
+        _turn("Speaker_2", 9.5, 10.0),
+    ]
+
+    collapsed, label, reason = collapse_single_speaker_turns(
+        turns,
+        dominance_threshold=0.8,
+        centroid_threshold=0.2,
+        min_turns=2,
+        secondary_max_ratio=0.04,
+    )
+
+    assert not collapsed
+    assert label is None
+    assert reason is None
+    assert {turn.speaker for turn in turns} == {"Speaker_1", "Speaker_2"}
+
+
+def test_collapse_allowed_when_secondary_ratio_small():
+    turns = [
+        _turn("Speaker_1", 0.0, 9.9),
+        _turn("Speaker_2", 9.9, 10.0),
+    ]
+
+    collapsed, label, reason = collapse_single_speaker_turns(
+        turns,
+        dominance_threshold=0.8,
+        centroid_threshold=0.2,
+        min_turns=2,
+        secondary_max_ratio=0.05,
+    )
+
+    assert collapsed
+    assert label == "Speaker_1"
+    assert reason
+    assert {turn.speaker for turn in turns} == {"Speaker_1"}

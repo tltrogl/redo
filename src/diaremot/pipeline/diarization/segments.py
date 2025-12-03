@@ -13,6 +13,7 @@ def collapse_single_speaker_turns(
     dominance_threshold: float = 0.88,
     centroid_threshold: float = 0.08,
     min_turns: int = 3,
+    secondary_max_ratio: float | None = None,
 ) -> tuple[bool, str | None, str | None]:
     turns = list(turns)
     if not turns or len(turns) <= 1:
@@ -35,6 +36,14 @@ def collapse_single_speaker_turns(
     collapse_reason: str | None = None
     collapse = False
     if dominance_threshold > 0 and dominance_ratio >= dominance_threshold and len(durations) > 1:
+        secondary_ratio = max(0.0, 1.0 - dominance_ratio)
+        guard_limit = (
+            secondary_max_ratio is not None
+            and secondary_max_ratio > 0
+            and secondary_ratio >= secondary_max_ratio
+        )
+        if guard_limit:
+            return False, None, None
         collapse = True
         collapse_reason = f"dominance={dominance_ratio:.2f}"
     if not collapse and centroid_threshold > 0:
