@@ -38,6 +38,9 @@ class DiarizationConfig:
     allow_energy_vad_fallback: bool = True
     energy_gate_db: float = -33.0
     energy_hop_sec: float = 0.01
+    # Split long VAD regions to avoid collapsing an entire recording into one turn.
+    max_vad_region_sec: float = 45.0
+    vad_region_overlap_sec: float = 0.50
     single_speaker_collapse: bool = True
     single_speaker_dominance: float = 0.88
     single_speaker_centroid_threshold: float = 0.20

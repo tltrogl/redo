@@ -200,6 +200,14 @@ class SpeakerDiarizer:
                 "coverage_pct": 0.0,
             }
             return []
+
+        # Split overlong speech regions into smaller chunks to avoid single gigantic turns.
+        speech_regions = self._split_long_regions(
+            speech_regions,
+            max_len=self.config.max_vad_region_sec,
+            overlap=self.config.vad_region_overlap_sec,
+        )
+
         region_count = float(len(speech_regions))
         self._last_vad_stats["speech_regions"] = region_count
         self._last_vad_stats["vad_boundary_flips"] = region_count
@@ -213,7 +221,7 @@ class SpeakerDiarizer:
                 coverage,
             )
         except Exception:
-            pass
+            coverage = 0.0
         self._debug_payload["vad"] = {
             "region_source": speech_region_source,
             "region_count": len(speech_regions),
@@ -861,6 +869,31 @@ class SpeakerDiarizer:
                 if name and similarity >= self.config.auto_assign_cosine:
                     turn["speaker_name"] = name
                     turn["candidate_name"] = name
+
+    def _split_long_regions(
+        self,
+        regions: list[tuple[float, float]],
+        *,
+        max_len: float,
+        overlap: float,
+    ) -> list[tuple[float, float]]:
+        """Split overlong VAD regions into smaller chunks with overlap."""
+        if max_len <= 0.0:
+            return regions
+        out: list[tuple[float, float]] = []
+        for start, end in regions:
+            length = max(0.0, end - start)
+            if length <= max_len:
+                out.append((start, end))
+                continue
+            cursor = start
+            while cursor < end:
+                win_end = min(cursor + max_len, end)
+                out.append((cursor, win_end))
+                if win_end >= end:
+                    break
+                cursor = max(cursor + max_len - overlap, cursor + 0.1)  # ensure progress
+        return out
 
     def _turn_to_dict(self, turn: DiarizedTurn) -> dict[str, Any]:
         return {
