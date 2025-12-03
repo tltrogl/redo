@@ -108,10 +108,10 @@ def core(
         4, help="Bound the number of speakers (None to disable)"
     ),
     vad_backend: str = typer.Option("onnx", help="VAD backend", case_sensitive=False),
-    vad_threshold: float | None = typer.Option(0.32, help="Silero VAD threshold (0-1)"),
-    vad_min_speech_sec: float | None = typer.Option(0.50, help="Minimum speech duration (s)"),
-    vad_min_silence_sec: float | None = typer.Option(0.40, help="Minimum silence duration (s)"),
-    vad_speech_pad_sec: float | None = typer.Option(0.10, help="Pad around detected speech (s)"),
+    vad_threshold: float | None = typer.Option(0.22, help="Silero VAD threshold (0-1)"),
+    vad_min_speech_sec: float | None = typer.Option(0.25, help="Minimum speech duration (s)"),
+    vad_min_silence_sec: float | None = typer.Option(0.25, help="Minimum silence duration (s)"),
+    vad_speech_pad_sec: float | None = typer.Option(0.20, help="Pad around detected speech (s)"),
     asr_cpu_threads: int | None = typer.Option(None, help="CPU threads for ASR backend"),
     async_transcription: bool = typer.Option(
         False,
@@ -126,7 +126,7 @@ def core(
         is_flag=True,
     ),
     diar_use_sed_timeline: bool = typer.Option(
-        True,
+        False,
         "--diar-use-sed",
         help="Use SED timeline segments as diarization split points",
         is_flag=True,
@@ -563,7 +563,7 @@ def run(
     affect_vad_model_dir: Path | None = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
-    beam_size: int = typer.Option(4, help="Beam size for ASR decoding."),
+    beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
     temperature: float = typer.Option(0.0, help="Sampling temperature for ASR."),
     no_speech_threshold: float = typer.Option(0.20, help="No-speech threshold for Whisper."),
     noise_reduction: bool = typer.Option(
@@ -599,7 +599,7 @@ def run(
         is_flag=True,
     ),
     diar_use_sed_timeline: bool = typer.Option(
-        True,
+        False,
         "--diar-use-sed",
         help="When true, use SED timeline events to guide diarization speech splits.",
         is_flag=True,
@@ -610,12 +610,12 @@ def run(
         help="Set automatic chunking of long files (true/false).",
     ),
     chunk_threshold_minutes: float = typer.Option(30.0, help="Chunking activation threshold."),
-    chunk_size_minutes: float = typer.Option(15.0, help="Chunk size in minutes."),
-    chunk_overlap_seconds: float = typer.Option(12.0, help="Overlap between chunks in seconds."),
-    vad_threshold: float = typer.Option(0.32, help="Silero VAD probability threshold."),
-    vad_min_speech_sec: float = typer.Option(0.50, help="Minimum detected speech duration."),
-    vad_min_silence_sec: float = typer.Option(0.40, help="Minimum detected silence duration."),
-    vad_speech_pad_sec: float = typer.Option(0.10, help="Padding added around VAD speech regions."),
+    chunk_size_minutes: float = typer.Option(20.0, help="Chunk size in minutes."),
+    chunk_overlap_seconds: float = typer.Option(30.0, help="Overlap between chunks in seconds."),
+    vad_threshold: float = typer.Option(0.35, help="Silero VAD probability threshold."),
+    vad_min_speech_sec: float = typer.Option(0.8, help="Minimum detected speech duration."),
+    vad_min_silence_sec: float = typer.Option(0.8, help="Minimum detected silence duration."),
+    vad_speech_pad_sec: float = typer.Option(0.1, help="Padding added around VAD speech regions."),
     vad_backend: str = typer.Option("auto", help="Silero VAD backend (auto/torch/onnx)."),
     disable_energy_vad_fallback: bool = typer.Option(
         False,
@@ -914,7 +914,7 @@ def resume(
     affect_vad_model_dir: Path | None = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
-    beam_size: int = typer.Option(4, help="Beam size for ASR decoding."),
+    beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
     temperature: float = typer.Option(0.0, help="Sampling temperature for ASR."),
     no_speech_threshold: float = typer.Option(0.20, help="No-speech threshold for Whisper."),
     noise_reduction: bool = typer.Option(
@@ -929,12 +929,12 @@ def resume(
         help="Set automatic chunking of long files (true/false).",
     ),
     chunk_threshold_minutes: float = typer.Option(30.0, help="Chunking activation threshold."),
-    chunk_size_minutes: float = typer.Option(15.0, help="Chunk size in minutes."),
-    chunk_overlap_seconds: float = typer.Option(12.0, help="Overlap between chunks in seconds."),
-    vad_threshold: float = typer.Option(0.32, help="Silero VAD probability threshold."),
-    vad_min_speech_sec: float = typer.Option(0.50, help="Minimum detected speech duration."),
-    vad_min_silence_sec: float = typer.Option(0.40, help="Minimum detected silence duration."),
-    vad_speech_pad_sec: float = typer.Option(0.10, help="Padding added around VAD speech regions."),
+    chunk_size_minutes: float = typer.Option(20.0, help="Chunk size in minutes."),
+    chunk_overlap_seconds: float = typer.Option(30.0, help="Overlap between chunks in seconds."),
+    vad_threshold: float = typer.Option(0.35, help="Silero VAD probability threshold."),
+    vad_min_speech_sec: float = typer.Option(0.8, help="Minimum detected speech duration."),
+    vad_min_silence_sec: float = typer.Option(0.8, help="Minimum detected silence duration."),
+    vad_speech_pad_sec: float = typer.Option(0.1, help="Padding added around VAD speech regions."),
     vad_backend: str = typer.Option("auto", help="Silero VAD backend (auto/torch/onnx)."),
     disable_energy_vad_fallback: bool = typer.Option(
         False,
@@ -971,7 +971,7 @@ def resume(
         is_flag=True,
     ),
     diar_use_sed_timeline: bool = typer.Option(
-        True,
+        False,
         "--diar-use-sed",
         help="Use SED timeline segments as diarization split points",
         is_flag=True,
