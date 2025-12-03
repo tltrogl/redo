@@ -183,6 +183,15 @@ class ModelManager:
         failure_notes: list[str] = []
         prefer_local = True if config.get("local_first", True) else False
 
+        # Allow explicit override for distil Whisper model locations.
+        # If the user passes the Systran distil identifier but stores the
+        # converted CTranslate2 weights under a custom directory, they can
+        # set DIAREMOT_DISTIL_WHISPER_DIR to that path and we will prefer it.
+        if isinstance(model_size, str) and "faster-distil-whisper-large-v3" in model_size:
+            override = os.getenv("DIAREMOT_DISTIL_WHISPER_DIR")
+            if override:
+                model_size = override
+
         is_local_path = False
         try:
             if isinstance(model_size, str) and Path(str(model_size)).exists():
@@ -223,6 +232,12 @@ class ModelManager:
                         Path("ct2") / model_size,
                     ]
                 )
+                # Special-case Systran distil: also probe the conventional
+                # "<model_root>/faster-whisper/distil" directory so users
+                # can keep weights under DIAREMOT_MODEL_DIR without using
+                # the full repo id as a folder name.
+                if "faster-distil-whisper-large-v3" in model_size:
+                    rel_candidates.append(Path("faster-whisper") / "distil")
             for root in iter_model_roots():
                 for rel in rel_candidates:
                     candidate = Path(root) / rel
@@ -268,6 +283,11 @@ class ModelManager:
                     )
 
         fallback_models = ["large-v3", "large-v2", "medium", "small", "base", "tiny"]
+        # Allow disabling the fallback ladder entirely. When set, failures
+        # to load the requested model are surfaced instead of silently
+        # switching to a different Whisper size.
+        if os.getenv("DIAREMOT_DISABLE_WHISPER_FALLBACK", "").strip() == "1":
+            fallback_models = []
         for fallback in fallback_models:
             for local_only in order:
                 try:
