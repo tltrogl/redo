@@ -350,7 +350,13 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                             )
                         except Exception:
                             pass
-            turns = pipeline.diar.diarize_audio(state.y, state.sr, speech_regions=sed_regions) or []
+            region_hint = "sed_timeline" if sed_regions else None
+            turns = (
+                pipeline.diar.diarize_audio(
+                    state.y, state.sr, speech_regions=sed_regions, region_source=region_hint
+                )
+                or []
+            )
             # If SED-driven splitting was requested but no timeline was available, log it
             if use_sed_for_split and not state.sed_info:
                 try:
@@ -455,6 +461,49 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 )
             except Exception:
                 pass
+
+        debug_payload: dict[str, Any] | None = None
+        debug_getter = getattr(pipeline.diar, "get_debug_payload", None)
+        if callable(debug_getter):
+            try:
+                debug_payload = debug_getter() or {}
+            except Exception as exc:
+                debug_payload = None
+                try:
+                    pipeline.corelog.stage(
+                        "diarize",
+                        "debug",
+                        message="diarize debug payload unavailable",
+                        diagnostics={"error": str(exc)},
+                    )
+                except Exception:
+                    pass
+        if debug_payload:
+            try:
+                diag_dir = state.out_dir / "diagnostics"
+                diag_dir.mkdir(parents=True, exist_ok=True)
+                diag_path = diag_dir / "diarization_debug.json"
+                atomic_write_json(diag_path, debug_payload)
+                summary = {
+                    "debug_artifact": str(diag_path),
+                    "speaker_count": debug_payload.get("turns", {}).get("speaker_count"),
+                }
+                pipeline.corelog.stage(
+                    "diarize",
+                    "progress",
+                    message="Diarization debug artifact written",
+                    diagnostics=summary,
+                )
+            except Exception as exc:  # pragma: no cover - diagnostics best-effort
+                try:
+                    pipeline.corelog.stage(
+                        "diarize",
+                        "debug",
+                        message="Failed to persist diarization debug artifact",
+                        diagnostics={"error": str(exc)},
+                    )
+                except Exception:
+                    pass
 
         if state.cache_dir:
             try:

@@ -103,6 +103,7 @@ class SpeakerDiarizer:
             "speech_regions": 0.0,
             "analyzed_duration_sec": 0.0,
         }
+        self._debug_payload: dict[str, Any] = {}
 
     def get_segment_embeddings(self) -> list[dict[str, Any]]:
         return [
@@ -116,14 +117,37 @@ class SpeakerDiarizer:
 
         return dict(self._last_vad_stats)
 
+    def get_debug_payload(self) -> dict[str, Any]:
+        """Return structured debugging information about the most recent diarization run."""
+
+        payload = dict(self._debug_payload)
+        payload["vad_stats"] = self.get_vad_statistics()
+        return payload
+
     def diarize_audio(
-        self, wav: np.ndarray, sr: int, speech_regions: list[tuple[float, float]] | None = None
+        self,
+        wav: np.ndarray,
+        sr: int,
+        speech_regions: list[tuple[float, float]] | None = None,
+        *,
+        region_source: str | None = None,
     ) -> list[dict[str, Any]]:
         self._last_turns = []
         self._last_vad_stats = {
             "vad_boundary_flips": 0.0,
             "speech_regions": 0.0,
             "analyzed_duration_sec": 0.0,
+        }
+        self._debug_payload = {
+            "config": {
+                "speaker_limit": self.config.speaker_limit,
+                "ahc_distance_threshold": self.config.ahc_distance_threshold,
+                "ahc_linkage": self.config.ahc_linkage,
+                "vad_threshold": self.config.vad_threshold,
+                "vad_min_speech_sec": self.config.vad_min_speech_sec,
+                "vad_min_silence_sec": self.config.vad_min_silence_sec,
+                "single_speaker_collapse": self.config.single_speaker_collapse,
+            }
         }
         if wav is None or wav.size == 0:
             return []
@@ -136,6 +160,14 @@ class SpeakerDiarizer:
             wav = wav.astype(np.float32)
         duration_sec = float(len(wav)) / float(sr or 1)
         self._last_vad_stats["analyzed_duration_sec"] = duration_sec
+        speech_region_source = region_source or (
+            "external" if speech_regions is not None else "silero_vad"
+        )
+        self._debug_payload["input"] = {
+            "duration_sec": duration_sec,
+            "sample_rate": sr,
+            "speech_region_source": speech_region_source,
+        }
         try:
             logger.info(
                 "[diarize] processing %.1f minutes of audio (sr=%d)", duration_sec / 60.0, sr
@@ -156,10 +188,17 @@ class SpeakerDiarizer:
             speech_regions = energy_vad_fallback(
                 wav, sr, self.config.energy_gate_db, self.config.energy_hop_sec
             )
+            speech_region_source = "energy_vad"
         if not speech_regions:
             logger.warning("No speech detected by VAD")
             self._last_vad_stats["vad_boundary_flips"] = 0.0
             self._last_vad_stats["speech_regions"] = 0.0
+            self._debug_payload["vad"] = {
+                "region_source": speech_region_source,
+                "region_count": 0,
+                "speech_total_sec": 0.0,
+                "coverage_pct": 0.0,
+            }
             return []
         region_count = float(len(speech_regions))
         self._last_vad_stats["speech_regions"] = region_count
@@ -175,7 +214,25 @@ class SpeakerDiarizer:
             )
         except Exception:
             pass
+        self._debug_payload["vad"] = {
+            "region_source": speech_region_source,
+            "region_count": len(speech_regions),
+            "speech_total_sec": round(speech_total, 3),
+            "coverage_pct": round(coverage, 2) if duration_sec else 0.0,
+        }
         windows = self._extract_embedding_windows(wav, sr, speech_regions)
+        window_lengths = [max(0.0, w["end"] - w["start"]) for w in windows]
+        self._debug_payload["embeddings"] = {
+            "window_count": len(windows),
+            "speech_region_count": len(speech_regions),
+            "min_window_sec": round(min(window_lengths), 3) if window_lengths else 0.0,
+            "max_window_sec": round(max(window_lengths), 3) if window_lengths else 0.0,
+            "avg_window_sec": round(
+                sum(window_lengths) / len(window_lengths), 3
+            )
+            if window_lengths
+            else 0.0,
+        }
         if len(windows) < 2:
             turn = {
                 "start": speech_regions[0][0],
@@ -183,6 +240,18 @@ class SpeakerDiarizer:
                 "speaker": "Speaker_1",
                 "speaker_name": "Speaker_1",
                 "embedding": windows[0]["embedding"] if windows else None,
+            }
+            duration = max(turn["end"] - turn["start"], 0.0)
+            self._debug_payload["turns"] = {
+                "speaker_count": 1,
+                "turn_count": 1,
+                "total_duration_sec": round(duration, 3),
+                "per_speaker": {
+                    "Speaker_1": {
+                        "duration_sec": round(duration, 3),
+                        "turns": 1,
+                    }
+                },
             }
             return [turn]
         embeddings = [w["embedding"] for w in windows if w["embedding"] is not None]
@@ -287,6 +356,23 @@ class SpeakerDiarizer:
         except Exception as exc:
             logger.error("Clustering failed: %s", exc)
             labels = np.zeros(len(embeddings), dtype=int)
+        label_hist: dict[str, int] = {}
+        if labels is not None and len(labels) > 0:
+            unique, counts = np.unique(labels, return_counts=True)
+            for label_id, count in zip(unique, counts):
+                label_hist[f"Speaker_{int(label_id) + 1}"] = int(count)
+        self._debug_payload["clustering"] = {
+            "backend": (self.config.clustering_backend or "ahc"),
+            "embeddings": len(embeddings),
+            "speaker_limit": self.config.speaker_limit,
+            "distance_threshold": (
+                float(self.config.ahc_distance_threshold)
+                if self.config.ahc_distance_threshold is not None
+                else None
+            ),
+            "clusters_detected": len(label_hist),
+            "label_histogram": label_hist,
+        }
         for window, label in zip(windows, labels, strict=False):
             window["speaker"] = f"Speaker_{label + 1}"
         turns = self._build_continuous_segments(windows, speech_regions)
@@ -314,6 +400,16 @@ class SpeakerDiarizer:
                     turn.speaker = canonical
                     turn.speaker_name = canonical
                 turns = self._merge_short_gaps(turns)
+                payload = {"forced": True, "canonical": canonical}
+                if stats:
+                    payload.update(
+                        {
+                            "silhouette": stats.get("silhouette"),
+                            "dominance": stats.get("dominance"),
+                            "clusters": stats.get("clusters"),
+                        }
+                    )
+                self._debug_payload["single_speaker_force"] = payload
         if self.config.single_speaker_collapse:
             collapsed, canonical, reason = collapse_single_speaker_turns(
                 turns,
@@ -329,9 +425,29 @@ class SpeakerDiarizer:
                     msg_reason,
                 )
                 turns = self._merge_short_gaps(turns)
+                self._debug_payload["single_speaker_collapse"] = {
+                    "collapsed": True,
+                    "canonical": canonical,
+                    "reason": reason,
+                }
         turns = self._merge_short_gaps(turns)
         turns = self._assign_speaker_names(turns)
         self._last_turns = turns
+        speaker_summary: dict[str, dict[str, float | int]] = {}
+        total_turn_duration = 0.0
+        for turn in turns:
+            speaker_id = turn.speaker or "Speaker_1"
+            duration = max(float(turn.end) - float(turn.start), 0.0)
+            total_turn_duration += duration
+            entry = speaker_summary.setdefault(speaker_id, {"duration_sec": 0.0, "turns": 0})
+            entry["duration_sec"] = round(float(entry["duration_sec"]) + duration, 3)
+            entry["turns"] = int(entry["turns"]) + 1
+        self._debug_payload["turns"] = {
+            "speaker_count": len(speaker_summary),
+            "turn_count": len(turns),
+            "total_duration_sec": round(total_turn_duration, 3),
+            "per_speaker": speaker_summary,
+        }
         return [self._turn_to_dict(t) for t in turns]
 
     def _extract_embedding_windows(

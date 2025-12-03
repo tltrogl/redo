@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -38,9 +39,15 @@ class _StubCheckpoints:
 
 
 class _StubDiarizer:
-    def __init__(self, turns: list[dict[str, float]], stats: dict[str, float]) -> None:
+    def __init__(
+        self,
+        turns: list[dict[str, float]],
+        stats: dict[str, float],
+        debug_payload: dict[str, Any] | None = None,
+    ) -> None:
         self._turns = turns
         self._stats = stats
+        self._debug_payload = debug_payload
         self.calls = 0
 
     def diarize_audio(self, *_args, **_kwargs) -> list[dict[str, float]]:
@@ -49,6 +56,9 @@ class _StubDiarizer:
 
     def get_vad_statistics(self) -> dict[str, float]:
         return dict(self._stats)
+
+    def get_debug_payload(self) -> dict[str, Any] | None:
+        return self._debug_payload
 
 
 class _StubPipeline:
@@ -107,3 +117,19 @@ def test_diar_stage_reads_cached_vad_metric(tmp_path: Path) -> None:
     assert pipeline.diar.calls == 0
     assert state.turns == turns
     assert state.vad_unstable is False
+
+
+def test_diar_stage_persists_debug_payload(tmp_path: Path) -> None:
+    turns = [{"start": 0.0, "end": 1.0, "speaker": "Speaker_1"}]
+    stats = {"vad_boundary_flips": 10.0, "speech_regions": 2.0}
+    debug_payload = {"turns": {"speaker_count": 1, "turn_count": 1}}
+    pipeline = _StubPipeline(_StubDiarizer(turns, stats, debug_payload=debug_payload))
+    state = _build_state(tmp_path)
+    guard = _StubGuard()
+
+    run_diarize(pipeline, state, guard)
+
+    diag_path = tmp_path / "diagnostics" / "diarization_debug.json"
+    assert diag_path.exists()
+    saved = json.loads(diag_path.read_text(encoding="utf-8"))
+    assert saved["turns"]["speaker_count"] == 1

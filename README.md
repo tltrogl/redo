@@ -1308,3 +1308,4 @@ Special thanks to the open-source ML community.
 
 [![Open in Cloud Shell](https://gstatic.com/cloudssh/images/open-btn.svg)](https://shell.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https://github.com/tltrogl/redo&cloudshell_git_branch=main&cloudshell_workspace=.&cloudshell_open_in_editor=README.md&show=ide%2Cterminal)
 
+\n### Diarization debug artifact\nEvery pipeline run now emits \diagnostics/diarization_debug.json\ inside the selected output directory.\nThe JSON contains VAD coverage, embedding window counts, clustering histograms, and any\nsingle-speaker collapse reasons so you can diagnose diarization problems without\nre-running long jobs.\n
