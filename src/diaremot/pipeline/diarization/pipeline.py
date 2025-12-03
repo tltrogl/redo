@@ -124,6 +124,42 @@ class SpeakerDiarizer:
         payload["vad_stats"] = self.get_vad_statistics()
         return payload
 
+    @staticmethod
+    def _summarize_turns(turns: list[DiarizedTurn]) -> dict[str, Any]:
+        summary: dict[str, Any] = {
+            "speaker_count": 0,
+            "turn_count": len(turns),
+            "total_duration_sec": 0.0,
+            "per_speaker": {},
+        }
+        if not turns:
+            return summary
+        per_speaker: dict[str, dict[str, float | int]] = {}
+        total_duration = 0.0
+        for turn in turns:
+            speaker_id = turn.speaker or "Speaker_1"
+            duration = max(float(turn.end) - float(turn.start), 0.0)
+            entry = per_speaker.setdefault(
+                speaker_id,
+                {
+                    "duration_sec": 0.0,
+                    "turns": 0,
+                },
+            )
+            entry["duration_sec"] = float(entry["duration_sec"]) + duration
+            entry["turns"] = int(entry["turns"]) + 1
+            total_duration += duration
+        summary["speaker_count"] = len(per_speaker)
+        summary["total_duration_sec"] = round(total_duration, 3)
+        summary["per_speaker"] = {
+            speaker: {
+                "duration_sec": round(float(stats["duration_sec"]), 3),
+                "turns": int(stats["turns"]),
+            }
+            for speaker, stats in per_speaker.items()
+        }
+        return summary
+
     def diarize_audio(
         self,
         wav: np.ndarray,
@@ -267,6 +303,18 @@ class SpeakerDiarizer:
             logger.warning("No valid embeddings extracted")
             return []
         try:
+            norms = [float(np.linalg.norm(vec)) for vec in embeddings if vec is not None]
+            if norms:
+                self._debug_payload.setdefault("embeddings", {}).update(
+                    {
+                        "norm_min": round(min(norms), 6),
+                        "norm_max": round(max(norms), 6),
+                        "norm_mean": round(sum(norms) / len(norms), 6),
+                    }
+                )
+        except Exception:
+            pass
+        try:
             X = np.vstack(embeddings)
             n_embeddings = int(X.shape[0])
             progress_interval = float(
@@ -384,9 +432,11 @@ class SpeakerDiarizer:
         for window, label in zip(windows, labels, strict=False):
             window["speaker"] = f"Speaker_{label + 1}"
         turns = self._build_continuous_segments(windows, speech_regions)
+        self._debug_payload["turns_initial"] = self._summarize_turns(turns)
         turns = self._merge_short_gaps(turns)
         turns = self._enforce_min_turn_duration(turns)
         turns = self._merge_similar_speakers(turns)
+        self._debug_payload["turns_post_similarity_merge"] = self._summarize_turns(turns)
         should_collapse_single = bool(self.config.single_speaker_collapse)
         # Heuristic: for very long files where VAD reports a single
         # continuous region covering almost the entire recording, avoid
@@ -445,6 +495,7 @@ class SpeakerDiarizer:
                     )
                 self._debug_payload["single_speaker_force"] = payload
         if should_collapse_single:
+            self._debug_payload["turns_pre_collapse"] = self._summarize_turns(turns)
             collapsed, canonical, reason = collapse_single_speaker_turns(
                 turns,
                 dominance_threshold=self.config.single_speaker_dominance,
@@ -468,21 +519,7 @@ class SpeakerDiarizer:
         turns = self._merge_short_gaps(turns)
         turns = self._assign_speaker_names(turns)
         self._last_turns = turns
-        speaker_summary: dict[str, dict[str, float | int]] = {}
-        total_turn_duration = 0.0
-        for turn in turns:
-            speaker_id = turn.speaker or "Speaker_1"
-            duration = max(float(turn.end) - float(turn.start), 0.0)
-            total_turn_duration += duration
-            entry = speaker_summary.setdefault(speaker_id, {"duration_sec": 0.0, "turns": 0})
-            entry["duration_sec"] = round(float(entry["duration_sec"]) + duration, 3)
-            entry["turns"] = int(entry["turns"]) + 1
-        self._debug_payload["turns"] = {
-            "speaker_count": len(speaker_summary),
-            "turn_count": len(turns),
-            "total_duration_sec": round(total_turn_duration, 3),
-            "per_speaker": speaker_summary,
-        }
+        self._debug_payload["turns"] = self._summarize_turns(turns)
         return [self._turn_to_dict(t) for t in turns]
 
     def _extract_embedding_windows(
