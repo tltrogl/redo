@@ -379,7 +379,33 @@ class SpeakerDiarizer:
         turns = self._merge_short_gaps(turns)
         turns = self._enforce_min_turn_duration(turns)
         turns = self._merge_similar_speakers(turns)
-        if self.config.single_speaker_collapse:
+        should_collapse_single = bool(self.config.single_speaker_collapse)
+        # Heuristic: for very long files where VAD reports a single
+        # continuous region covering almost the entire recording, avoid
+        # collapsing down to one speaker even if a dominant cluster is
+        # present. In practice this preserves useful segmentation for
+        # court-style recordings instead of merging everything.
+        vad_info = self._debug_payload.get("vad") or {}
+        try:
+            coverage_pct = float(vad_info.get("coverage_pct", 0.0) or 0.0)
+            region_count_int = int(vad_info.get("region_count", len(speech_regions)))
+        except Exception:
+            coverage_pct = 0.0
+            region_count_int = len(speech_regions)
+        if (
+            should_collapse_single
+            and duration_sec >= 3600.0
+            and region_count_int <= 1
+            and coverage_pct >= 98.0
+        ):
+            should_collapse_single = False
+            self._debug_payload["single_speaker_collapse_guard"] = {
+                "reason": "disabled_for_long_full_coverage_file",
+                "duration_sec": duration_sec,
+                "region_count": region_count_int,
+                "coverage_pct": coverage_pct,
+            }
+        if should_collapse_single:
             forced, canonical, stats = self._maybe_force_single_speaker(turns)
             if forced and canonical:
                 details = []
@@ -410,7 +436,7 @@ class SpeakerDiarizer:
                         }
                     )
                 self._debug_payload["single_speaker_force"] = payload
-        if self.config.single_speaker_collapse:
+        if should_collapse_single:
             collapsed, canonical, reason = collapse_single_speaker_turns(
                 turns,
                 dominance_threshold=self.config.single_speaker_dominance,
