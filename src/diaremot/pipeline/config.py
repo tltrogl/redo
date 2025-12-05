@@ -57,6 +57,9 @@ class PipelineConfig:
     clustering_backend: str = "ahc"
     min_speakers: int | None = None
     max_speakers: int | None = None
+    single_speaker_secondary_min_duration_sec: float | None = (
+        DiarizationConfig.single_speaker_secondary_min_duration_sec
+    )
     whisper_model: str = "tiny.en"
     asr_backend: str = "faster"
     compute_type: str = "int8"
@@ -226,6 +229,12 @@ class PipelineConfig:
             and int(self.min_speakers) > int(self.max_speakers)
         ):
             raise ValueError("min_speakers must be <= max_speakers")
+        if self.single_speaker_secondary_min_duration_sec is not None:
+            _ensure_numeric_range(
+                "single_speaker_secondary_min_duration_sec",
+                self.single_speaker_secondary_min_duration_sec,
+                ge=0.0,
+            )
 
         if self.chunk_size_minutes * 60.0 <= self.chunk_overlap_seconds:
             raise ValueError("chunk_overlap_seconds must be smaller than chunk_size_minutes * 60")

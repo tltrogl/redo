@@ -14,6 +14,7 @@ def collapse_single_speaker_turns(
     centroid_threshold: float = 0.08,
     min_turns: int = 3,
     secondary_max_ratio: float | None = None,
+    secondary_min_duration_sec: float | None = None,
 ) -> tuple[bool, str | None, str | None]:
     turns = list(turns)
     if not turns or len(turns) <= 1:
@@ -79,6 +80,12 @@ def collapse_single_speaker_turns(
                 collapse_reason = f"max_centroid_dist={max_distance:.3f}"
     if not collapse:
         return False, None, None
+    if secondary_min_duration_sec is not None and secondary_min_duration_sec > 0:
+        for speaker, duration in durations.items():
+            if speaker == dominant_speaker:
+                continue
+            if duration >= secondary_min_duration_sec:
+                return False, None, None
     canonical = dominant_speaker or "Speaker_1"
     if not canonical or canonical.lower() in {"", "none", "null"}:
         canonical = "Speaker_1"

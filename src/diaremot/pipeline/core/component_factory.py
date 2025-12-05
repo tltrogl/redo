@@ -129,6 +129,10 @@ class ComponentFactoryMixin:
                 energy_hop_sec=cfg.get(
                     "energy_hop_sec", _speaker_diarization.DiarizationConfig.energy_hop_sec
                 ),
+                single_speaker_secondary_min_duration_sec=cfg.get(
+                    "single_speaker_secondary_min_duration_sec",
+                    _speaker_diarization.DiarizationConfig.single_speaker_secondary_min_duration_sec,
+                ),
             )
 
             self.diar = _speaker_diarization.SpeakerDiarizer(self.diar_conf)

@@ -502,6 +502,7 @@ class SpeakerDiarizer:
                 centroid_threshold=self.config.single_speaker_centroid_threshold,
                 min_turns=self.config.single_speaker_min_turns,
                 secondary_max_ratio=self.config.single_speaker_secondary_max_ratio,
+                secondary_min_duration_sec=self.config.single_speaker_secondary_min_duration_sec,
             )
             if collapsed:
                 msg_reason = f" ({reason})" if reason else ""

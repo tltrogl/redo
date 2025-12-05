@@ -61,6 +61,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Clustering backend for diarization (default: ahc)",
     )
     parser.add_argument(
+        "--single-speaker-secondary-min-duration-sec",
+        type=float,
+        default=DiarizationConfig.single_speaker_secondary_min_duration_sec,
+        help="Minimum duration for any secondary speaker before the single-speaker collapse runs",
+    )
+    parser.add_argument(
         "--whisper-model",
         default=str(DEFAULT_WHISPER_MODEL),
         help="Whisper model identifier or path",
@@ -305,6 +311,7 @@ def _args_to_config(args: argparse.Namespace, *, ignore_tx_cache: bool) -> dict[
         "segment_timeout_sec": float(args.asr_segment_timeout),
         "batch_timeout_sec": float(args.asr_batch_timeout),
         "cpu_diarizer": bool(args.cpu_diarizer),
+        "single_speaker_secondary_min_duration_sec": args.single_speaker_secondary_min_duration_sec,
     }
 
 
