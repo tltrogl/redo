@@ -65,7 +65,7 @@ Source: `PIPELINE_STAGES` registry.【F:src/diaremot/pipeline/stages/__init__.py
 
 ## 7. Affect and Assembly
 
-- **What it does:** For each transcript segment, gathers audio slices, paralinguistic features, and affect model outputs (VAD, SER8, text emotions, intent), adds SED-derived context, and produces the 39-column output schema rows.【F:src/diaremot/pipeline/stages/affect.py†L179-L344】
+- **What it does:** For each transcript segment, gathers audio slices, paralinguistic features, and affect model outputs (VAD, SER8, text emotions, intent), adds SED-derived context, and produces the full 53-column output schema described in `SEGMENT_COLUMNS`.【F:src/diaremot/pipeline/stages/affect.py†L179-L344】【F:src/diaremot/pipeline/outputs.py†L14-L68】
 - **Why:** Consolidates multimodal analysis so later stages can emit CSVs and summaries without duplicating expensive inference or data munging.【F:src/diaremot/pipeline/stages/affect.py†L206-L322】
 - **How it is used:**
   - Writes enriched segment dictionaries to `state.segments_final`, tagging each with affect payloads, noise scores, SED overlaps, and paralinguistic statistics.【F:src/diaremot/pipeline/stages/affect.py†L206-L344】

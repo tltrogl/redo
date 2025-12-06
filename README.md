@@ -95,7 +95,7 @@ Audio File (WAV/MP3/M4A)
 [2] preprocess → 16kHz mono, -20 LUFS target (denoise optional), auto-chunk
     ↓ {y, sr, duration_s, health, audio_sha16}
     ↓
-[3] background_sed → PANNs CNN14 (global + timeline if noisy)
+[3] background_sed → PANNs CNN14 (global tags + timeline by default; skips only when disabled or tagger unavailable)
     ↓ {sed_info: top labels, dominant_label, noise_score, timeline?}
     ↓
 [4] diarize → Silero VAD + ECAPA embeddings + AHC clustering (single-speaker silhouette guard)
