@@ -457,6 +457,8 @@ class SpeakerDiarizer:
                 "embeddings": n_embeddings,
             }
             spectral_info: dict[str, Any] = {}
+            label_hist: dict[str, int] = {}
+            dominant_ratio = 1.0
             if backend in {"auto", "spectral"}:
                 spectral_labels, spectral_info = self._spectral_cluster_embeddings(X)
                 clustering_debug["spectral"] = spectral_info
@@ -496,13 +498,16 @@ class SpeakerDiarizer:
                 )
                 clustering_debug["agglomerative"] = aggl_info
                 clustering_debug.setdefault("final_backend", "ahc")
-            label_hist: dict[str, int] = {}
             if labels is not None and len(labels) > 0:
                 unique, counts = np.unique(labels, return_counts=True)
                 for label_id, count in zip(unique, counts):
                     label_hist[f"Speaker_{int(label_id) + 1}"] = int(count)
+            total_labels = float(sum(label_hist.values()))
+            if total_labels > 0:
+                dominant_ratio = max(label_hist.values()) / total_labels
             clustering_debug["clusters_detected"] = len(label_hist)
             clustering_debug["label_histogram"] = label_hist
+            clustering_debug["dominant_ratio"] = round(dominant_ratio, 4)
             clustering_debug["spectral"] = spectral_info or clustering_debug.get("spectral")
             self._debug_payload["clustering"] = clustering_debug
         except Exception as exc:
@@ -517,6 +522,7 @@ class SpeakerDiarizer:
         turns = self._merge_similar_speakers(turns)
         self._debug_payload["turns_post_similarity_merge"] = self._summarize_turns(turns)
         should_collapse_single = bool(self.config.single_speaker_collapse)
+        collapse_guard_payload: dict[str, Any] = {}
         # Heuristic: for very long files where VAD reports a single
         # continuous region covering almost the entire recording, avoid
         # collapsing down to one speaker even if a dominant cluster is
@@ -536,12 +542,53 @@ class SpeakerDiarizer:
             and coverage_pct >= 98.0
         ):
             should_collapse_single = False
-            self._debug_payload["single_speaker_collapse_guard"] = {
-                "reason": "disabled_for_long_full_coverage_file",
-                "duration_sec": duration_sec,
-                "region_count": region_count_int,
-                "coverage_pct": coverage_pct,
-            }
+            collapse_guard_payload.setdefault("reasons", []).append(
+                {
+                    "reason": "disabled_for_long_full_coverage_file",
+                    "duration_sec": duration_sec,
+                    "region_count": region_count_int,
+                    "coverage_pct": coverage_pct,
+                }
+            )
+        spectral_k = None
+        spectral_silhouette = None
+        try:
+            spectral_k = int(spectral_info.get("best_k")) if spectral_info.get("best_k") else None
+        except Exception:
+            spectral_k = None
+        try:
+            raw_sil = spectral_info.get("silhouette")
+            spectral_silhouette = float(raw_sil) if raw_sil is not None else None
+        except Exception:
+            spectral_silhouette = None
+        min_guard_silhouette = max(
+            0.05,
+            float(getattr(self.config, "spectral_silhouette_floor", 0.0) or 0.0),
+        )
+        if should_collapse_single and len(label_hist) >= 2:
+            if spectral_k and spectral_k >= 2 and (
+                spectral_silhouette is not None and spectral_silhouette >= min_guard_silhouette
+            ):
+                should_collapse_single = False
+                collapse_guard_payload.setdefault("reasons", []).append(
+                    {
+                        "reason": "guarded_by_spectral_clusters",
+                        "spectral_k": spectral_k,
+                        "spectral_silhouette": spectral_silhouette,
+                        "min_guard_silhouette": min_guard_silhouette,
+                    }
+                )
+            elif dominant_ratio <= max(0.92, float(self.config.single_speaker_dominance) + 0.02):
+                should_collapse_single = False
+                collapse_guard_payload.setdefault("reasons", []).append(
+                    {
+                        "reason": "guarded_by_cluster_balance",
+                        "dominant_ratio": round(dominant_ratio, 4),
+                        "clusters_detected": len(label_hist),
+                    }
+                )
+        if collapse_guard_payload:
+            self._debug_payload["single_speaker_collapse_guard"] = collapse_guard_payload
         if should_collapse_single:
             forced, canonical, stats = self._maybe_force_single_speaker(turns)
             if forced and canonical:
