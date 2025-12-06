@@ -511,7 +511,10 @@ def run(
         0.15, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
-    clustering_backend: str = typer.Option("ahc", help="Clustering backend: 'ahc' or 'spectral'."),
+    clustering_backend: str = typer.Option(
+        "auto",
+        help="Clustering backend: 'auto' (spectral→AHC), 'ahc', or 'spectral'.",
+    ),
     min_speakers: int | None = typer.Option(
         None, help="Minimum speakers (for spectral clustering)."
     ),

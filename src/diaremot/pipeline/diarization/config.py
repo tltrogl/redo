@@ -21,10 +21,15 @@ class DiarizationConfig:
     ahc_linkage: str = "average"
     ahc_distance_threshold: float = 0.45
     speaker_limit: int | None = None
-    clustering_backend: str = "ahc"
+    clustering_backend: str = "auto"
     clustering_progress_interval_sec: float = 60.0
     min_speakers: int | None = None
     max_speakers: int | None = None
+    spectral_p_percentile: float = 0.90
+    spectral_min_speakers: int | None = 2
+    spectral_max_speakers: int | None = 6
+    spectral_silhouette_floor: float = 0.10
+    spectral_refine_with_ahc: bool = True
     collar_sec: float = 0.25
     min_turn_sec: float = 1.50
     max_gap_to_merge_sec: float = 1.00

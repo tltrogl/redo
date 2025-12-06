@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import scipy.signal
 
-from .clustering import SpectralClusterer, build_agglo
+from .clustering import build_agglo
 from .config import DiarizationConfig, DiarizedTurn
 from .embeddings import ECAPAEncoder
 from .logger import logger
@@ -159,6 +159,136 @@ class SpeakerDiarizer:
             for speaker, stats in per_speaker.items()
         }
         return summary
+
+    def _build_affinity_matrix(self, X: np.ndarray) -> np.ndarray:
+        from sklearn.metrics.pairwise import cosine_similarity
+
+        affinity = cosine_similarity(X)
+        np.fill_diagonal(affinity, 1.0)
+        percentile = float(getattr(self.config, "spectral_p_percentile", 0.0) or 0.0)
+        if 0.0 < percentile < 1.0:
+            thresholds = np.quantile(affinity, percentile, axis=1)
+            affinity = np.where(affinity >= thresholds[:, None], affinity, 0.0)
+        affinity = np.maximum(affinity, affinity.T)
+        affinity = np.clip((affinity + 1.0) / 2.0, 0.0, 1.0)
+        return affinity
+
+    def _spectral_cluster_embeddings(
+        self, X: np.ndarray
+    ) -> tuple[np.ndarray | None, dict[str, Any]]:
+        stats: dict[str, Any] = {
+            "percentile": float(getattr(self.config, "spectral_p_percentile", 0.0) or 0.0)
+        }
+        try:
+            from sklearn.cluster import SpectralClustering
+            from sklearn.metrics import silhouette_score
+        except Exception as exc:  # pragma: no cover - defensive import guard
+            stats["error"] = f"spectral_unavailable: {exc}"
+            return None, stats
+        n_embeddings = int(X.shape[0])
+        if n_embeddings < 2:
+            stats["error"] = "insufficient_embeddings"
+            return None, stats
+        affinity = self._build_affinity_matrix(X)
+        if self.config.speaker_limit:
+            candidates = [int(self.config.speaker_limit)]
+        else:
+            min_c = self.config.min_speakers or getattr(self.config, "spectral_min_speakers", 2)
+            max_c = self.config.max_speakers or getattr(
+                self.config, "spectral_max_speakers", min(n_embeddings, 6)
+            )
+            min_c = max(2, int(min_c or 2))
+            max_c = min(int(max_c or n_embeddings), n_embeddings)
+            candidates = list(range(min_c, max_c + 1))
+        candidates = [c for c in candidates if c > 1 and c <= n_embeddings]
+        stats["candidates"] = candidates
+        best_labels: np.ndarray | None = None
+        best_score = -1.0
+        best_k = None
+        errors: list[str] = []
+        for k in candidates:
+            try:
+                clusterer = SpectralClustering(
+                    n_clusters=int(k),
+                    affinity="precomputed",
+                    assign_labels="kmeans",
+                    random_state=0,
+                    n_init=10,
+                )
+                labels = clusterer.fit_predict(affinity)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                errors.append(f"k={k}: {exc}")
+                continue
+            unique_labels = len(set(labels))
+            score = -1.0
+            if unique_labels > 1:
+                try:
+                    score = float(silhouette_score(X, labels, metric="cosine"))
+                except Exception as exc:  # pragma: no cover - diagnostic guardrail
+                    errors.append(f"silhouette k={k}: {exc}")
+            if score > best_score:
+                best_score = score
+                best_labels = labels
+                best_k = k
+        stats.update({"best_k": best_k, "silhouette": best_score, "errors": errors})
+        floor = float(getattr(self.config, "spectral_silhouette_floor", 0.0) or 0.0)
+        if best_labels is None:
+            return None, stats
+        if floor > 0.0 and best_score < floor:
+            stats["rejected_below_floor"] = True
+            return None, stats
+        return best_labels, stats
+
+    def _run_agglomerative_clustering(
+        self,
+        X: np.ndarray,
+        *,
+        n_clusters: int | None,
+        distance_threshold: float | None,
+        progress_interval: float,
+    ) -> tuple[np.ndarray, dict[str, Any]]:
+        n_embeddings = int(X.shape[0])
+        clusterer = build_agglo(
+            distance_threshold=distance_threshold,
+            n_clusters=n_clusters,
+            linkage=self.config.ahc_linkage,
+            metric="cosine",
+        )
+
+        def _agglo_fit() -> np.ndarray:
+            return clusterer.fit_predict(X)
+
+        labels, aggl_elapsed = _run_with_progress(
+            "[diarize] agglomerative clustering",
+            _agglo_fit,
+            total=n_embeddings,
+            interval=progress_interval,
+        )
+        cluster_count = int(len(set(labels)))
+        merge_count = None
+        if hasattr(clusterer, "children_"):
+            try:
+                merge_count = int(getattr(clusterer, "children_").shape[0])
+            except Exception:
+                merge_count = None
+        distance_desc: str
+        if n_clusters:
+            distance_desc = "n/a"
+        elif distance_threshold is None:
+            distance_desc = "None"
+        else:
+            distance_desc = f"{float(distance_threshold):.3f}"
+        stats = {
+            "cluster_count": cluster_count,
+            "elapsed_sec": aggl_elapsed,
+            "n_embeddings": n_embeddings,
+            "distance_threshold": distance_desc,
+            "speaker_limit": self.config.speaker_limit,
+            "n_clusters_requested": n_clusters,
+        }
+        if merge_count is not None:
+            stats["merges"] = merge_count
+        return labels, stats
 
     def diarize_audio(
         self,
@@ -320,115 +450,64 @@ class SpeakerDiarizer:
             progress_interval = float(
                 getattr(self.config, "clustering_progress_interval_sec", 0.0) or 0.0
             )
-            backend = (self.config.clustering_backend or "ahc").strip().lower()
+            backend = (self.config.clustering_backend or "auto").strip().lower()
             labels = None
-            if backend == "spectral" and SpectralClusterer is not None:
-                min_c = None
-                max_c = None
-                if self.config.speaker_limit and int(self.config.speaker_limit) > 0:
-                    min_c = max_c = int(self.config.speaker_limit)
-                else:
-                    if self.config.min_speakers is not None:
-                        min_c = int(self.config.min_speakers)
-                    if self.config.max_speakers is not None:
-                        max_c = int(self.config.max_speakers)
-                try:
-                    spec = SpectralClusterer(
-                        min_clusters=min_c if min_c is not None else 1,
-                        max_clusters=max_c if max_c is not None else None,
-                        p_percentile=0.90,
-                        gaussian_blur_sigma=1.0,
-                    )
-
-                    def _spectral_fit() -> np.ndarray:
-                        return spec.fit_predict(X)
-
-                    labels, spectral_elapsed = _run_with_progress(
-                        "[diarize] spectral clustering",
-                        _spectral_fit,
-                        total=n_embeddings,
-                        interval=progress_interval,
-                    )
-                    logger.info(
-                        "Spectral clustering assigned %d clusters (min=%s max=%s) in %.1fs",
-                        int(len(set(labels))),
-                        str(min_c),
-                        str(max_c),
-                        spectral_elapsed,
-                    )
-                except Exception as exc:
-                    logger.info("Spectral clustering failed (%s); falling back to AHC", exc)
-                    labels = None
-            if labels is None:
-                if backend == "spectral" and SpectralClusterer is None:
-                    logger.info("spectralcluster not installed; falling back to AHC")
-                if self.config.speaker_limit:
-                    clusterer = build_agglo(
-                        distance_threshold=None,
-                        n_clusters=self.config.speaker_limit,
-                        linkage=self.config.ahc_linkage,
-                        metric="cosine",
-                    )
-                else:
-                    clusterer = build_agglo(
-                        distance_threshold=self.config.ahc_distance_threshold,
-                        linkage=self.config.ahc_linkage,
-                        metric="cosine",
-                    )
-
-                def _agglo_fit() -> np.ndarray:
-                    return clusterer.fit_predict(X)
-
-                labels, aggl_elapsed = _run_with_progress(
-                    "[diarize] agglomerative clustering",
-                    _agglo_fit,
-                    total=n_embeddings,
-                    interval=progress_interval,
-                )
-                cluster_count = int(len(set(labels)))
-                merge_count = None
-                if hasattr(clusterer, "children_"):
+            clustering_debug: dict[str, Any] = {
+                "requested_backend": backend,
+                "embeddings": n_embeddings,
+            }
+            spectral_info: dict[str, Any] = {}
+            if backend in {"auto", "spectral"}:
+                spectral_labels, spectral_info = self._spectral_cluster_embeddings(X)
+                clustering_debug["spectral"] = spectral_info
+                if spectral_labels is not None:
+                    used_k = int(spectral_info.get("best_k") or len(set(spectral_labels)) or 0)
                     try:
-                        merge_count = int(getattr(clusterer, "children_").shape[0])
+                        logger.info(
+                            "Spectral clustering selected %d clusters (silhouette=%.3f)",
+                            used_k,
+                            float(spectral_info.get("silhouette", -1.0) or -1.0),
+                        )
                     except Exception:
-                        merge_count = None
-                distance_desc: str
-                if self.config.speaker_limit:
-                    distance_desc = "n/a"
-                elif self.config.ahc_distance_threshold is None:
-                    distance_desc = "None"
-                else:
-                    distance_desc = f"{float(self.config.ahc_distance_threshold):.3f}"
-                logger.info(
-                    "Agglomerative clustering assigned %d clusters in %.1fs "
-                    "(embeddings=%d, speaker_limit=%s, distance_threshold=%s, merges=%s)",
-                    cluster_count,
-                    aggl_elapsed,
-                    n_embeddings,
-                    str(self.config.speaker_limit),
-                    distance_desc,
-                    str(merge_count) if merge_count is not None else "n/a",
+                        pass
+                    if backend == "spectral" or not bool(self.config.spectral_refine_with_ahc):
+                        labels = spectral_labels
+                        clustering_debug["final_backend"] = "spectral"
+                    else:
+                        labels, aggl_info = self._run_agglomerative_clustering(
+                            X,
+                            n_clusters=used_k if used_k > 0 else None,
+                            distance_threshold=None,
+                            progress_interval=progress_interval,
+                        )
+                        clustering_debug["agglomerative"] = aggl_info
+                        clustering_debug["final_backend"] = "auto_refine_ahc"
+                        clustering_debug["refined_from_spectral"] = used_k or None
+                elif backend == "spectral":
+                    clustering_debug["fallback_reason"] = "spectral_failed"
+            if labels is None:
+                n_clusters = int(self.config.speaker_limit) if self.config.speaker_limit else None
+                distance_threshold = None if n_clusters else self.config.ahc_distance_threshold
+                labels, aggl_info = self._run_agglomerative_clustering(
+                    X,
+                    n_clusters=n_clusters,
+                    distance_threshold=distance_threshold,
+                    progress_interval=progress_interval,
                 )
+                clustering_debug["agglomerative"] = aggl_info
+                clustering_debug.setdefault("final_backend", "ahc")
+            label_hist: dict[str, int] = {}
+            if labels is not None and len(labels) > 0:
+                unique, counts = np.unique(labels, return_counts=True)
+                for label_id, count in zip(unique, counts):
+                    label_hist[f"Speaker_{int(label_id) + 1}"] = int(count)
+            clustering_debug["clusters_detected"] = len(label_hist)
+            clustering_debug["label_histogram"] = label_hist
+            clustering_debug["spectral"] = spectral_info or clustering_debug.get("spectral")
+            self._debug_payload["clustering"] = clustering_debug
         except Exception as exc:
             logger.error("Clustering failed: %s", exc)
             labels = np.zeros(len(embeddings), dtype=int)
-        label_hist: dict[str, int] = {}
-        if labels is not None and len(labels) > 0:
-            unique, counts = np.unique(labels, return_counts=True)
-            for label_id, count in zip(unique, counts):
-                label_hist[f"Speaker_{int(label_id) + 1}"] = int(count)
-        self._debug_payload["clustering"] = {
-            "backend": (self.config.clustering_backend or "ahc"),
-            "embeddings": len(embeddings),
-            "speaker_limit": self.config.speaker_limit,
-            "distance_threshold": (
-                float(self.config.ahc_distance_threshold)
-                if self.config.ahc_distance_threshold is not None
-                else None
-            ),
-            "clusters_detected": len(label_hist),
-            "label_histogram": label_hist,
-        }
         for window, label in zip(windows, labels, strict=False):
             window["speaker"] = f"Speaker_{label + 1}"
         turns = self._build_continuous_segments(windows, speech_regions)

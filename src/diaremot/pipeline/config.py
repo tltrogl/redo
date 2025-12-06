@@ -54,9 +54,14 @@ class PipelineConfig:
     registry_path: Path = Path("speaker_registry.json")
     ahc_distance_threshold: float = DiarizationConfig.ahc_distance_threshold
     speaker_limit: int | None = None
-    clustering_backend: str = "ahc"
+    clustering_backend: str = "auto"
     min_speakers: int | None = None
     max_speakers: int | None = None
+    spectral_p_percentile: float = DiarizationConfig.spectral_p_percentile
+    spectral_min_speakers: int | None = DiarizationConfig.spectral_min_speakers
+    spectral_max_speakers: int | None = DiarizationConfig.spectral_max_speakers
+    spectral_silhouette_floor: float = DiarizationConfig.spectral_silhouette_floor
+    spectral_refine_with_ahc: bool = DiarizationConfig.spectral_refine_with_ahc
     single_speaker_secondary_min_duration_sec: float | None = (
         DiarizationConfig.single_speaker_secondary_min_duration_sec
     )
@@ -217,7 +222,7 @@ class PipelineConfig:
 
         # Diarization clustering backend validation
         self.clustering_backend = self._lower_choice(
-            "clustering_backend", self.clustering_backend, {"ahc", "spectral"}
+            "clustering_backend", self.clustering_backend, {"ahc", "spectral", "auto"}
         )
         if self.min_speakers is not None:
             self._validate_positive_int("min_speakers", int(self.min_speakers))
@@ -229,6 +234,22 @@ class PipelineConfig:
             and int(self.min_speakers) > int(self.max_speakers)
         ):
             raise ValueError("min_speakers must be <= max_speakers")
+        _ensure_numeric_range(
+            "spectral_p_percentile", self.spectral_p_percentile, ge=0.0, le=1.0
+        )
+        _ensure_numeric_range(
+            "spectral_silhouette_floor", self.spectral_silhouette_floor, ge=0.0, le=1.0
+        )
+        if self.spectral_min_speakers is not None:
+            self._validate_positive_int("spectral_min_speakers", int(self.spectral_min_speakers))
+        if self.spectral_max_speakers is not None:
+            self._validate_positive_int("spectral_max_speakers", int(self.spectral_max_speakers))
+        if (
+            self.spectral_min_speakers is not None
+            and self.spectral_max_speakers is not None
+            and int(self.spectral_min_speakers) > int(self.spectral_max_speakers)
+        ):
+            raise ValueError("spectral_min_speakers must be <= spectral_max_speakers")
         if self.single_speaker_secondary_min_duration_sec is not None:
             _ensure_numeric_range(
                 "single_speaker_secondary_min_duration_sec",
