@@ -495,11 +495,11 @@ result = run_pipeline("audio.wav", "outputs/")
 - **Q:** Why two SED locations in models dir?  
   **A:** `sed_panns/` is legacy, `Affect/sed_panns/` is current. Both work.
 
-- **Q:** What's the difference between `norm_tx` and `segments_final`?  
-  **A:** `norm_tx` has ASR output only (7 fields). `segments_final` adds affect, paralinguistics, SED (39 fields total).
+- **Q:** What's the difference between `norm_tx` and `segments_final`?
+  **A:** `norm_tx` has ASR output only (7 fields). `segments_final` adds affect, paralinguistics, and SED context (53 fields total).
 
-- **Q:** How does caching work?  
-  **A:** Three files: `preprocessed.npz` (audio), `diar.json` (turns), `tx.json` (transcripts). See DATAFLOW.md.
+- **Q:** How does caching work?
+  **A:** Primary artefacts: `preprocessed_audio.npy` + `preprocessed.meta.json` (audio + validation keys), `diar.json` (turns), and `tx.json` (transcripts). Legacy `preprocessed.npz` is still consumed when present. See DATAFLOW.md.
 
 - **Q:** Why are there 11 stages but 9 visible outputs?  
   **A:** `dependency_check` and `background_sed` don't produce user-facing outputs but are critical pipeline stages.
@@ -617,9 +617,11 @@ print(f'Schema OK: {len(SEGMENT_COLUMNS)} columns')
 
 **Location:** `.cache/{audio_sha16}/`
 
-- `preprocessed.npz` - Audio + preprocessing signature
+- `preprocessed_audio.npy` - Audio buffer (float32)
+- `preprocessed.meta.json` - Version + audio_sha16 + pp_signature + health
 - `diar.json` - Diarization turns + embeddings
 - `tx.json` - Transcription segments
+- `preprocessed.npz` (legacy) - Back-compat loader remains supported
 
 **Invalidation:** Cache reused only if audio_sha16 AND pp_signature match.
 

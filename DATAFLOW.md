@@ -28,9 +28,9 @@ Input Audio File
 │ Stage 3: background_sed                                      │
 │ • Run PANNs CNN14 on full audio                              │
 │ • Generate global background classification                  │
-│ • Optionally create detailed timeline (if noise ≥0.30)      │
+│ • Attempt detailed timeline by default (auto/timeline modes) │
 │ Output: sed_info {top, dominant_label, noise_score,         │
-│         timeline_csv?, timeline_jsonl?}                      │
+│         timeline_csv?, timeline_jsonl?, timeline_status}     │
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
@@ -142,13 +142,13 @@ PipelineState:
 _Implementation note_: modular helpers live in `src/diaremot/pipeline/preprocess/` and feed the `AudioPreprocessor`.
 **Input:** `input_audio_path` (string)  
 **Process:**
-1. Load audio file using librosa
+1. Load audio using libsndfile when possible; fall back to ffmpeg demux → WAV → libsndfile with soxr resampling
 2. Resample to 16kHz mono
 3. Apply loudness normalization to -20 LUFS
 4. Run spectral subtraction denoising
 5. Auto-chunk if duration > 60 minutes
 6. Compute audio health metrics (SNR, clipping, silence ratio)
-7. Save to cache (preprocessed.npz)
+7. Save to cache (`preprocessed_audio.npy` + `preprocessed.meta.json`; legacy `preprocessed.npz` supported for backward compatibility)
 
 **Output:**
 ```python
@@ -164,14 +164,17 @@ PipelineState:
 
 **Cache Format:**
 ```python
-# preprocessed.npz
-{
-  "audio": np.ndarray,       # Preprocessed audio
+# preprocessed_audio.npy + preprocessed.meta.json
+preprocessed.meta.json = {
+  "version": str,            # Cache version
+  "audio_sha16": str,        # Audio hash used for validation
+  "pp_signature": str,       # Config hash for cache validation
   "sample_rate": int,        # 16000
   "duration_s": float,       # Duration
-  "pp_signature": str,       # Config hash for cache validation
+  "shape": [int],            # Audio array shape
   "health": dict             # Audio health metrics
 }
+# Legacy caches still accept preprocessed.npz with the same fields
 ```
 
 ---
@@ -706,13 +709,15 @@ Cache is invalidated when:
 ```
 .cache/
   {audio_sha16}/
-    preprocessed.npz  # Preprocessed audio + metadata
-    diar.json         # Diarization results
-    tx.json           # Transcription results
+    preprocessed_audio.npy     # Preprocessed audio (float32)
+    preprocessed.meta.json     # Metadata + validation keys
+    diar.json                  # Diarization results
+    tx.json                    # Transcription results
+    preprocessed.npz (legacy)  # Back-compat loader still supported
 ```
 
 ### Resume Behavior
-- **preprocessed.npz hit:** Skip preprocessing, load audio
+- **preprocessed_audio.npy + preprocessed.meta.json (or legacy preprocessed.npz) hit:** Skip preprocessing, load audio
 - **diar.json + tx.json hit:** Skip diarization + ASR, load segments
 - **tx.json hit only:** Skip ASR, reconstruct turns from segments
 - **diar.json hit only:** Skip diarization, run ASR
@@ -723,7 +728,8 @@ Cache is invalidated when:
 ## Model Integration Points
 
 ### Preprocessing (Stage 2)
-- **librosa:** Audio loading, resampling
+- **soundfile + ffmpeg + soxr:** Audio decoding/demux and resampling
+- **librosa:** Spectral features and framing
 - **scipy:** Signal processing, denoising
 - **pyloudnorm:** Loudness normalization
 
