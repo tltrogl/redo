@@ -11,8 +11,6 @@ src/diaremot.egg-info/dependency_links.txt
 src/diaremot.egg-info/entry_points.txt
 src/diaremot.egg-info/requires.txt
 src/diaremot.egg-info/top_level.txt
-src/diaremot2_on/__init__.py
-src/diaremot2_on/diarization.py
 src/diaremot/affect/__init__.py
 src/diaremot/affect/emotion_analysis.py
 src/diaremot/affect/emotion_analyzer.py
@@ -141,9 +139,12 @@ src/diaremot/web/api/services/job_queue.py
 src/diaremot/web/api/services/storage.py
 src/diaremot/web/api/websocket/__init__.py
 src/diaremot/web/api/websocket/progress.py
+src/diaremot2_on/__init__.py
+src/diaremot2_on/diarization.py
 tests/test_cli.py
 tests/test_conversation_analysis.py
 tests/test_diarization.py
+tests/test_diarize_with_sed.py
 tests/test_outputs_transcript.py
 tests/test_paralinguistics.py
 tests/test_performance_optimizations.py
