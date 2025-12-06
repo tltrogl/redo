@@ -6,7 +6,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system that process
 
 ## Core Capabilities
 
-- **Speaker Diarization** – Silero VAD + ECAPA-TDNN embeddings with Agglomerative Hierarchical Clustering
+- **Speaker Diarization** – Silero VAD + ECAPA-TDNN embeddings with spectral affinity search feeding Agglomerative Hierarchical Clustering
 - **Automatic Speech Recognition** – Faster-Whisper (CTranslate2) with intelligent batching
 - **Emotion Analysis** – Multi-modal (audio + text) with 8 speech emotions + 28 text emotions (GoEmotions)
 - **Intent Classification** – Zero-shot intent detection via BART-MNLI
@@ -55,7 +55,7 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 1. **dependency_check** – Validate runtime dependencies and model availability
 2. **preprocess** – Audio resampling and loudness alignment with optional denoising plus auto-chunking for long files
 3. **background_sed** – Sound event detection (music, keyboard, ambient noise)
-4. **diarize** – Speaker segmentation with adaptive VAD tuning and silhouette/dominance-based single-speaker collapse
+4. **diarize** – Speaker segmentation with adaptive VAD tuning, cosine-affinity spectral clustering to estimate speaker count, AHC refinement, and silhouette/dominance-based single-speaker collapse
    - The stage now wraps `pipeline.diar.diarize_audio` in a guarded try/except so transient ONNX/runtime errors fall back to the
      single-speaker assumption instead of bubbling a load-time exception.
 5. **transcribe** – Speech-to-text with intelligent batching
@@ -66,6 +66,13 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 9. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation
 10. **speaker_rollups** – Per-speaker statistical summaries
 11. **outputs** – Generate CSV, JSON, HTML, PDF reports
+
+### Diarization separation updates
+
+- The default clustering backend is now **auto**, which first builds a cosine affinity matrix, prunes weak edges with a configurable percentile gate (`spectral_p_percentile`), runs spectral clustering to estimate the speaker count, and then refines boundaries with agglomerative clustering when requested via `spectral_refine_with_ahc`.
+- Spectral attempts are rejected when their cosine silhouette drops below `spectral_silhouette_floor`, automatically falling back to straight AHC so over-merging does not mask multiple speakers while still preserving any strong spectral estimate from collapsing to a single speaker.
+- The allowable speaker search range can be constrained with `spectral_min_speakers` / `spectral_max_speakers`, or pinned via `speaker_limit`, to better steer diarization on challenging, low-SNR recordings.
+- Single-speaker collapse heuristics now stand down when spectral clustering finds a multi-speaker solution with adequate separation or when cluster balance remains diverse, and the dominance/silhouette thresholds have been tightened (0.85 dominance, 0.10 silhouette) to avoid over-eager merging.
 
 ### Modular orchestration
 

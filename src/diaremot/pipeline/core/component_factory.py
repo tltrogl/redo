@@ -104,9 +104,29 @@ class ComponentFactoryMixin:
                 registry_path=registry_path,
                 ahc_distance_threshold=cfg.get("ahc_distance_threshold", 0.45),
                 speaker_limit=cfg.get("speaker_limit", None),
-                clustering_backend=str(cfg.get("clustering_backend", "ahc")),
+                clustering_backend=str(cfg.get("clustering_backend", "auto")),
                 min_speakers=cfg.get("min_speakers", None),
                 max_speakers=cfg.get("max_speakers", None),
+                spectral_p_percentile=cfg.get(
+                    "spectral_p_percentile",
+                    _speaker_diarization.DiarizationConfig.spectral_p_percentile,
+                ),
+                spectral_min_speakers=cfg.get(
+                    "spectral_min_speakers",
+                    _speaker_diarization.DiarizationConfig.spectral_min_speakers,
+                ),
+                spectral_max_speakers=cfg.get(
+                    "spectral_max_speakers",
+                    _speaker_diarization.DiarizationConfig.spectral_max_speakers,
+                ),
+                spectral_silhouette_floor=cfg.get(
+                    "spectral_silhouette_floor",
+                    _speaker_diarization.DiarizationConfig.spectral_silhouette_floor,
+                ),
+                spectral_refine_with_ahc=cfg.get(
+                    "spectral_refine_with_ahc",
+                    _speaker_diarization.DiarizationConfig.spectral_refine_with_ahc,
+                ),
                 ecapa_model_path=ecapa_path,
                 vad_backend=cfg.get("vad_backend", "auto"),
                 vad_threshold=cfg.get(

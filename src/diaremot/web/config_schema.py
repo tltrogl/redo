@@ -69,10 +69,10 @@ PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     },
     "clustering_backend": {
         "label": "Clustering Backend",
-        "description": "Clustering algorithm (ahc or spectral).",
+        "description": "Clustering algorithm (auto=spectral→AHC, ahc, spectral).",
         "group": "diarization",
         "ui_type": "select",
-        "options": ["ahc", "spectral"],
+        "options": ["auto", "ahc", "spectral"],
     },
     "min_speakers": {
         "label": "Minimum Speakers",
@@ -88,6 +88,29 @@ PARAMETER_METADATA: dict[str, dict[str, Any]] = {
         "group": "diarization",
         "ui_type": "number",
         "nullable": True,
+        "advanced": True,
+    },
+    "spectral_p_percentile": {
+        "label": "Spectral Affinity Percentile",
+        "description": "Row-wise percentile to keep strongest embedding affinities (0-1).",
+        "group": "diarization",
+        "ui_type": "slider",
+        "step": 0.01,
+        "advanced": True,
+    },
+    "spectral_silhouette_floor": {
+        "label": "Spectral Silhouette Floor",
+        "description": "Reject spectral labels if cosine silhouette falls below this value.",
+        "group": "diarization",
+        "ui_type": "slider",
+        "step": 0.01,
+        "advanced": True,
+    },
+    "spectral_refine_with_ahc": {
+        "label": "Refine Spectral with AHC",
+        "description": "Run AHC with the spectral speaker count to stabilise boundaries.",
+        "group": "diarization",
+        "ui_type": "checkbox",
         "advanced": True,
     },
     "disable_energy_vad_fallback": {
