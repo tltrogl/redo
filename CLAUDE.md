@@ -626,9 +626,11 @@ roots = [
 **Cache Files (per audio file):**
 ```
 .cache/{audio_sha16}/
-├── preprocessed.npz     # Audio + preprocessing signature
-├── diar.json           # Diarization turns + embeddings
-└── tx.json             # Transcription segments
+├── preprocessed_audio.npy     # Audio buffer (float32)
+├── preprocessed.meta.json     # Version + audio_sha16 + pp_signature + health
+├── diar.json                  # Diarization turns + embeddings
+├── tx.json                    # Transcription segments
+└── preprocessed.npz (legacy)  # Back-compat loader remains supported
 ```
 
 **Cache Hit Conditions:**
@@ -1741,7 +1743,7 @@ A: Adaptive tuning based on audio energy. User CLI flags still take precedence.
 A: `norm_tx` has ASR output only (7 fields). `segments_final` adds affect, paralinguistics, SED (53 fields total).
 
 **Q: How does caching work?**
-A: Three files per audio: `preprocessed.npz` (audio), `diar.json` (turns), `tx.json` (transcripts). Cache validated via version + audio_sha16 + pp_signature.
+A: Four primary artefacts per audio: `preprocessed_audio.npy` + `preprocessed.meta.json` (audio + validation keys), `diar.json` (turns), and `tx.json` (transcripts). Legacy `preprocessed.npz` is still read for backward compatibility.
 
 **Q: Why are column counts different in docs?**
 A: Schema evolved. Current version has **53 columns** (verify in `outputs.py::SEGMENT_COLUMNS`).
