@@ -260,6 +260,8 @@ class SegmentStreamWriter:
             self._readable_handle = None
             self._csv_writer = None
             self._timeline_writer = None
+            self._csv_header_written = False
+            self._timeline_header_written = False
 
 
 def write_segments_csv(path: Path, rows: list[dict[str, Any]]) -> None:
