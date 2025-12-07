@@ -121,6 +121,147 @@ def ensure_segment_keys(seg: dict[str, Any]) -> dict[str, Any]:
     return seg
 
 
+class SegmentStreamWriter:
+    """Stream segments to CSV/JSONL (+optional timeline/readable) incrementally."""
+
+    def __init__(
+        self,
+        out_dir: Path,
+        *,
+        file_id: str | None = None,
+        include_timeline: bool = True,
+        include_readable: bool = False,
+        mode: str = "w",
+    ) -> None:
+        self.out_dir = Path(out_dir)
+        self.file_id = file_id
+        self.include_timeline = include_timeline
+        self.include_readable = include_readable
+        self.mode = mode
+
+        self._csv_handle = None
+        self._csv_writer: csv.DictWriter[str] | None = None
+        self._jsonl_handle = None
+        self._timeline_handle = None
+        self._timeline_writer: csv.writer | None = None
+        self._readable_handle = None
+        self._csv_header_written = False
+        self._timeline_header_written = False
+
+    def __enter__(self) -> SegmentStreamWriter:
+        self._open_handles()
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # pragma: no cover - I/O cleanup
+        self.close()
+
+    def _open_handles(self) -> None:
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+
+        csv_path = self.out_dir / "diarized_transcript_with_emotion.csv"
+        jsonl_path = self.out_dir / "segments.jsonl"
+        timeline_path = self.out_dir / "timeline.csv"
+        readable_path = self.out_dir / "diarized_transcript_readable.txt"
+
+        csv_mode = "a" if self.mode.startswith("a") else "w"
+        csv_exists = csv_path.exists()
+        csv_was_empty = csv_exists and csv_path.stat().st_size == 0
+
+        self._csv_handle = csv_path.open(csv_mode, newline="", encoding="utf-8")
+        self._csv_writer = csv.DictWriter(self._csv_handle, fieldnames=SEGMENT_COLUMNS)
+
+        if not self._csv_header_written and (
+            csv_mode.startswith("w") or not csv_exists or csv_was_empty
+        ):
+            self._csv_writer.writeheader()
+            self._csv_header_written = True
+            self._csv_handle.flush()
+
+        jsonl_mode = "a" if self.mode.startswith("a") else "w"
+        self._jsonl_handle = jsonl_path.open(jsonl_mode, encoding="utf-8")
+
+        if self.include_timeline:
+            timeline_mode = "a" if self.mode.startswith("a") else "w"
+            timeline_exists = timeline_path.exists()
+            timeline_was_empty = timeline_exists and timeline_path.stat().st_size == 0
+
+            self._timeline_handle = timeline_path.open(
+                timeline_mode, newline="", encoding="utf-8"
+            )
+            self._timeline_writer = csv.writer(self._timeline_handle)
+            if not self._timeline_header_written and (
+                timeline_mode.startswith("w") or not timeline_exists or timeline_was_empty
+            ):
+                self._timeline_writer.writerow(["start", "end", "speaker_id"])
+                self._timeline_header_written = True
+                self._timeline_handle.flush()
+
+        if self.include_readable:
+            self._readable_handle = readable_path.open(
+                "a" if self.mode == "a" else "w", encoding="utf-8"
+            )
+
+    def write_segment(self, segment: dict[str, Any], *, index: int | None = None) -> dict[str, Any]:
+        sanitized = ensure_segment_keys(dict(segment))
+        if self.file_id is not None and not sanitized.get("file_id"):
+            sanitized["file_id"] = self.file_id
+
+        if self._csv_writer is None:
+            self._open_handles()
+
+        assert self._csv_writer is not None  # for type checkers
+        assert self._csv_handle is not None
+        assert self._jsonl_handle is not None
+
+        self._csv_writer.writerow({key: sanitized.get(key, None) for key in SEGMENT_COLUMNS})
+        self._csv_handle.flush()
+
+        clean = {
+            key: value
+            for key, value in sanitized.items()
+            if not (isinstance(key, str) and key.startswith("_"))
+        }
+        self._jsonl_handle.write(json.dumps(clean, ensure_ascii=False) + "\n")
+        self._jsonl_handle.flush()
+
+        if self._timeline_writer and self._timeline_handle:
+            self._timeline_writer.writerow(
+                [
+                    sanitized.get("start", 0.0),
+                    sanitized.get("end", 0.0),
+                    sanitized.get("speaker_id", ""),
+                ]
+            )
+            self._timeline_handle.flush()
+
+        if self._readable_handle is not None:
+            index_hint = index if index is not None else 0
+            lines = _render_readable_lines(sanitized, index=index_hint)
+            self._readable_handle.write("\n".join(lines) + "\n")
+            self._readable_handle.flush()
+
+        return sanitized
+
+    def close(self) -> None:
+        handles = (
+            self._csv_handle,
+            self._jsonl_handle,
+            self._timeline_handle,
+            self._readable_handle,
+        )
+        try:
+            for handle in handles:
+                if handle:
+                    handle.close()
+        finally:
+            self._csv_handle = None
+            self._jsonl_handle = None
+            self._timeline_handle = None
+            self._readable_handle = None
+            self._csv_writer = None
+            self._timeline_writer = None
+
+
 def write_segments_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -314,6 +455,60 @@ def _format_float(value: Any, *, signed: bool = False) -> str:
     return fmt.format(number)
 
 
+def _render_readable_lines(segment: dict[str, Any], *, index: int = 0) -> list[str]:
+    start = _format_hms(segment.get("start"))
+    end = _format_hms(segment.get("end"))
+    speaker = (
+        str(segment.get("speaker_name"))
+        if segment.get("speaker_name")
+        else str(segment.get("speaker_id") or f"Speaker_{index:02d}")
+    )
+
+    lines = [f"[{start} - {end}] {speaker}"]
+
+    text = (segment.get("text") or "").strip()
+    lines.append(f"  Text: {text or '(no speech recognized)'}")
+
+    valence = _format_float(segment.get("valence"), signed=True)
+    arousal = _format_float(segment.get("arousal"), signed=True)
+    dominance = _format_float(segment.get("dominance"), signed=True)
+    emotion = segment.get("emotion_top") or "unknown"
+    affect_hint = segment.get("affect_hint") or "n/a"
+    lines.append(
+        f"  Affect: emotion {emotion}; valence {valence}, "
+        f"arousal {arousal}, dominance {dominance}; hint {affect_hint}"
+    )
+
+    intent = segment.get("intent_top") or "unknown"
+    intents_blob = _parse_json_blob(segment.get("intent_top3_json"))
+    if isinstance(intents_blob, list):
+        intent_detail = ", ".join(
+            f"{item.get('label', 'unknown')} {float(item.get('score', 0.0)):.2f}"
+            for item in intents_blob[:3]
+            if isinstance(item, dict)
+        )
+    else:
+        intent_detail = "n/a"
+    lines.append(f"  Intent: {intent} (top3: {intent_detail})")
+
+    sed_blob = _parse_json_blob(segment.get("events_top3_json"))
+    sed_labels = (
+        [item.get("label", "unknown") for item in sed_blob if isinstance(item, dict)]
+        if isinstance(sed_blob, list)
+        else []
+    )
+    sed_summary = ", ".join(sed_labels) if sed_labels else "n/a"
+    noise = segment.get("noise_tag") or "n/a"
+    vad_status = "unstable" if segment.get("vad_unstable") else "stable"
+    lines.append(f"  VAD: {vad_status} | SED: {sed_summary} | Noise tag: {noise}")
+
+    duration = _format_float(segment.get("duration_s"))
+    wpm = _format_float(segment.get("wpm"))
+    lines.append(f"  Duration: {duration}s | Speech rate: {wpm} wpm")
+
+    return lines
+
+
 def write_human_transcript(path: Path, segments: list[dict[str, Any]]) -> None:
     """Render a human-friendly transcript with diarization context."""
 
@@ -325,57 +520,10 @@ def write_human_transcript(path: Path, segments: list[dict[str, Any]]) -> None:
         lines.append("No speech segments detected.")
     else:
         for index, segment in enumerate(segments, start=1):
-            start = _format_hms(segment.get("start"))
-            end = _format_hms(segment.get("end"))
-            speaker = (
-                str(segment.get("speaker_name"))
-                if segment.get("speaker_name")
-                else str(segment.get("speaker_id") or f"Speaker_{index:02d}")
-            )
-            lines.append(f"[{start} - {end}] {speaker}")
+            lines.extend(_render_readable_lines(segment, index=index))
+            lines.append("")
 
-            text = (segment.get("text") or "").strip()
-            lines.append(f"  Text: {text or '(no speech recognized)'}")
-
-            valence = _format_float(segment.get("valence"), signed=True)
-            arousal = _format_float(segment.get("arousal"), signed=True)
-            dominance = _format_float(segment.get("dominance"), signed=True)
-            emotion = segment.get("emotion_top") or "unknown"
-            affect_hint = segment.get("affect_hint") or "n/a"
-            lines.append(
-                f"  Affect: emotion {emotion}; valence {valence}, "
-                f"arousal {arousal}, dominance {dominance}; hint {affect_hint}"
-            )
-
-            intent = segment.get("intent_top") or "unknown"
-            intents_blob = _parse_json_blob(segment.get("intent_top3_json"))
-            if isinstance(intents_blob, list):
-                intent_detail = ", ".join(
-                    f"{item.get('label', 'unknown')} {float(item.get('score', 0.0)):.2f}"
-                    for item in intents_blob[:3]
-                    if isinstance(item, dict)
-                )
-            else:
-                intent_detail = "n/a"
-            lines.append(f"  Intent: {intent} (top3: {intent_detail})")
-
-            sed_blob = _parse_json_blob(segment.get("events_top3_json"))
-            sed_labels = (
-                [item.get("label", "unknown") for item in sed_blob if isinstance(item, dict)]
-                if isinstance(sed_blob, list)
-                else []
-            )
-            sed_summary = ", ".join(sed_labels) if sed_labels else "n/a"
-            noise = segment.get("noise_tag") or "n/a"
-            vad_status = "unstable" if segment.get("vad_unstable") else "stable"
-            lines.append(f"  VAD: {vad_status} | SED: {sed_summary} | Noise tag: {noise}")
-
-            duration = _format_float(segment.get("duration_s"))
-            wpm = _format_float(segment.get("wpm"))
-            lines.append(f"  Duration: {duration}s | Speech rate: {wpm} wpm")
-            lines.append("")  # blank line between segments
-
-    path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def write_speakers_summary(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -840,6 +988,7 @@ __all__ = [
     "SEGMENT_COLUMNS",
     "default_affect",
     "ensure_segment_keys",
+    "SegmentStreamWriter",
     "write_segments_csv",
     "write_segments_jsonl",
     "write_timeline_csv",

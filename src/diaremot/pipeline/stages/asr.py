@@ -10,6 +10,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ..logging_utils import StageGuard
+from ..outputs import SegmentStreamWriter, ensure_segment_keys
 from ..pipeline_checkpoint_system import ProcessingStage
 from .base import PipelineState
 from .utils import atomic_write_json, build_cache_payload
@@ -159,6 +160,58 @@ def _digests_match(
         if cached.get("speaker_name") != fresh.get("speaker_name"):
             return False
     return True
+
+
+def _provisional_row(segment: dict[str, Any], file_id: str) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "file_id": file_id,
+        "start": segment.get("start"),
+        "end": segment.get("end"),
+        "speaker_id": segment.get("speaker_id"),
+        "speaker_name": segment.get("speaker_name"),
+        "text": segment.get("text", ""),
+        "asr_logprob_avg": segment.get("asr_logprob_avg"),
+        "snr_db": segment.get("snr_db"),
+        "error_flags": segment.get("error_flags", ""),
+        "asr_confidence": segment.get("asr_confidence"),
+        "asr_language": segment.get("asr_language"),
+    }
+
+    try:
+        row["asr_tokens_json"] = json.dumps(segment.get("asr_tokens"), ensure_ascii=False)
+    except (TypeError, ValueError):
+        row["asr_tokens_json"] = "[]"
+
+    try:
+        row["asr_words_json"] = json.dumps(segment.get("asr_words"), ensure_ascii=False)
+    except (TypeError, ValueError):
+        row["asr_words_json"] = "[]"
+
+    return ensure_segment_keys(row)
+
+
+def _write_provisional_outputs(
+    pipeline: "AudioAnalysisPipelineV2", state: PipelineState
+) -> None:
+    try:
+        with SegmentStreamWriter(
+            state.out_dir,
+            file_id=pipeline.stats.file_id,
+            include_timeline=True,
+            include_readable=True,
+            mode="w",
+        ) as writer:
+            for idx, segment in enumerate(state.norm_tx, start=1):
+                writer.write_segment(_provisional_row(segment, pipeline.stats.file_id), index=idx)
+    except Exception as exc:  # pragma: no cover - best effort persistence
+        pipeline.corelog.stage(
+            "transcribe",
+            "warn",
+            message=(
+                "[provisional outputs] failed to persist early transcript: "
+                f"{exc}. Verify output directory permissions and disk space."
+            ),
+        )
 
 
 def _load_transcription_checkpoint(
@@ -328,3 +381,5 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 "warn",
                 message=f"[cache] tx.json write failed: {exc}. Check disk space and cache directory permissions.",
             )
+
+    _write_provisional_outputs(pipeline, state)
