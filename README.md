@@ -142,6 +142,12 @@ Output Files:
   • events_timeline.csv (if SED ran)
 ```
 
+Transcription now emits provisional `diarized_transcript_with_emotion.csv`, `segments.jsonl`, `timeline.csv`, and
+`diarized_transcript_readable.txt` immediately after ASR completes so partial runs still produce a usable transcript. The
+`affect_and_assemble` stage rewrites those artifacts row-by-row while streaming affect and intent enrichment, keeping processed
+segments on disk even if the run halts mid-stage. Headers are rechecked when appending so partially written CSV/timeline files
+remain schema-complete when a run is resumed.
+
 > **Detailed Documentation:** See [DATAFLOW.md](DATAFLOW.md) for complete stage-by-stage data flow, data structures, cache strategy, and error handling
 
 ---

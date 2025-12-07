@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ..logging_utils import StageGuard
-from ..outputs import ensure_segment_keys
+from ..outputs import SegmentStreamWriter, ensure_segment_keys
 from .base import PipelineState
 
 if TYPE_CHECKING:
@@ -217,170 +217,199 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     timeline_index = _build_timeline_index(timeline_events)
 
     audio_windows = _SegmentAudioFactory(state.y)
+    write_errors: list[str] = []
 
-    for idx, seg in enumerate(state.norm_tx):
-        start = float(seg.get("start") or 0.0)
-        end = float(seg.get("end") or start)
-        i0 = int(start * state.sr)
-        i1 = int(end * state.sr)
-        clip_window = audio_windows.segment(max(0, i0), max(0, i1))
-        text = seg.get("text") or ""
+    try:
+        with SegmentStreamWriter(
+            state.out_dir,
+            file_id=pipeline.stats.file_id,
+            include_timeline=True,
+            include_readable=True,
+            mode="w",
+        ) as writer:
+            for idx, seg in enumerate(state.norm_tx):
+                start = float(seg.get("start") or 0.0)
+                end = float(seg.get("end") or start)
+                i0 = int(start * state.sr)
+                i1 = int(end * state.sr)
+                clip_window = audio_windows.segment(max(0, i0), max(0, i1))
+                text = seg.get("text") or ""
 
-        aff = pipeline._affect_unified(clip_window, state.sr, text)
-        pm = state.para_metrics.get(idx, {})
+                aff = pipeline._affect_unified(clip_window, state.sr, text)
+                pm = state.para_metrics.get(idx, {})
 
-        tokens_payload = seg.get("asr_tokens")
-        if isinstance(tokens_payload, (list, tuple, set)):
-            tokens_payload = list(tokens_payload)
-        words_payload = seg.get("asr_words")
-        if isinstance(words_payload, (list, tuple, set)):
-            words_payload = list(words_payload)
+                tokens_payload = seg.get("asr_tokens")
+                if isinstance(tokens_payload, (list, tuple, set)):
+                    tokens_payload = list(tokens_payload)
+                words_payload = seg.get("asr_words")
+                if isinstance(words_payload, (list, tuple, set)):
+                    words_payload = list(words_payload)
 
-        if tokens_payload is None:
-            tokens_json = "[]"
-        else:
-            try:
-                tokens_json = json.dumps(tokens_payload, ensure_ascii=False)
-            except (TypeError, ValueError):
-                tokens_json = "[]"
+                if tokens_payload is None:
+                    tokens_json = "[]"
+                else:
+                    try:
+                        tokens_json = json.dumps(tokens_payload, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        tokens_json = "[]"
 
-        if words_payload is None:
-            words_json = "[]"
-        else:
-            try:
-                words_json = json.dumps(words_payload, ensure_ascii=False)
-            except (TypeError, ValueError):
-                words_json = "[]"
+                if words_payload is None:
+                    words_json = "[]"
+                else:
+                    try:
+                        words_json = json.dumps(words_payload, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        words_json = "[]"
 
-        voice_quality_hint = pm.get("vq_note")
-        if voice_quality_hint is not None:
-            voice_quality_hint = str(voice_quality_hint)
+                voice_quality_hint = pm.get("vq_note")
+                if voice_quality_hint is not None:
+                    voice_quality_hint = str(voice_quality_hint)
 
-        duration_s = _coerce_positive_float(pm.get("duration_s"))
-        if duration_s is None:
-            duration_s = max(0.0, end - start)
+                duration_s = _coerce_positive_float(pm.get("duration_s"))
+                if duration_s is None:
+                    duration_s = max(0.0, end - start)
 
-        words = _coerce_int(pm.get("words"))
-        if words is None:
-            words = len(text.split())
+                words = _coerce_int(pm.get("words"))
+                if words is None:
+                    words = len(text.split())
 
-        pause_ratio = _coerce_positive_float(pm.get("pause_ratio"))
-        if pause_ratio is None:
-            pause_time = _coerce_positive_float(pm.get("pause_time_s")) or 0.0
-            pause_ratio = (pause_time / duration_s) if duration_s > 0 else 0.0
-        pause_ratio = max(0.0, min(1.0, pause_ratio))
+                pause_ratio = _coerce_positive_float(pm.get("pause_ratio"))
+                if pause_ratio is None:
+                    pause_time = _coerce_positive_float(pm.get("pause_time_s")) or 0.0
+                    pause_ratio = (pause_time / duration_s) if duration_s > 0 else 0.0
+                pause_ratio = max(0.0, min(1.0, pause_ratio))
 
-        vad = aff.get("vad", {})
-        speech_emotion = aff.get("speech_emotion", {})
-        text_emotions = aff.get("text_emotions", {})
-        intent = aff.get("intent", {})
+                vad = aff.get("vad", {})
+                speech_emotion = aff.get("speech_emotion", {})
+                text_emotions = aff.get("text_emotions", {})
+                intent = aff.get("intent", {})
 
-        row = {
-            "file_id": pipeline.stats.file_id,
-            "start": start,
-            "end": end,
-            "speaker_id": seg.get("speaker_id"),
-            "speaker_name": seg.get("speaker_name"),
-            "text": text,
-            "valence": float(vad.get("valence", 0.0)) if vad.get("valence") is not None else None,
-            "arousal": float(vad.get("arousal", 0.0)) if vad.get("arousal") is not None else None,
-            "dominance": (
-                float(vad.get("dominance", 0.0)) if vad.get("dominance") is not None else None
-            ),
-            "emotion_top": speech_emotion.get("top", "neutral"),
-            "emotion_scores_json": json.dumps(
-                speech_emotion.get("scores_8class", {"neutral": 1.0}), ensure_ascii=False
-            ),
-            "text_emotions_top5_json": json.dumps(
-                text_emotions.get("top5", [{"label": "neutral", "score": 1.0}]),
-                ensure_ascii=False,
-            ),
-            "text_emotions_full_json": json.dumps(
-                text_emotions.get("full_28class", {"neutral": 1.0}), ensure_ascii=False
-            ),
-            "intent_top": intent.get("top", "status_update"),
-            "intent_top3_json": json.dumps(intent.get("top3", []), ensure_ascii=False),
-            "low_confidence_ser": bool(speech_emotion.get("low_confidence_ser", False)),
-            "vad_unstable": bool(state.vad_unstable),
-            "affect_hint": aff.get("affect_hint", "neutral-status"),
-            "noise_tag": None,
-            "noise_score": noise_score,
-            "timeline_event_count": timeline_event_count,
-            "timeline_mode": timeline_mode,
-            "timeline_inference_mode": timeline_inference_mode,
-            "timeline_events_path": timeline_events_path,
-            "asr_logprob_avg": seg.get("asr_logprob_avg"),
-            "asr_confidence": seg.get("asr_confidence"),
-            "asr_language": seg.get("asr_language"),
-            "asr_tokens_json": tokens_json,
-            "asr_words_json": words_json,
-            "snr_db": seg.get("snr_db"),
-            "wpm": pm.get("wpm", 0.0),
-            "duration_s": duration_s,
-            "words": words,
-            "pause_ratio": pause_ratio,
-            "pause_count": pm.get("pause_count", 0),
-            "pause_time_s": pm.get("pause_time_s", 0.0),
-            "f0_mean_hz": pm.get("f0_mean_hz", 0.0),
-            "f0_std_hz": pm.get("f0_std_hz", 0.0),
-            "loudness_rms": pm.get("loudness_rms", 0.0),
-            "disfluency_count": pm.get("disfluency_count", 0),
-            "vq_jitter_pct": pm.get("vq_jitter_pct"),
-            "vq_shimmer_db": pm.get("vq_shimmer_db"),
-            "vq_hnr_db": pm.get("vq_hnr_db"),
-            "vq_cpps_db": pm.get("vq_cpps_db"),
-            "vq_voiced_ratio": pm.get("vq_voiced_ratio"),
-            "vq_spectral_slope_db": pm.get("vq_spectral_slope_db"),
-            "vq_reliable": bool(pm.get("vq_reliable")),
-            "voice_quality_hint": voice_quality_hint,
-            "error_flags": seg.get("error_flags", ""),
-        }
+                row = {
+                    "file_id": pipeline.stats.file_id,
+                    "start": start,
+                    "end": end,
+                    "speaker_id": seg.get("speaker_id"),
+                    "speaker_name": seg.get("speaker_name"),
+                    "text": text,
+                    "valence": float(vad.get("valence", 0.0)) if vad.get("valence") is not None else None,
+                    "arousal": float(vad.get("arousal", 0.0)) if vad.get("arousal") is not None else None,
+                    "dominance": (
+                        float(vad.get("dominance", 0.0)) if vad.get("dominance") is not None else None
+                    ),
+                    "emotion_top": speech_emotion.get("top", "neutral"),
+                    "emotion_scores_json": json.dumps(
+                        speech_emotion.get("scores_8class", {"neutral": 1.0}), ensure_ascii=False
+                    ),
+                    "text_emotions_top5_json": json.dumps(
+                        text_emotions.get("top5", [{"label": "neutral", "score": 1.0}]),
+                        ensure_ascii=False,
+                    ),
+                    "text_emotions_full_json": json.dumps(
+                        text_emotions.get("full_28class", {"neutral": 1.0}), ensure_ascii=False
+                    ),
+                    "intent_top": intent.get("top", "status_update"),
+                    "intent_top3_json": json.dumps(intent.get("top3", []), ensure_ascii=False),
+                    "low_confidence_ser": bool(speech_emotion.get("low_confidence_ser", False)),
+                    "vad_unstable": bool(state.vad_unstable),
+                    "affect_hint": aff.get("affect_hint", "neutral-status"),
+                    "noise_tag": None,
+                    "noise_score": noise_score,
+                    "timeline_event_count": timeline_event_count,
+                    "timeline_mode": timeline_mode,
+                    "timeline_inference_mode": timeline_inference_mode,
+                    "timeline_events_path": timeline_events_path,
+                    "asr_logprob_avg": seg.get("asr_logprob_avg"),
+                    "asr_confidence": seg.get("asr_confidence"),
+                    "asr_language": seg.get("asr_language"),
+                    "asr_tokens_json": tokens_json,
+                    "asr_words_json": words_json,
+                    "snr_db": seg.get("snr_db"),
+                    "wpm": pm.get("wpm", 0.0),
+                    "duration_s": duration_s,
+                    "words": words,
+                    "pause_ratio": pause_ratio,
+                    "pause_count": pm.get("pause_count", 0),
+                    "pause_time_s": pm.get("pause_time_s", 0.0),
+                    "f0_mean_hz": pm.get("f0_mean_hz", 0.0),
+                    "f0_std_hz": pm.get("f0_std_hz", 0.0),
+                    "loudness_rms": pm.get("loudness_rms", 0.0),
+                    "disfluency_count": pm.get("disfluency_count", 0),
+                    "vq_jitter_pct": pm.get("vq_jitter_pct"),
+                    "vq_shimmer_db": pm.get("vq_shimmer_db"),
+                    "vq_hnr_db": pm.get("vq_hnr_db"),
+                    "vq_cpps_db": pm.get("vq_cpps_db"),
+                    "vq_voiced_ratio": pm.get("vq_voiced_ratio"),
+                    "vq_spectral_slope_db": pm.get("vq_spectral_slope_db"),
+                    "vq_reliable": bool(pm.get("vq_reliable")),
+                    "voice_quality_hint": voice_quality_hint,
+                    "error_flags": seg.get("error_flags", ""),
+                }
 
-        row["timeline_overlap_count"] = 0
-        row["timeline_overlap_ratio"] = 0.0
+                row["timeline_overlap_count"] = 0
+                row["timeline_overlap_ratio"] = 0.0
 
-        row["_affect_payload"] = {
-            "speech_top": speech_emotion.get("top"),
-            "speech_scores": speech_emotion.get("scores_8class"),
-            "text_full": text_emotions.get("full_28class"),
-            "text_top": text_emotions.get("top5"),
-            "intent_top": intent.get("top"),
-            "intent_top3": intent.get("top3"),
-        }
+                row["_affect_payload"] = {
+                    "speech_top": speech_emotion.get("top"),
+                    "speech_scores": speech_emotion.get("scores_8class"),
+                    "text_full": text_emotions.get("full_28class"),
+                    "text_top": text_emotions.get("top5"),
+                    "intent_top": intent.get("top"),
+                    "intent_top3": intent.get("top3"),
+                }
 
-        events_top = []
-        snr_db_sed = None
-        if isinstance(sed_payload, dict) and sed_payload:
-            events_top = sed_payload.get("top") or []
-            row["noise_tag"] = sed_payload.get("dominant_label")
-            snr_db_sed = _estimate_snr_db_from_noise(sed_payload.get("noise_score"))
+                events_top = []
+                snr_db_sed = None
+                if isinstance(sed_payload, dict) and sed_payload:
+                    events_top = sed_payload.get("top") or []
+                    row["noise_tag"] = sed_payload.get("dominant_label")
+                    snr_db_sed = _estimate_snr_db_from_noise(sed_payload.get("noise_score"))
 
-        if timeline_index is not None:
-            overlaps = _intersect_events(start, end, timeline_index)
-            if overlaps:
-                row["timeline_overlap_count"] = len(overlaps)
-                total_overlap = sum(float(item.get("overlap", 0.0)) for item in overlaps)
-                if duration_s > 0:
-                    overlap_ratio = max(0.0, min(1.0, total_overlap / duration_s))
-                    row["timeline_overlap_ratio"] = overlap_ratio
-                events_top = _topk_by_overlap(overlaps, k=3)
-                snr_from_events = _estimate_snr_from_events(overlaps, max(1e-6, row.get("duration_s", end - start)))
-                if snr_from_events is not None:
-                    snr_db_sed = snr_from_events
-            try:
-                row["events_top3_json"] = json.dumps(events_top[:3], ensure_ascii=False)
-            except (TypeError, ValueError):
-                row["events_top3_json"] = "[]"
-        elif events_top:
-            try:
-                row["events_top3_json"] = json.dumps(events_top[:3], ensure_ascii=False)
-            except (TypeError, ValueError):
-                row["events_top3_json"] = "[]"
+                if timeline_index is not None:
+                    overlaps = _intersect_events(start, end, timeline_index)
+                    if overlaps:
+                        row["timeline_overlap_count"] = len(overlaps)
+                        total_overlap = sum(float(item.get("overlap", 0.0)) for item in overlaps)
+                        if duration_s > 0:
+                            overlap_ratio = max(0.0, min(1.0, total_overlap / duration_s))
+                            row["timeline_overlap_ratio"] = overlap_ratio
+                        events_top = _topk_by_overlap(overlaps, k=3)
+                        snr_from_events = _estimate_snr_from_events(
+                            overlaps, max(1e-6, row.get("duration_s", end - start))
+                        )
+                        if snr_from_events is not None:
+                            snr_db_sed = snr_from_events
+                    try:
+                        row["events_top3_json"] = json.dumps(events_top[:3], ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        row["events_top3_json"] = "[]"
+                elif events_top:
+                    try:
+                        row["events_top3_json"] = json.dumps(events_top[:3], ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        row["events_top3_json"] = "[]"
 
-        if snr_db_sed is not None:
-            row["snr_db_sed"] = snr_db_sed
+                if snr_db_sed is not None:
+                    row["snr_db_sed"] = snr_db_sed
 
-        segments_final.append(ensure_segment_keys(row))
+                finalized = ensure_segment_keys(row)
+                segments_final.append(finalized)
+                try:
+                    writer.write_segment(finalized, index=idx + 1)
+                except Exception as exc:
+                    write_errors.append(str(exc))
+    except Exception as exc:  # pragma: no cover - ensure partial data persists
+        pipeline.corelog.stage(
+            "affect_and_assemble",
+            "warn",
+            message=f"[streaming outputs] failed to write all rows: {exc}",
+        )
+
+    if write_errors:
+        pipeline.corelog.stage(
+            "affect_and_assemble",
+            "warn",
+            message="; ".join({f"segment write error: {err}" for err in write_errors}),
+        )
 
     state.segments_final = segments_final
 
