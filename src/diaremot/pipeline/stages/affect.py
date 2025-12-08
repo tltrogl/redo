@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from bisect import bisect_left
 from dataclasses import dataclass
 from pathlib import Path
+from contextlib import nullcontext
+import shutil
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -164,6 +167,24 @@ def _load_timeline_events(sed_payload: dict[str, Any]) -> list[Any]:
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     segments_final: list[dict[str, Any]] = []
 
+    # Streaming mode is enabled by default to keep peak memory lower. Set
+    # DIAREMOT_AFFECT_STREAMING=0/false to disable.
+    env_flag = str(os.getenv("DIAREMOT_AFFECT_STREAMING", "")).strip().lower()
+    streaming_enabled = env_flag not in {"0", "false", "no", "off"}
+    out_dir = Path(getattr(state, "out_dir", Path(".")))
+    tmp_out_dir = out_dir / ".affect_tmp"
+    writer_cm: SegmentStreamWriter | nullcontext = (
+        SegmentStreamWriter(
+            tmp_out_dir,
+            file_id=pipeline.stats.file_id,
+            include_timeline=True,
+            include_readable=True,
+            mode="w",
+        )
+        if streaming_enabled
+        else nullcontext()
+    )
+
     config = pipeline.stats.config_snapshot
     if bool(config.get("transcribe_failed")) or bool(config.get("preprocess_failed")):
         guard.progress("skip: upstream stage reported a failure")
@@ -220,13 +241,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     write_errors: list[str] = []
 
     try:
-        with SegmentStreamWriter(
-            state.out_dir,
-            file_id=pipeline.stats.file_id,
-            include_timeline=True,
-            include_readable=True,
-            mode="w",
-        ) as writer:
+        with writer_cm as writer:
             for idx, seg in enumerate(state.norm_tx):
                 start = float(seg.get("start") or 0.0)
                 end = float(seg.get("end") or start)
@@ -393,10 +408,11 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
 
                 finalized = ensure_segment_keys(row)
                 segments_final.append(finalized)
-                try:
-                    writer.write_segment(finalized, index=idx + 1)
-                except Exception as exc:
-                    write_errors.append(str(exc))
+                if streaming_enabled and writer is not None:
+                    try:
+                        writer.write_segment(finalized, index=idx + 1)
+                    except Exception as exc:
+                        write_errors.append(str(exc))
     except Exception as exc:  # pragma: no cover - ensure partial data persists
         pipeline.corelog.stage(
             "affect_and_assemble",
@@ -410,6 +426,31 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "warn",
             message="; ".join({f"segment write error: {err}" for err in write_errors}),
         )
+
+    # Atomically replace provisional ASR outputs only after affect finished without fatal errors.
+    if streaming_enabled and tmp_out_dir.exists():
+        try:
+            for fname in (
+                "diarized_transcript_with_emotion.csv",
+                "segments.jsonl",
+                "timeline.csv",
+                "diarized_transcript_readable.txt",
+            ):
+                tmp_path = tmp_out_dir / fname
+                final_path = out_dir / fname
+                if tmp_path.exists():
+                    tmp_path.replace(final_path)
+        except Exception as exc:
+            pipeline.corelog.stage(
+                "affect_and_assemble",
+                "warn",
+                message=f"[streaming outputs] failed to promote affect files: {exc}",
+            )
+        finally:
+            try:
+                shutil.rmtree(tmp_out_dir, ignore_errors=True)
+            except Exception:
+                pass
 
     state.segments_final = segments_final
 

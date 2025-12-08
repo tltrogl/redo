@@ -26,7 +26,13 @@ MODEL_ROOTS = tuple(iter_model_roots())
 if not MODEL_ROOTS:
     MODEL_ROOTS = (DEFAULT_MODELS_ROOT,)
 
-_PANNS_SUBDIR_CANDIDATES = ("Affect/sed_panns", "sed_panns", "panns", "panns_cnn14")
+_PANNS_SUBDIR_CANDIDATES = (
+    "Affect/sed_panns",
+    "affect/sed_panns",  # lowercase variant seen in some deployments
+    "sed_panns",
+    "panns",
+    "panns_cnn14",
+)
 DEFAULT_PANNS_MODEL_DIR = None
 for _root in MODEL_ROOTS:
     for subdir in _PANNS_SUBDIR_CANDIDATES:
@@ -236,9 +242,12 @@ class PANNSEventTagger:
                 seen.add(key)
                 search_roots.append(path)
 
+            # Highest priority: explicit config and env override
             _add_candidate(self.cfg.model_dir)
+            _add_candidate(os.getenv("DIAREMOT_PANNS_DIR"))
             _add_candidate(DEFAULT_PANNS_MODEL_DIR)
             for root in MODEL_ROOTS:
+                _add_candidate(Path(root) / "affect" / "sed_panns")
                 _add_candidate(Path(root) / "sed_panns")
                 _add_candidate(Path(root) / "panns")
 

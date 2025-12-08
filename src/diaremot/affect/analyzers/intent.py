@@ -19,12 +19,20 @@ DEFAULT_INTENT_MODEL = "facebook/bart-large-mnli"
 
 
 def _intent_dir_has_assets(path: Path) -> bool:
+    """Return True only when ONNX weights *and* tokenizer are present.
+
+    Previously this returned True with just config+tokenizer, which led to
+    attempted transformer downloads at runtime. We tighten the check to avoid
+    pulling remote weights when the user expects fully-local inference.
+    """
     if not path.exists() or not path.is_dir():
         return False
 
     has_onnx = any(
         (path / name).exists() for name in ("model_uint8.onnx", "model_int8.onnx", "model.onnx")
     )
+    if not has_onnx:
+        return False
 
     cfg_path = path / "config.json"
     if not cfg_path.exists():
@@ -43,9 +51,6 @@ def _intent_dir_has_assets(path: Path) -> bool:
     )
     if not tokenizer_present:
         return False
-
-    if has_onnx:
-        return True
 
     return True
 
