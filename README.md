@@ -46,11 +46,13 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 
 **2025-03 update:** long-form preprocessing streams chunks straight from ffmpeg/soundfile without first materialising the full waveform. Processed samples are stitched into a memory-mapped `.npy` artifact that downstream stages load lazily via `PipelineState.ensure_audio()`, keeping peak memory usage bounded even on multi-hour recordings.
 
+Cached audio is reopened in memory-mapped mode before diarization, transcription, and affect loading so the pipeline drops large in-memory buffers before the heaviest models start, reducing OOM risk on constrained hosts.
+
 **2025-11 update:** Video files (e.g. `.mp4`, `.mkv`, `.mov`) now have their audio tracks extracted via `ffmpeg` and cached per source into `<cache_root>/video_audio` (default `.cache/video_audio`). Repeat runs for the same media reuse the cached 16 kHz mono WAV if the original file is unchanged, so the pipeline never demuxes the same video twice unless the cache is cleared or the media is modified.
 
 ---
 
-## 11-Stage Processing Pipeline
+## 12-Stage Processing Pipeline
 
 1. **dependency_check** – Validate runtime dependencies and model availability
 2. **preprocess** – Audio resampling and loudness alignment with optional denoising plus auto-chunking for long files
@@ -58,14 +60,15 @@ The preprocessing stack now lives under `src/diaremot/pipeline/preprocess/` with
 4. **diarize** – Speaker segmentation with adaptive VAD tuning, cosine-affinity spectral clustering to estimate speaker count, AHC refinement, and silhouette/dominance-based single-speaker collapse
    - The stage now wraps `pipeline.diar.diarize_audio` in a guarded try/except so transient ONNX/runtime errors fall back to the
      single-speaker assumption instead of bubbling a load-time exception.
-5. **transcribe** – Speech-to-text with intelligent batching
+5. **affect_audio** – Audio-only affect pass (V/A/D + SER8 + noise/SNR/SED overlaps) streamed directly after diarization so long runs keep interim affect columns even before ASR completes
+6. **transcribe** – Speech-to-text with intelligent batching
    - `Transcriber` façade (`pipeline/transcription_module.py`) wires backend detection, batching scheduler, and post-processing helpers in `pipeline/transcription/`
-6. **paralinguistics** – Voice quality and prosody extraction (skips automatically when transcription fails or no segments are available)
-7. **affect_and_assemble** – Emotion/intent analysis and segment assembly
-8. **overlap_interruptions** – Turn-taking and interruption pattern analysis (sweep-line \(\mathcal{O}(n \log n)\) boundary sweep)
-9. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation
-10. **speaker_rollups** – Per-speaker statistical summaries
-11. **outputs** – Generate CSV, JSON, HTML, PDF reports
+7. **paralinguistics** – Voice quality and prosody extraction (skips automatically when transcription fails or no segments are available)
+8. **affect_and_assemble** – Emotion/intent analysis and segment assembly
+9. **overlap_interruptions** – Turn-taking and interruption pattern analysis (sweep-line \(\mathcal{O}(n \log n)\) boundary sweep)
+10. **conversation_analysis** – Flow metrics and speaker dominance with vectorised pandas aggregation
+11. **speaker_rollups** – Per-speaker statistical summaries
+12. **outputs** – Generate CSV, JSON, HTML, PDF reports
 
 ### Diarization separation updates
 
@@ -108,25 +111,28 @@ Audio File (WAV/MP3/M4A)
 [4] diarize → Silero VAD + ECAPA embeddings + AHC clustering (single-speaker silhouette guard)
     ↓ {turns: [{start, end, speaker, speaker_name}], vad_unstable}
     ↓
-[5] transcribe → Faster-Whisper with intelligent batching
+[5] affect_audio → Audio-only affect (VAD+SER8+SED overlaps) streamed after diarization
+    ↓ {audio_affect: [{start, end, speaker, vad, speech_emotion, sed_overlaps}]}
+    ↓
+[6] transcribe → Faster-Whisper with intelligent batching
     ↓ {norm_tx: [{start, end, speaker, text, asr_logprob_avg}]}
     ↓
-[6] paralinguistics → Praat (jitter/shimmer/HNR/CPPS) + prosody (WPM/F0/pauses)
+[7] paralinguistics → Praat (jitter/shimmer/HNR/CPPS) + prosody (WPM/F0/pauses)
     ↓ {para_map: {seg_idx: {wpm, f0_mean_hz, vq_jitter_pct, ...}}}
     ↓
-[7] affect_and_assemble → Audio (VAD+SER8) + Text (GoEmotions+BART-MNLI) + SED context
+[8] affect_and_assemble → Audio (VAD+SER8) + Text (GoEmotions+BART-MNLI) + SED context
     ↓ {segments_final: 53 columns per segment}
     ↓
-[8] overlap_interruptions → Detect overlaps + classify interruptions with sweep-line \(\mathcal{O}(n \log n)\) analytics
+[9] overlap_interruptions → Detect overlaps + classify interruptions with sweep-line \(\mathcal{O}(n \log n)\) analytics
     ↓ {overlap_stats, per_speaker_interrupts}
     ↓
-[9] conversation_analysis → Turn-taking + dominance + flow metrics
+[10] conversation_analysis → Turn-taking + dominance + flow metrics
     ↓ {conv_metrics: ConversationMetrics}
     ↓
-[10] speaker_rollups → Aggregate per-speaker stats
+[11] speaker_rollups → Aggregate per-speaker stats
     ↓ {speakers_summary: [{speaker, duration, affect, voice_quality, ...}]}
     ↓
-[11] outputs → Write CSV/JSONL/HTML/PDF/QC reports
+[12] outputs → Write CSV/JSONL/HTML/PDF/QC reports
     ↓
 Output Files:
   • diarized_transcript_with_emotion.csv (53 columns)
@@ -144,7 +150,8 @@ Output Files:
 
 Transcription now emits provisional `diarized_transcript_with_emotion.csv`, `segments.jsonl`, `timeline.csv`, and
 `diarized_transcript_readable.txt` immediately after ASR completes so partial runs still produce a usable transcript. The
-`affect_and_assemble` stage rewrites those artifacts row-by-row while streaming affect and intent enrichment, keeping processed
+audio-only affect stage streams V/A/D + SER + SED/noise overlaps right after diarization; the
+`affect_and_assemble` stage rewrites those artifacts row-by-row while layering text emotion and intent enrichment, keeping processed
 segments on disk even if the run halts mid-stage. Headers are rechecked when appending so partially written CSV/timeline files
 remain schema-complete when a run is resumed.
 

@@ -18,6 +18,7 @@ PIPELINE_STAGES: list[StageDefinition] = [
     StageDefinition("preprocess", preprocess.run_preprocess),
     StageDefinition("background_sed", preprocess.run_background_sed),
     StageDefinition("diarize", diarize.run),
+    StageDefinition("affect_audio", affect.run_audio_affect),
     StageDefinition("transcribe", asr.run),
     StageDefinition("paralinguistics", paralinguistics.run),
     StageDefinition("affect_and_assemble", affect.run),
