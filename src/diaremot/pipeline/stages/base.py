@@ -25,6 +25,7 @@ class PipelineState:
     sed_info: dict[str, Any] | None = None
     tx_out: list[Any] = field(default_factory=list)
     norm_tx: list[dict[str, Any]] = field(default_factory=list)
+    audio_affect: list[dict[str, Any]] = field(default_factory=list)
     speakers_summary: list[dict[str, Any]] = field(default_factory=list)
     turns: list[dict[str, Any]] = field(default_factory=list)
     segments_final: list[dict[str, Any]] = field(default_factory=list)

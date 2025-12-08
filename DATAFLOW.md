@@ -45,17 +45,27 @@ Input Audio File
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Stage 5: transcribe                                          │
+│ Stage 5: affect_audio                                        │
+│ • Run audio-only affect immediately after diarization        │
+│ • Compute V/A/D (VAD_dim) + SER8 per turn                    │
+│ • Attach noise/SNR estimates and SED overlaps                │
+│ • Persist interim rows for partial runs/resume               │
+│ Output: audio_affect [{start, end, speaker, vad, ser8, sed}] │
+└─────────────────────────────────────────────────────────────┘
+      ↓
+┌─────────────────────────────────────────────────────────────┐
+│ Stage 6: transcribe                                          │
 │ • Batch turns into optimal ASR windows                       │
 │ • Run Faster-Whisper on each batch                           │
 │ • Extract text, timestamps, confidence scores                │
 │ • `Transcriber` façade coordinates backend loading and batch scheduling │
+│ • Merges audio-only affect rows into cached/fresh segments   │
 │ Output: norm_tx [{start, end, speaker_id, speaker_name,     │
 │         text, asr_logprob_avg, snr_db}]                      │
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Stage 6: paralinguistics                                     │
+│ Stage 7: paralinguistics                                     │
 │ • Extract Praat voice quality metrics per segment            │
 │   - Jitter, Shimmer, HNR, CPPS                               │
 │ • Compute prosody features                                   │
@@ -66,7 +76,7 @@ Input Audio File
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Stage 7: affect_and_assemble                                 │
+│ Stage 8: affect_and_assemble                                 │
 │ • For each segment:                                          │
 │   - Audio affect: VAD model → valence/arousal/dominance      │
 │   - Audio emotion: SER8 → 8-class emotion                    │
@@ -79,7 +89,7 @@ Input Audio File
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Stage 8: overlap_interruptions                               │
+│ Stage 9: overlap_interruptions                               │
 │ • Detect overlapping speech between speakers                 │
 │ • Classify interruptions (successful vs unsuccessful)        │
 │ • Compute per-speaker interrupt statistics                   │
@@ -87,7 +97,7 @@ Input Audio File
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Stage 9: conversation_analysis                               │
+│ Stage 10: conversation_analysis                              │
 │ • Compute turn-taking patterns                               │
 │ • Calculate speaker dominance scores                         │
 │ • Analyze conversation flow                                  │
@@ -95,7 +105,7 @@ Input Audio File
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Stage 10: speaker_rollups                                    │
+│ Stage 11: speaker_rollups                                    │
 │ • Aggregate per-speaker statistics:                          │
 │   - Total duration, word count, avg WPM                      │
 │   - Avg affect (valence, arousal, dominance)                 │
@@ -106,7 +116,7 @@ Input Audio File
 └─────────────────────────────────────────────────────────────┘
       ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ Stage 11: outputs                                            │
+│ Stage 12: outputs                                            │
 │ • Write CSV: diarized_transcript_with_emotion.csv            │
 │ • Write JSONL: segments.jsonl                                │
 │ • Write timeline: timeline.csv                               │
@@ -274,18 +284,55 @@ PipelineState:
 
 ---
 
-### Stage 5: transcribe
-**Input:** `state.turns`, `state.y`, `state.sr`  
+### Stage 5: affect_audio
+**Input:** `state.turns`, `state.y`, `state.sr`, `state.sed_info`
 **Process:**
-1. Convert turns to ASR segments with speaker info
-2. Batch short segments (<8s) into groups (target: 60s, max: 300s)
+1. For each diarization turn, extract the audio slice as a lightweight window.
+2. Run audio-only affect models (VAD_dim for V/A/D, SER8 for speech emotion).
+3. Intersect SED timeline events to compute noise tags, overlap counts/ratios, and coarse SNR estimates.
+4. Persist provisional CSV/timeline/readable artifacts immediately for partial runs/resume.
+
+**Output:**
+```python
+PipelineState:
+  audio_affect: list[dict]
+    [
+      {
+        "start": float,
+        "end": float,
+        "speaker_id": str,
+        "speaker_name": str,
+        "valence": float?,
+        "arousal": float?,
+        "dominance": float?,
+        "emotion_top": str,
+        "emotion_scores_json": str,
+        "noise_score": float?,
+        "timeline_overlap_count": int?,
+        "timeline_overlap_ratio": float?,
+        "events_top3_json": str,
+        "snr_db_sed": float?,
+        "noise_tag": str?,
+        "_affect_payload": dict,  # cached affect payload for reuse
+      },
+      ...,
+    ]
+```
+
+---
+
+### Stage 6: transcribe
+**Input:** `state.turns`, `state.y`, `state.sr`, `state.audio_affect`
+**Process:**
+1. Convert turns to ASR segments with speaker info.
+2. Batch short segments (<8s) into groups (target: 60s, max: 300s).
    - Managed by `create_batch_groups` in `pipeline/transcription/scheduler.py`
 3. For each batch/segment:
    - Extract audio chunk
    - Run Faster-Whisper ASR via the scheduler's async workers
    - Extract text, word timestamps, confidence (log prob)
-4. Normalize output format
-5. Save lightweight cache (tx.json) containing segment digests
+4. Normalize output format and attach any matching audio-affect rows.
+5. Save lightweight cache (tx.json) containing segment digests and stream provisional outputs.
 
 **Output:**
 ```python
@@ -301,8 +348,9 @@ PipelineState:
         "asr_logprob_avg": float # ASR confidence (avg log prob)
         "snr_db": float?,        # SNR estimate
         "error_flags": str       # Error markers (empty if OK)
+        "_audio_affect": dict?   # Matched audio-only affect row
       },
-      ...
+      ...,
     ]
 ```
 
@@ -322,7 +370,7 @@ PipelineState:
       "speaker_id": str?,   # Speaker identifier
       "speaker_name": str?, # Speaker display name
     },
-    ...
+    ...,
   ],
   "saved_at": float        # Unix timestamp
 }
@@ -330,7 +378,7 @@ PipelineState:
 
 ---
 
-### Stage 6: paralinguistics
+### Stage 7: paralinguistics
 **Input:** `state.norm_tx`, `state.y`, `state.sr`  
 **Process:**
 1. For each transcribed segment:
@@ -369,7 +417,7 @@ PipelineState:
 
 ---
 
-### Stage 7: affect_and_assemble
+### Stage 8: affect_and_assemble
 **Input:** `state.norm_tx`, `state.para_map`, `state.sed_info`, `state.y`, `state.sr`  
 **Process:**
 1. For each segment:
@@ -483,7 +531,7 @@ PipelineState:
 
 ---
 
-### Stage 8: overlap_interruptions
+### Stage 9: overlap_interruptions
 **Input:** `state.segments_final`  
 **Process:**
 1. Detect overlapping speech regions (start_A < start_B < end_A)
@@ -517,7 +565,7 @@ PipelineState:
 
 ---
 
-### Stage 9: conversation_analysis
+### Stage 10: conversation_analysis
 **Input:** `state.segments_final`, `state.overlap_stats`  
 **Process:**
 1. Compute turn-taking metrics:
@@ -541,7 +589,7 @@ PipelineState:
 
 ---
 
-### Stage 10: speaker_rollups
+### Stage 11: speaker_rollups
 **Input:** `state.segments_final`, `state.per_speaker_interrupts`, `state.overlap_stats`  
 **Process:**
 1. For each speaker:
@@ -582,7 +630,7 @@ PipelineState:
 
 ---
 
-### Stage 11: outputs
+### Stage 12: outputs
 **Input:** All state data  
 **Process:**
 1. Write primary CSV (53 columns, fixed order)

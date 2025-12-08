@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import shutil
 import tempfile
@@ -115,6 +116,27 @@ def run_preprocess(
             "warn",
             message=f"failed to save cache: {exc}",
         )
+
+    # Prefer a memory-mapped view of the cached audio to avoid holding the full
+    # waveform in RAM once heavier stages (ASR, affect) spin up additional
+    # models. This keeps RSS bounded on long files while retaining a consistent
+    # ndarray interface for downstream consumers.
+    if state.preprocessed_audio_path and not isinstance(state.y, np.memmap):
+        try:
+            mapped = np.load(state.preprocessed_audio_path, mmap_mode="r")
+            if state.preprocessed_num_samples is not None:
+                mapped = mapped[: int(state.preprocessed_num_samples)]
+            if mapped.dtype != np.float32:
+                mapped = mapped.astype(np.float32, copy=False)
+            # Drop the in-memory buffer to release RSS before returning.
+            state.y = mapped
+            gc.collect()
+        except Exception as exc:  # pragma: no cover - best effort safety net
+            pipeline.corelog.stage(
+                "preprocess",
+                "warn",
+                message=f"failed to memory-map cached audio: {exc}",
+            )
 
     # Load diar/tx caches
     _load_diar_tx_caches(pipeline, state, cache_dir, guard)
