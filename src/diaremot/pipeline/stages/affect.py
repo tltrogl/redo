@@ -21,7 +21,7 @@ from .base import PipelineState
 if TYPE_CHECKING:
     from ..orchestrator import AudioAnalysisPipelineV2
 
-__all__ = ["run"]
+__all__ = ["run", "run_audio_prepass"]
 
 
 @dataclass(slots=True)
@@ -164,6 +164,163 @@ def _load_timeline_events(sed_payload: dict[str, Any]) -> list[Any]:
     return []
 
 
+def _json_dumps_safe(payload: Any, fallback: str) -> str:
+    try:
+        return json.dumps(payload, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def run_audio_prepass(pipeline: AudioAnalysisPipelineV2, state: PipelineState) -> list[dict[str, Any]]:
+    """Optional audio-only affect pass. Does not write primary outputs."""
+
+    audio_rows: list[dict[str, Any]] = []
+
+    sed_payload = state.sed_info or {}
+    noise_score = None
+    timeline_event_count = None
+    timeline_mode = None
+    timeline_inference_mode = None
+    timeline_events_path = None
+    timeline_events: list[Any] = []
+    if isinstance(sed_payload, dict):
+        noise_score = sed_payload.get("noise_score")
+        try:
+            noise_score = float(noise_score) if noise_score is not None else None
+        except (TypeError, ValueError):
+            noise_score = None
+        timeline_event_count = sed_payload.get("timeline_event_count")
+        try:
+            timeline_event_count = int(timeline_event_count) if timeline_event_count is not None else None
+        except (TypeError, ValueError):
+            timeline_event_count = None
+        timeline_mode = sed_payload.get("timeline_mode")
+        timeline_inference_mode = sed_payload.get("timeline_inference_mode")
+        timeline_events_path = sed_payload.get("timeline_events_path")
+        if isinstance(sed_payload.get("timeline_events"), list):
+            timeline_events = sed_payload["timeline_events"]
+        else:
+            path_hint = sed_payload.get("timeline_events_path")
+            if path_hint:
+                try:
+                    count = int(sed_payload.get("timeline_event_count", 0) or 0)
+                    should_load = count > 0
+                except (TypeError, ValueError):
+                    should_load = True
+                if should_load:
+                    timeline_events = _load_timeline_events(sed_payload)
+    timeline_index = _build_timeline_index(timeline_events)
+
+    analyzer = getattr(pipeline, "affect", None)
+    if analyzer is None:
+        return audio_rows
+
+    audio_buffer = state.ensure_audio()
+    audio_windows = _SegmentAudioFactory(audio_buffer)
+
+    for idx, turn in enumerate(state.turns):
+        try:
+            start = float(turn.get("start", turn.get("start_time", 0.0)) or 0.0)
+            end = float(turn.get("end", turn.get("end_time", start)) or start)
+        except (TypeError, ValueError):
+            start, end = 0.0, 0.0
+
+        i0 = int(max(0.0, start) * state.sr)
+        i1 = int(max(0.0, end) * state.sr)
+        clip_window = audio_windows.segment(i0, i1)
+
+        try:
+            wav = clip_window.as_array(dtype=np.float32, copy=False)
+            speech_res = analyzer.analyze_audio(wav, state.sr)
+            vad_res = analyzer.analyze_vad_emotion(wav, state.sr)
+            speech_emotion = {
+                "top": speech_res.top,
+                "scores_8class": dict(speech_res.scores),
+                "low_confidence_ser": speech_res.low_confidence,
+            }
+            vad = {
+                "valence": vad_res.valence,
+                "arousal": vad_res.arousal,
+                "dominance": vad_res.dominance,
+            }
+        except Exception:
+            speech_emotion = {"top": "neutral", "scores_8class": {"neutral": 1.0}, "low_confidence_ser": True}
+            vad = {"valence": None, "arousal": None, "dominance": None}
+
+        speaker_id = turn.get("speaker_id") or turn.get("speaker") or f"Speaker_{idx+1}"
+
+        row: dict[str, Any] = {
+            "file_id": pipeline.stats.file_id,
+            "start": start,
+            "end": end,
+            "speaker_id": speaker_id,
+            "speaker_name": turn.get("speaker_name") or speaker_id,
+            "text": "",
+            "valence": vad.get("valence"),
+            "arousal": vad.get("arousal"),
+            "dominance": vad.get("dominance"),
+            "emotion_top": speech_emotion.get("top", "neutral"),
+            "emotion_scores_json": _json_dumps_safe(speech_emotion.get("scores_8class", {"neutral": 1.0}), "{}"),
+            "text_emotions_top5_json": "[]",
+            "text_emotions_full_json": "{}",
+            "intent_top": None,
+            "intent_top3_json": "[]",
+            "duration_s": max(0.0, end - start),
+            "words": 0,
+            "pause_ratio": 0.0,
+            "vad_unstable": bool(state.vad_unstable),
+            "low_confidence_ser": bool(speech_emotion.get("low_confidence_ser", False)),
+            "noise_score": noise_score,
+            "timeline_event_count": timeline_event_count or 0,
+            "timeline_mode": timeline_mode,
+            "timeline_inference_mode": timeline_inference_mode,
+            "timeline_events_path": timeline_events_path,
+            "noise_tag": sed_payload.get("dominant_label") if isinstance(sed_payload, dict) else None,
+        }
+
+        row["affect_hint"] = pipeline._affect_hint(
+            row.get("valence"), row.get("arousal"), row.get("dominance"), "status_update"
+        )
+
+        snr_db_sed = _estimate_snr_db_from_noise(noise_score)
+        events_top = []
+        if timeline_index is not None:
+            overlaps = _intersect_events(start, end, timeline_index)
+            if overlaps:
+                row["timeline_overlap_count"] = len(overlaps)
+                total_overlap = sum(float(item.get("overlap", 0.0)) for item in overlaps)
+                if row["duration_s"] > 0:
+                    row["timeline_overlap_ratio"] = max(0.0, min(1.0, total_overlap / row["duration_s"]))
+                events_top = _topk_by_overlap(overlaps, k=3)
+                snr_from_events = _estimate_snr_from_events(overlaps, max(1e-6, row["duration_s"]))
+                if snr_from_events is not None:
+                    snr_db_sed = snr_from_events
+            row["events_top3_json"] = _json_dumps_safe(events_top[:3], "[]")
+        elif sed_payload:
+            events_top = sed_payload.get("top") or []
+            row["events_top3_json"] = _json_dumps_safe(events_top[:3], "[]")
+
+        if snr_db_sed is not None:
+            row["snr_db_sed"] = snr_db_sed
+
+        row["_affect_payload"] = {
+            "speech_top": speech_emotion.get("top"),
+            "speech_scores": speech_emotion.get("scores_8class"),
+            "text_full": None,
+            "text_top": None,
+            "intent_top": None,
+            "intent_top3": None,
+            "vad": vad,
+        }
+
+        finalized = ensure_segment_keys(row)
+        audio_rows.append(finalized)
+        turn["_audio_affect"] = finalized
+
+    state.audio_affect = audio_rows
+    return audio_rows
+
+
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     segments_final: list[dict[str, Any]] = []
 
@@ -250,7 +407,52 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 clip_window = audio_windows.segment(max(0, i0), max(0, i1))
                 text = seg.get("text") or ""
 
-                aff = pipeline._affect_unified(clip_window, state.sr, text)
+                audio_base = seg.get("_audio_affect")
+                aff = None
+                vad: dict[str, Any] = {}
+                speech_emotion: dict[str, Any] = {}
+
+                if audio_base:
+                    payload = audio_base.get("_affect_payload", {})
+                    vad = payload.get("vad", {})
+                    speech_emotion = {
+                        "top": payload.get("speech_top", audio_base.get("emotion_top")),
+                        "scores_8class": payload.get("speech_scores"),
+                        "low_confidence_ser": audio_base.get("low_confidence_ser"),
+                    }
+
+                if not vad or not speech_emotion:
+                    aff = pipeline._affect_unified(clip_window, state.sr, text)
+                    vad = vad or aff.get("vad", {})
+                    speech_emotion = speech_emotion or aff.get("speech_emotion", {})
+
+                # Text affect / intent (avoid rerunning audio if we already have it)
+                text_emotions: dict[str, Any] = {}
+                intent: dict[str, Any] = {}
+                analyzer = getattr(pipeline, "affect", None)
+                if analyzer is not None:
+                    try:
+                        text_res = analyzer.analyze_text(text)
+                        text_emotions = {
+                            "top5": [dict(item) for item in text_res.top5],
+                            "full_28class": dict(text_res.full),
+                        }
+                    except Exception:
+                        text_emotions = {}
+                    try:
+                        intent_res = analyzer._intent_analyzer.infer(text)
+                        intent = {
+                            "top": intent_res.top,
+                            "top3": [dict(item) for item in intent_res.top3],
+                        }
+                    except Exception:
+                        intent = {}
+
+                if not text_emotions and aff is not None:
+                    text_emotions = aff.get("text_emotions", {})
+                if not intent and aff is not None:
+                    intent = aff.get("intent", {})
+
                 pm = state.para_metrics.get(idx, {})
 
                 tokens_payload = seg.get("asr_tokens")
@@ -294,11 +496,19 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     pause_ratio = (pause_time / duration_s) if duration_s > 0 else 0.0
                 pause_ratio = max(0.0, min(1.0, pause_ratio))
 
-                vad = aff.get("vad", {})
-                speech_emotion = aff.get("speech_emotion", {})
-                text_emotions = aff.get("text_emotions", {})
-                intent = aff.get("intent", {})
+                def _float_or_none(value: Any) -> float | None:
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        return None
 
+                valence = _float_or_none(vad.get("valence")) if vad else None
+                arousal = _float_or_none(vad.get("arousal")) if vad else None
+                dominance = _float_or_none(vad.get("dominance")) if vad else None
+
+                intent_top = intent.get("top", "status_update") if isinstance(intent, dict) else "status_update"
+
+                row_noise_score = audio_base.get("noise_score") if audio_base else noise_score
                 row = {
                     "file_id": pipeline.stats.file_id,
                     "start": start,
@@ -306,14 +516,12 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     "speaker_id": seg.get("speaker_id"),
                     "speaker_name": seg.get("speaker_name"),
                     "text": text,
-                    "valence": float(vad.get("valence", 0.0)) if vad.get("valence") is not None else None,
-                    "arousal": float(vad.get("arousal", 0.0)) if vad.get("arousal") is not None else None,
-                    "dominance": (
-                        float(vad.get("dominance", 0.0)) if vad.get("dominance") is not None else None
-                    ),
+                    "valence": valence,
+                    "arousal": arousal,
+                    "dominance": dominance,
                     "emotion_top": speech_emotion.get("top", "neutral"),
-                    "emotion_scores_json": json.dumps(
-                        speech_emotion.get("scores_8class", {"neutral": 1.0}), ensure_ascii=False
+                    "emotion_scores_json": _json_dumps_safe(
+                        speech_emotion.get("scores_8class", {"neutral": 1.0}), "{}"
                     ),
                     "text_emotions_top5_json": json.dumps(
                         text_emotions.get("top5", [{"label": "neutral", "score": 1.0}]),
@@ -322,17 +530,23 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     "text_emotions_full_json": json.dumps(
                         text_emotions.get("full_28class", {"neutral": 1.0}), ensure_ascii=False
                     ),
-                    "intent_top": intent.get("top", "status_update"),
+                    "intent_top": intent_top,
                     "intent_top3_json": json.dumps(intent.get("top3", []), ensure_ascii=False),
                     "low_confidence_ser": bool(speech_emotion.get("low_confidence_ser", False)),
                     "vad_unstable": bool(state.vad_unstable),
-                    "affect_hint": aff.get("affect_hint", "neutral-status"),
-                    "noise_tag": None,
-                    "noise_score": noise_score,
-                    "timeline_event_count": timeline_event_count,
-                    "timeline_mode": timeline_mode,
-                    "timeline_inference_mode": timeline_inference_mode,
-                    "timeline_events_path": timeline_events_path,
+                    "affect_hint": pipeline._affect_hint(valence, arousal, dominance, intent_top),
+                    "noise_tag": (audio_base or sed_payload or {}).get("dominant_label") if isinstance(sed_payload, dict) or audio_base else None,
+                    "noise_score": row_noise_score,
+                    "timeline_event_count": (
+                        audio_base.get("timeline_event_count") if audio_base else timeline_event_count
+                    ),
+                    "timeline_mode": audio_base.get("timeline_mode") if audio_base else timeline_mode,
+                    "timeline_inference_mode": (
+                        audio_base.get("timeline_inference_mode") if audio_base else timeline_inference_mode
+                    ),
+                    "timeline_events_path": (
+                        audio_base.get("timeline_events_path") if audio_base else timeline_events_path
+                    ),
                     "asr_logprob_avg": seg.get("asr_logprob_avg"),
                     "asr_confidence": seg.get("asr_confidence"),
                     "asr_language": seg.get("asr_language"),
@@ -360,8 +574,12 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     "error_flags": seg.get("error_flags", ""),
                 }
 
-                row["timeline_overlap_count"] = 0
-                row["timeline_overlap_ratio"] = 0.0
+                row["timeline_overlap_count"] = (
+                    audio_base.get("timeline_overlap_count", 0) if audio_base else 0
+                )
+                row["timeline_overlap_ratio"] = (
+                    audio_base.get("timeline_overlap_ratio", 0.0) if audio_base else 0.0
+                )
 
                 row["_affect_payload"] = {
                     "speech_top": speech_emotion.get("top"),
@@ -373,8 +591,13 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 }
 
                 events_top = []
-                snr_db_sed = None
-                if isinstance(sed_payload, dict) and sed_payload:
+                snr_db_sed = audio_base.get("snr_db_sed") if audio_base else None
+                if audio_base:
+                    try:
+                        events_top = json.loads(audio_base.get("events_top3_json", "[]"))
+                    except Exception:
+                        events_top = []
+                if not events_top and isinstance(sed_payload, dict) and sed_payload:
                     events_top = sed_payload.get("top") or []
                     row["noise_tag"] = sed_payload.get("dominant_label")
                     snr_db_sed = _estimate_snr_db_from_noise(sed_payload.get("noise_score"))

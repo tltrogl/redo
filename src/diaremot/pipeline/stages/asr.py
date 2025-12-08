@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import subprocess
 import time
 from typing import TYPE_CHECKING, Any
@@ -19,6 +20,33 @@ if TYPE_CHECKING:
     from ..orchestrator import AudioAnalysisPipelineV2
 
 __all__ = ["run"]
+
+
+def _lookup_audio_affect(audio_rows: list[dict[str, Any]], start: float, *, index: int) -> dict[str, Any] | None:
+    if index < len(audio_rows):
+        return audio_rows[index]
+    best: tuple[float, dict[str, Any]] | None = None
+    for row in audio_rows:
+        try:
+            rs = float(row.get("start", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        delta = abs(rs - start)
+        if best is None or delta < best[0]:
+            best = (delta, row)
+    if best and best[0] <= 0.75:
+        return best[1]
+    return None
+
+
+def _merge_audio_affect(norm_tx: list[dict[str, Any]], audio_rows: list[dict[str, Any]]) -> None:
+    if not audio_rows:
+        return
+    for i, seg in enumerate(norm_tx):
+        start = float(seg.get("start", 0.0) or 0.0)
+        audio_row = _lookup_audio_affect(audio_rows, start, index=i)
+        if audio_row:
+            seg["_audio_affect"] = audio_row
 
 
 def _placeholder_segment(seg: dict[str, Any]) -> Any:
@@ -162,7 +190,7 @@ def _digests_match(
     return True
 
 
-def _provisional_row(segment: dict[str, Any], file_id: str) -> dict[str, Any]:
+def _provisional_row(segment: dict[str, Any], file_id: str, audio_row: dict[str, Any] | None = None) -> dict[str, Any]:
     row: dict[str, Any] = {
         "file_id": file_id,
         "start": segment.get("start"),
@@ -187,6 +215,36 @@ def _provisional_row(segment: dict[str, Any], file_id: str) -> dict[str, Any]:
     except (TypeError, ValueError):
         row["asr_words_json"] = "[]"
 
+    if audio_row:
+        for key in (
+            "valence",
+            "arousal",
+            "dominance",
+            "emotion_top",
+            "emotion_scores_json",
+            "text_emotions_top5_json",
+            "text_emotions_full_json",
+            "intent_top",
+            "intent_top3_json",
+            "noise_score",
+            "timeline_event_count",
+            "timeline_mode",
+            "timeline_inference_mode",
+            "timeline_events_path",
+            "timeline_overlap_count",
+            "timeline_overlap_ratio",
+            "events_top3_json",
+            "snr_db_sed",
+            "noise_tag",
+        ):
+            value = audio_row.get(key)
+            if value not in (None, ""):
+                row[key] = value
+        row["low_confidence_ser"] = audio_row.get("low_confidence_ser", row.get("low_confidence_ser", False))
+        row["vad_unstable"] = audio_row.get("vad_unstable", row.get("vad_unstable", False))
+        if "affect_hint" in audio_row:
+            row["affect_hint"] = audio_row.get("affect_hint")
+
     return ensure_segment_keys(row)
 
 
@@ -202,7 +260,10 @@ def _write_provisional_outputs(
             mode="w",
         ) as writer:
             for idx, segment in enumerate(state.norm_tx, start=1):
-                writer.write_segment(_provisional_row(segment, pipeline.stats.file_id), index=idx)
+                writer.write_segment(
+                    _provisional_row(segment, pipeline.stats.file_id, segment.get("_audio_affect")),
+                    index=idx,
+                )
     except Exception as exc:  # pragma: no cover - best effort persistence
         pipeline.corelog.stage(
             "transcribe",
@@ -234,6 +295,24 @@ def _load_transcription_checkpoint(
 
 
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
+    prepass_on = (
+        os.getenv("DIAREMOT_AUDIO_AFFECT_PREPASS", "")
+        .strip()
+        .lower()
+        not in {"", "0", "false", "no", "off"}
+    )
+    if prepass_on and not state.audio_affect:
+        try:
+            from . import affect as affect_stage
+
+            state.audio_affect = affect_stage.run_audio_prepass(pipeline, state) or []
+        except Exception as exc:  # pragma: no cover - optional path
+            pipeline.corelog.stage(
+                "transcribe",
+                "warn",
+                message=f"[audio prepass] skipped: {exc}",
+            )
+
     if state.resume_tx and state.tx_cache and (state.tx_cache.get("segments") is not None):
         cached_segments = list(state.tx_cache.get("segments", []) or [])
         if cached_segments and isinstance(cached_segments[0], dict) and "digest" in cached_segments[0]:
@@ -254,6 +333,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     guard.done(segments=len(cached_segments))
                     state.tx_out = list(norm_tx)
                     state.norm_tx = norm_tx
+                    _merge_audio_affect(norm_tx, state.audio_affect)
                     pipeline.checkpoints.create_checkpoint(
                         state.input_audio_path,
                         ProcessingStage.TRANSCRIPTION,
@@ -274,6 +354,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             guard.done(segments=len(cached_segments))
 
             norm_tx = [_normalize_segment(segment) for segment in cached_segments]
+            _merge_audio_affect(norm_tx, state.audio_affect)
             state.tx_out = cached_segments
             state.norm_tx = norm_tx
 
@@ -352,6 +433,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     for segment in norm_tx:
         segment.setdefault("error_flags", "")
 
+    _merge_audio_affect(norm_tx, state.audio_affect)
     state.tx_out = tx_out
     state.norm_tx = norm_tx
 
