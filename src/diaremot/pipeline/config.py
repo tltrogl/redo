@@ -85,6 +85,8 @@ class PipelineConfig:
     temperature: float = 0.0
     no_speech_threshold: float = 0.60
     noise_reduction: bool = True
+    denoise_alpha_db: float = 3.0
+    denoise_beta: float = 0.06
     enable_sed: bool = True
     auto_chunk_enabled: bool = True
     chunk_threshold_minutes: float = 30.0
@@ -208,6 +210,8 @@ class PipelineConfig:
         _ensure_numeric_range("vad_threshold", self.vad_threshold, ge=0.0, le=1.0)
         _ensure_numeric_range("temperature", self.temperature, ge=0.0, le=1.0)
         _ensure_numeric_range("no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0)
+        _ensure_numeric_range("denoise_alpha_db", self.denoise_alpha_db, ge=0.0)
+        _ensure_numeric_range("denoise_beta", self.denoise_beta, ge=0.0, le=1.0)
         _ensure_numeric_range("vad_min_speech_sec", self.vad_min_speech_sec, ge=0.0)
         _ensure_numeric_range("vad_min_silence_sec", self.vad_min_silence_sec, ge=0.0)
         _ensure_numeric_range("vad_speech_pad_sec", self.vad_speech_pad_sec, ge=0.0)
