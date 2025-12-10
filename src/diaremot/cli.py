@@ -364,6 +364,8 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
         "temperature": kwargs.get("temperature"),
         "no_speech_threshold": kwargs.get("no_speech_threshold"),
         "noise_reduction": kwargs.get("noise_reduction"),
+        "denoise_alpha_db": kwargs.get("denoise_alpha_db"),
+        "denoise_beta": kwargs.get("denoise_beta"),
         "enable_sed": kwargs.get("enable_sed"),
         "auto_chunk_enabled": kwargs.get("chunk_enabled"),
         "chunk_threshold_minutes": kwargs.get("chunk_threshold_minutes"),
@@ -575,6 +577,12 @@ def run(
         help="Enable gentle noise reduction.",
         is_flag=True,
     ),
+    denoise_alpha_db: float = typer.Option(
+        3.0, help="Denoise over-subtraction factor in dB (higher = more aggressive)."
+    ),
+    denoise_beta: float = typer.Option(
+        0.06, help="Denoise spectral floor (lower = more reduction, higher = less artifacts)."
+    ),
     disable_sed: bool = typer.Option(
         False,
         "--disable-sed",
@@ -706,6 +714,8 @@ def run(
         "temperature": temperature,
         "no_speech_threshold": no_speech_threshold,
         "noise_reduction": noise_reduction,
+        "denoise_alpha_db": denoise_alpha_db,
+        "denoise_beta": denoise_beta,
         "chunk_enabled": chunk_enabled,
         "chunk_threshold_minutes": chunk_threshold_minutes,
         "chunk_size_minutes": chunk_size_minutes,
