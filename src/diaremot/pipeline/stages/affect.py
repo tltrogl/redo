@@ -397,12 +397,14 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     audio_windows = _SegmentAudioFactory(state.y)
     write_errors: list[str] = []
 
-    # Optional batching to bound peak memory during affect.
+    # Batch processing to bound peak memory during affect.
+    # Default batch size: 100 segments. Set DIAREMOT_AFFECT_BATCH=0 to disable or to a positive int to override.
     try:
-        batch_env = os.getenv("DIAREMOT_AFFECT_BATCH", "")
-        batch_size = int(batch_env) if batch_env and int(batch_env) > 0 else None
+        batch_env = os.getenv("DIAREMOT_AFFECT_BATCH", "100").strip()
+        batch_val = int(batch_env) if batch_env != "" else 100
+        batch_size = batch_val if batch_val > 0 else None
     except Exception:
-        batch_size = None
+        batch_size = 100
 
     try:
         with writer_cm as writer:
