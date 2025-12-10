@@ -104,8 +104,6 @@ class PipelineConfig:
     segment_timeout_sec: float = 300.0
     batch_timeout_sec: float = 1200.0
     cpu_diarizer: bool = False
-    # When true, prefer SED timeline events as diarization segment split points
-    diar_use_sed_timeline: bool = True
     # Prefer local model assets before any remote download/caching.
     local_first: bool = True
     validate_dependencies: bool = False
