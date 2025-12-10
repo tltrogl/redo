@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import gc
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -109,6 +110,20 @@ def run_preprocess(
             num_samples=result.num_samples,
         )
         guard.progress(f"saved cache to {(cache_dir / 'preprocessed_audio.npy').as_posix()}")
+
+        # Optimization: Switch to memory-mapped audio immediately to free RAM
+        if state.preprocessed_audio_path and state.preprocessed_audio_path.exists():
+            try:
+                # Force garbage collection of the in-memory array
+                del state.y
+                gc.collect()
+                
+                # Reload as mmap
+                state.y = np.load(state.preprocessed_audio_path, mmap_mode="r")
+                guard.progress("switched to memory-mapped audio")
+            except Exception as exc:
+                pipeline.corelog.stage("preprocess", "warn", message=f"failed to switch to mmap: {exc}")
+
     except Exception as exc:
         pipeline.corelog.stage(
             "preprocess",
