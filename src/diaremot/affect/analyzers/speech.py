@@ -76,10 +76,11 @@ class OnnxAudioEmotion:
         return {self._input_name: x}
 
     def __call__(self, y: np.ndarray, sr: int) -> tuple[str, dict[str, float]]:
+        # Trim first to avoid resampling very long segments into RAM.
+        y = trim_max_len(y, sr=sr, max_seconds=20.0)
         y = ensure_16k_mono(y, sr)
         if y.size == 0:
             return "neutral", {l: 1.0 / len(self.labels) for l in self.labels}
-        y = trim_max_len(y, sr=target_sample_rate(), max_seconds=20.0)
         out = None
         if self._input_rank < 4:
             try:

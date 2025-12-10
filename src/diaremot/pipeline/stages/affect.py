@@ -657,9 +657,17 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 if batch_size:
                     # Free per-segment temporaries promptly
                     del aff, vad, speech_emotion, text_emotions, intent, pm
-                if batch_size:
-                    import gc
-                    gc.collect()
+
+                # end inner loop
+                pass
+
+                # end batch
+                pass
+
+            # GC once per batch to reduce overhead
+            if batch_size:
+                import gc
+                gc.collect()
     except Exception as exc:  # pragma: no cover - ensure partial data persists
         pipeline.corelog.stage(
             "affect_and_assemble",

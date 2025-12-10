@@ -27,6 +27,12 @@ class OnnxVADEmotion:
             return 0.0, 0.0, 0.0
         if y.ndim > 1:
             y = np.mean(y, axis=1)
+        # Trim before any resampling to avoid huge allocations on long segments.
+        max_seconds = 20.0
+        if sr and sr > 0:
+            max_samples = int(max_seconds * sr)
+            if y.shape[0] > max_samples:
+                y = y[:max_samples]
         target_sr = target_sample_rate()
         try:
             import librosa  # type: ignore
