@@ -19,6 +19,8 @@ WINDOWS_CANONICAL_MODEL_ROOT: Final[Path] = Path("D:/models")
 LINUX_CACHE_BASE: Final[Path] = Path("/srv/.cache")
 WINDOWS_CACHE_BASE: Final[Path] = Path("D:/srv/.cache")
 WHISPER_FALLBACK_DIRS: Final[tuple[tuple[str, ...], ...]] = (
+    ("distil-large-v3",),
+    ("faster-whisper", "distil-large-v3"),
     ("tiny.en",),
     ("faster-whisper", "tiny.en"),
     ("ct2", "tiny.en"),
@@ -161,7 +163,9 @@ class PipelineEnvironment:
                     existing_path = None
                 if existing_path is not None:
                     try:
-                        if existing_path == target.resolve() or existing_path.is_relative_to(self.cache_root):
+                        if existing_path == target.resolve() or existing_path.is_relative_to(
+                            self.cache_root
+                        ):
                             continue
                     except AttributeError:
                         if str(existing_path).startswith(str(self.cache_root)):
@@ -217,7 +221,9 @@ class PipelineEnvironment:
             "xdg_cache": cache_root,
         }
 
-        env_model_root = _coerce_root(model_root) or _coerce_root(os.environ.get("DIAREMOT_MODEL_DIR"))
+        env_model_root = _coerce_root(model_root) or _coerce_root(
+            os.environ.get("DIAREMOT_MODEL_DIR")
+        )
         if env_model_root is None:
             env_model_root = _default_model_root()
         env_model_root = env_model_root.expanduser().resolve()

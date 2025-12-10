@@ -89,8 +89,8 @@ Each relative path above is resolved against every candidate model root until a 
 ### 8. Automatic Speech Recognition (Faster-Whisper)
 
 - **Purpose:** Transcribe diarised speech segments.
-- **Default model:** `faster-whisper-tiny.en` stored in the CTranslate2 format.
-- **Discovery:** The runtime searches `tiny.en/`, `faster-whisper/tiny.en/`, `ct2/tiny.en/` under each model root, then falls back to `~/whisper_models/tiny.en`. If nothing is present, CTranslate2 assets are downloaded into `HF_HOME`/`huggingface_hub` on demand.【F:src/diaremot/pipeline/runtime/environment.py†L12-L118】
+- **Default model:** `faster-whisper-distil-large-v3` stored in the CTranslate2 format.
+- **Discovery:** The runtime searches `distil-large-v3/`, `faster-whisper/distil-large-v3/`, `ct2/distil-large-v3/` under each model root, then falls back to `~/whisper_models/distil-large-v3`. If nothing is present, CTranslate2 assets are downloaded into `HF_HOME`/`huggingface_hub` on demand.【F:src/diaremot/pipeline/runtime/environment.py†L12-L118】
 - **Override:** Set `WHISPER_MODEL_PATH` (directory) or pass `--whisper-model` / `--model-root` via the CLI.
 
 ---

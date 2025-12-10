@@ -172,11 +172,11 @@ class ComponentFactoryMixin:
             transcriber_config = {
                 "model_size": str(cfg.get("whisper_model", DEFAULT_WHISPER_MODEL)),
                 "language": cfg.get("language", None),
-                "beam_size": cfg.get("beam_size", 1),
+                "beam_size": cfg.get("beam_size", 5),
                 "temperature": cfg.get("temperature", 0.0),
                 "compression_ratio_threshold": cfg.get("compression_ratio_threshold", 2.5),
                 "log_prob_threshold": cfg.get("log_prob_threshold", -1.0),
-                "no_speech_threshold": cfg.get("no_speech_threshold", 0.20),
+                "no_speech_threshold": cfg.get("no_speech_threshold", 0.60),
                 "condition_on_previous_text": cfg.get("condition_on_previous_text", False),
                 "word_timestamps": cfg.get("word_timestamps", True),
                 "max_asr_window_sec": cfg.get("max_asr_window_sec", 480),

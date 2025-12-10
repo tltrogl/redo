@@ -461,7 +461,7 @@ models/
 ├── goemotions-onnx/     # Text emotion ONNX bundle
 ├── panns/               # Sound event detection
 ├── ser8-onnx/           # Speech emotion ONNX bundle
-├── faster-whisper-tiny.en/  # Auto-downloaded on first transcription run
+├── faster-whisper-distil-large-v3/  # Auto-downloaded on first transcription run
 └── silero_vad.onnx      # Root-level Silero VAD file
 ```
 
@@ -484,7 +484,7 @@ PYTHONPATH=src \
     --enable-affect
 ```
 
-The first execution downloads Faster-Whisper (CTranslate2 tiny.en) and may reach
+The first execution downloads Faster-Whisper (CTranslate2 distil-large-v3) and may reach
 Hugging Face to fetch tokenizer metadata for BART. Subsequent runs are fully
 offline. Confirm that all 11 stages report `PASS` and review the `issues`
 section in the final JSON for optional warnings (e.g., missing VAD_dim).
@@ -582,14 +582,14 @@ D:/models/                                      # Windows default
 │                                              # Env:    DIAREMOT_INTENT_MODEL_DIR
 │
 └── faster-whisper/                             # ASR models (auto-downloaded)
-    └── models--Systran--faster-whisper-tiny.en/
-        └── tiny.en/                           # CTranslate2 format
+    └── models--Systran--faster-whisper-distil-large-v3/
+        └── distil-large-v3/                   # CTranslate2 format
             ├── config.json
-            ├── model.bin                      # ~40MB  | Whisper tiny.en quantized
+            ├── model.bin                      # ~1.5GB | Whisper distil-large-v3 quantized
             ├── tokenizer.json
             └── vocabulary.txt
                                                # Auto-download location: HF_HOME/hub/
-                                               # Models: tiny.en, base.en, small.en, medium.en, large-v2
+                                               # Models: distil-large-v3, large-v3, medium.en, etc.
 ```
 
 ### Critical Notes on Model Files
@@ -665,10 +665,10 @@ export DIAREMOT_MODEL_DIR="D:/models"
 ### CTranslate2 Models (Auto-downloaded)
 
 Faster-Whisper models auto-download on first use:
-- **Default**: `faster-whisper-tiny.en` (39 MB)
+- **Default**: `faster-whisper-distil-large-v3` (~1.5 GB)
 - **Location**: `$HF_HOME/hub/models--Systran--faster-whisper-{MODEL}/`
 - **Supported compute types**: `float32`, `int8`, `int8_float16`
-- **Available models**: tiny.en, base.en, small.en, medium.en, large-v2
+- **Available models**: distil-large-v3, large-v3, medium.en, small.en, base.en, tiny.en
 
 ### PyTorch Fallback Models
 
@@ -795,7 +795,7 @@ from diaremot.pipeline.audio_pipeline_core import run_pipeline, build_pipeline_c
 
 # Configure pipeline
 config = build_pipeline_config({
-    "whisper_model": "faster-whisper-tiny.en",
+    "whisper_model": "faster-whisper-distil-large-v3",
     "asr_backend": "faster",
     "compute_type": "int8",
     "vad_threshold": 0.35,

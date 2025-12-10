@@ -115,7 +115,7 @@ PIPELINE_STAGES = [
 ## Technology Stack
 
 ### Core Runtime
-- **Python:** 3.11-3.12 (3.13+ not supported yet)
+- **Python:** 3.11 or 3.12 (3.13+ not supported yet)
 - **ONNXRuntime:** ≥1.17 (primary inference)
 - **PyTorch:** 2.x CPU-only (fallback only)
 
@@ -319,7 +319,7 @@ D:/models/
 **Source:** `src/diaremot/pipeline/config.py::PipelineConfig`
 
 **Important defaults:**
-- `whisper_model`: `"faster-whisper-tiny.en"`
+- `whisper_model`: `"faster-whisper-distil-large-v3"`
 - `compute_type`: `"float32"` (CLI default, NOT int8)
 - `asr_backend`: `"faster"`
 - `vad_threshold`: `0.35` (orchestrator override, NOT CLI's 0.30)

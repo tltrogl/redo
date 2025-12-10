@@ -65,7 +65,7 @@ class PipelineConfig:
     single_speaker_secondary_min_duration_sec: float | None = (
         DiarizationConfig.single_speaker_secondary_min_duration_sec
     )
-    whisper_model: str = "tiny.en"
+    whisper_model: str = "distil-large-v3"
     asr_backend: str = "faster"
     compute_type: str = "int8"
     cpu_threads: int = 1
@@ -81,9 +81,9 @@ class PipelineConfig:
     affect_ser_model_dir: Path | None = None
     affect_vad_model_dir: Path | None = None
     affect_analyzer_threads: int | None = None
-    beam_size: int = 4
+    beam_size: int = 5
     temperature: float = 0.0
-    no_speech_threshold: float = 0.20
+    no_speech_threshold: float = 0.60
     noise_reduction: bool = True
     enable_sed: bool = True
     auto_chunk_enabled: bool = True
@@ -234,9 +234,7 @@ class PipelineConfig:
             and int(self.min_speakers) > int(self.max_speakers)
         ):
             raise ValueError("min_speakers must be <= max_speakers")
-        _ensure_numeric_range(
-            "spectral_p_percentile", self.spectral_p_percentile, ge=0.0, le=1.0
-        )
+        _ensure_numeric_range("spectral_p_percentile", self.spectral_p_percentile, ge=0.0, le=1.0)
         _ensure_numeric_range(
             "spectral_silhouette_floor", self.spectral_silhouette_floor, ge=0.0, le=1.0
         )

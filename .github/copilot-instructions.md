@@ -20,7 +20,7 @@ DiaRemot is a production-ready, CPU-only speech intelligence system (v2.2.0) tha
 11. **outputs** – Generate CSV, JSON, HTML, PDF reports
 
 ### Key Technologies
-- **Python 3.11** (strict requirement, 3.13+ not yet supported)
+- **Python 3.11 or 3.12** (3.13+ not yet supported)
 - **ONNXRuntime** for all ML models (CPU-only, never use PyTorch fallbacks)
 - **Faster-Whisper** (CTranslate2) for ASR
 - **Silero VAD** + **ECAPA-TDNN** embeddings for diarization

@@ -17,7 +17,7 @@ This contract applies to autonomous Codex agents running DiaRemot in the cloud. 
 ## 2) Environment Assumptions (Hard Requirements)
 
 - **OS:** Linux container/VM; treat the environment as **ephemeral and reproducible**.
-- **Python:** **3.11** exactly. Create/activate a local venv.
+- **Python:** **3.11 or 3.12**. Create/activate a local venv.
 - **CPU-only:** Use **ONNXRuntime** models where defined; **never** fall back to PyTorch or other runtimes.
 - **System tools:** `ffmpeg` must be available on `PATH`.
 - **Network:** **Allowed.** Use it for package/model downloads as needed.
@@ -32,9 +32,9 @@ Run these commands at task start (or during environment setup). They must succee
 ```bash
 set -euo pipefail
 
-# 3.1 Python environment (exact version)
-python3.11 -V
-python3.11 -m venv .venv
+# 3.1 Python environment (3.11 or 3.12)
+python3 --version
+python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -U pip wheel setuptools
 
@@ -91,7 +91,7 @@ mkdir -p "$HF_HOME" "$TRANSFORMERS_CACHE"
 
 ```bash
 set -euo pipefail
-[ -d .venv ] || python3.11 -m venv .venv
+[ -d .venv ] || python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -U pip wheel setuptools
 [ -f requirements.txt ] && pip install -r requirements.txt || true
@@ -151,7 +151,7 @@ python -m diaremot.cli smoke \
   --enable-affect \
   | tee "$OUTDIR/manifest.json"
 
-python3.11 - <<'PY'
+python3 - <<'PY'
 import csv, json, pathlib, sys
 outdir = pathlib.Path("/tmp/smoke_strict")
 manifest_path = outdir / "manifest.json"
@@ -183,7 +183,11 @@ EXPECTED_COLUMNS = [
     "pause_ratio","low_confidence_ser","vad_unstable","affect_hint",
     "pause_count","pause_time_s","f0_mean_hz","f0_std_hz","loudness_rms",
     "disfluency_count","error_flags","vq_jitter_pct","vq_shimmer_db",
-    "vq_hnr_db","vq_cpps_db","voice_quality_hint"
+    "vq_hnr_db","vq_cpps_db","voice_quality_hint","noise_score",
+    "timeline_event_count","timeline_mode","timeline_inference_mode",
+    "timeline_overlap_count","timeline_overlap_ratio","timeline_events_path",
+    "asr_confidence","asr_language","asr_tokens_json","asr_words_json",
+    "vq_voiced_ratio","vq_spectral_slope_db","vq_reliable"
 ]
 missing = [c for c in EXPECTED_COLUMNS if c not in header]
 if missing or len(header) != len(EXPECTED_COLUMNS):

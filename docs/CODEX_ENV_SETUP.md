@@ -99,7 +99,7 @@ behaviour across runs.
        --model-root ./models \
        --enable-affect
    ```
-2. The first execution pulls Faster-Whisper tiny.en (CTranslate2) and may fetch
+2. The first execution pulls Faster-Whisper distil-large-v3 (CTranslate2) and may fetch
    tokenizer metadata from Hugging Face. Subsequent runs are offline.
 3. Confirm all 11 pipeline stages report `PASS` in the smoke summary and that
    `/tmp/smoke_test/` contains the CSV/JSON/HTML/PDF artefacts.

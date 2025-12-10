@@ -11,7 +11,6 @@ from typing import Any
 
 from diaremot.pipeline.config import PipelineConfig
 
-
 # Parameter metadata for UI rendering
 PARAMETER_METADATA: dict[str, dict[str, Any]] = {
     # Diarization
@@ -144,6 +143,7 @@ PARAMETER_METADATA: dict[str, dict[str, Any]] = {
         "group": "transcription",
         "ui_type": "select",
         "options": [
+            "distil-large-v3",
             "tiny.en",
             "tiny",
             "base.en",
@@ -689,7 +689,7 @@ def _get_builtin_presets() -> dict[str, dict[str, Any]]:
             "name": "Accurate",
             "description": "Optimized for accuracy with larger models and beam search",
             "overrides": {
-                "whisper_model": "medium.en",
+                "whisper_model": "distil-large-v3",
                 "compute_type": "float32",
                 "beam_size": 4,
                 "temperature": 0.0,
