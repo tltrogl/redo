@@ -1,18 +1,18 @@
 {
-  "run_id": "20251122-123844-285cc7",
+  "run_id": "20251209-221614-8c5de7",
   "file_id": "diaremot_smoke_input.wav",
   "schema_version": "2.0.0",
   "stage_timings_ms": {
-    "dependency_check": 6.071805953979492,
-    "preprocess": 20130.13529777527,
-    "background_sed": 2271.008014678955,
-    "diarize": 3766.4389610290527,
-    "transcribe": 132334.78140830994,
-    "paralinguistics": 1817.694902420044,
-    "affect_and_assemble": 225440.48857688904,
-    "overlap_interruptions": 26.259422302246094,
-    "conversation_analysis": 77.6519775390625,
-    "speaker_rollups": 37.096261978149414
+    "dependency_check": 3.2389163970947266,
+    "preprocess": 9346.76218032837,
+    "background_sed": 6541.738510131836,
+    "diarize": 3010.1091861724854,
+    "transcribe": 83709.0048789978,
+    "paralinguistics": 1281.1353206634521,
+    "affect_and_assemble": 279830.25670051575,
+    "overlap_interruptions": 3.997325897216797,
+    "conversation_analysis": 81.63666725158691,
+    "speaker_rollups": 7.000446319580078
   },
   "stage_counts": {
     "dependency_check": {
@@ -26,10 +26,10 @@
       "speakers_est": 2
     },
     "transcribe": {
-      "segments": 1
+      "segments": 2
     },
     "paralinguistics": {
-      "count": 1
+      "count": 2
     },
     "affect_and_assemble": {
       "segments": 1
@@ -54,7 +54,7 @@
     "registry_path": "D:/dia/diaremot2-on/speaker_registry.json",
     "ahc_distance_threshold": 0.45,
     "whisper_model": "tiny.en",
-    "beam_size": 1,
+    "beam_size": 4,
     "temperature": 0.0,
     "no_speech_threshold": 0.2,
     "intent_labels": null,
@@ -91,15 +91,23 @@
       "tagger_available": true,
       "tagger_error": null,
       "enabled": true,
-      "timeline_event_count": 0,
-      "timeline_total_duration": 0.0,
-      "timeline_total_weight": 0.0,
-      "timeline_label_durations": {},
-      "timeline_label_mean_scores": {},
-      "timeline_status": "skipped:mode_global",
+      "timeline_csv": "D:\\dia\\diaremot2-on\\smoke_output\\events_timeline.csv",
+      "timeline_jsonl": null,
+      "timeline_mode": "auto",
+      "timeline_inference_mode": "waveform",
+      "timeline_event_count": 1,
+      "timeline_events_path": ".cache\\ebaf298421e899f7af8a85280bc52bd3\\sed.timeline_events.json",
+      "timeline_total_duration": 3.0,
+      "timeline_total_weight": 1.174389123916626,
+      "timeline_label_durations": {
+        "Sine wave": 3.0
+      },
+      "timeline_label_mean_scores": {
+        "Sine wave": 0.391463041305542
+      },
+      "timeline_status": "generated",
       "timeline_error": null,
       "timeline_artifacts_root": "D:\\dia\\diaremot2-on\\smoke_output",
-      "timeline_events_path": null,
       "timeline_artifacts_stale": false
     },
     "overlap_available": false
@@ -115,9 +123,9 @@
     "segments": 1
   },
   "voice_quality_summary": {
-    "vq_jitter_pct_avg": 0.0002529821257290956,
-    "vq_shimmer_db_avg": 0.00030742537846332313,
-    "vq_hnr_db_avg": 77.65505577711421,
-    "vq_cpps_db_avg": 75.65505577711421
+    "vq_jitter_pct_avg": 0.00026781972845275247,
+    "vq_shimmer_db_avg": 0.00031513030174379385,
+    "vq_hnr_db_avg": 77.69815688676684,
+    "vq_cpps_db_avg": 75.69815688676684
   }
 }

@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import math
 import os
+import shutil
 from bisect import bisect_left
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from contextlib import nullcontext
-import shutil
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -43,7 +43,9 @@ class _SegmentAudioWindow:
     def __post_init__(self) -> None:
         total = int(self._source.shape[0])
         if not (0 <= self.start <= total and 0 <= self.end <= total):
-            raise ValueError(f"Invalid range [{self.start}, {self.end}) for array of length {total}")
+            raise ValueError(
+                f"Invalid range [{self.start}, {self.end}) for array of length {total}"
+            )
         if self.end < self.start:
             raise ValueError(f"end ({self.end}) cannot be less than start ({self.start})")
 
@@ -76,7 +78,9 @@ class _SegmentAudioWindow:
             return None
         return self._memory[self.start : self.end]
 
-    def __array__(self, dtype: np.dtype | None = None) -> np.ndarray:  # pragma: no cover - exercised implicitly
+    def __array__(
+        self, dtype: np.dtype | None = None
+    ) -> np.ndarray:  # pragma: no cover - exercised implicitly
         return self.as_array(dtype=dtype, copy=False)
 
 
@@ -171,7 +175,9 @@ def _json_dumps_safe(payload: Any, fallback: str) -> str:
         return fallback
 
 
-def run_audio_prepass(pipeline: AudioAnalysisPipelineV2, state: PipelineState) -> list[dict[str, Any]]:
+def run_audio_prepass(
+    pipeline: AudioAnalysisPipelineV2, state: PipelineState
+) -> list[dict[str, Any]]:
     """Optional audio-only affect pass. Does not write primary outputs."""
 
     audio_rows: list[dict[str, Any]] = []
@@ -191,7 +197,9 @@ def run_audio_prepass(pipeline: AudioAnalysisPipelineV2, state: PipelineState) -
             noise_score = None
         timeline_event_count = sed_payload.get("timeline_event_count")
         try:
-            timeline_event_count = int(timeline_event_count) if timeline_event_count is not None else None
+            timeline_event_count = (
+                int(timeline_event_count) if timeline_event_count is not None else None
+            )
         except (TypeError, ValueError):
             timeline_event_count = None
         timeline_mode = sed_payload.get("timeline_mode")
@@ -244,7 +252,11 @@ def run_audio_prepass(pipeline: AudioAnalysisPipelineV2, state: PipelineState) -
                 "dominance": vad_res.dominance,
             }
         except Exception:
-            speech_emotion = {"top": "neutral", "scores_8class": {"neutral": 1.0}, "low_confidence_ser": True}
+            speech_emotion = {
+                "top": "neutral",
+                "scores_8class": {"neutral": 1.0},
+                "low_confidence_ser": True,
+            }
             vad = {"valence": None, "arousal": None, "dominance": None}
 
         speaker_id = turn.get("speaker_id") or turn.get("speaker") or f"Speaker_{idx+1}"
@@ -260,7 +272,9 @@ def run_audio_prepass(pipeline: AudioAnalysisPipelineV2, state: PipelineState) -
             "arousal": vad.get("arousal"),
             "dominance": vad.get("dominance"),
             "emotion_top": speech_emotion.get("top", "neutral"),
-            "emotion_scores_json": _json_dumps_safe(speech_emotion.get("scores_8class", {"neutral": 1.0}), "{}"),
+            "emotion_scores_json": _json_dumps_safe(
+                speech_emotion.get("scores_8class", {"neutral": 1.0}), "{}"
+            ),
             "text_emotions_top5_json": "[]",
             "text_emotions_full_json": "{}",
             "intent_top": None,
@@ -275,7 +289,9 @@ def run_audio_prepass(pipeline: AudioAnalysisPipelineV2, state: PipelineState) -
             "timeline_mode": timeline_mode,
             "timeline_inference_mode": timeline_inference_mode,
             "timeline_events_path": timeline_events_path,
-            "noise_tag": sed_payload.get("dominant_label") if isinstance(sed_payload, dict) else None,
+            "noise_tag": sed_payload.get("dominant_label")
+            if isinstance(sed_payload, dict)
+            else None,
         }
 
         row["affect_hint"] = pipeline._affect_hint(
@@ -290,7 +306,9 @@ def run_audio_prepass(pipeline: AudioAnalysisPipelineV2, state: PipelineState) -
                 row["timeline_overlap_count"] = len(overlaps)
                 total_overlap = sum(float(item.get("overlap", 0.0)) for item in overlaps)
                 if row["duration_s"] > 0:
-                    row["timeline_overlap_ratio"] = max(0.0, min(1.0, total_overlap / row["duration_s"]))
+                    row["timeline_overlap_ratio"] = max(
+                        0.0, min(1.0, total_overlap / row["duration_s"])
+                    )
                 events_top = _topk_by_overlap(overlaps, k=3)
                 snr_from_events = _estimate_snr_from_events(overlaps, max(1e-6, row["duration_s"]))
                 if snr_from_events is not None:
@@ -524,7 +542,11 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                 arousal = _float_or_none(vad.get("arousal")) if vad else None
                 dominance = _float_or_none(vad.get("dominance")) if vad else None
 
-                intent_top = intent.get("top", "status_update") if isinstance(intent, dict) else "status_update"
+                intent_top = (
+                    intent.get("top", "status_update")
+                    if isinstance(intent, dict)
+                    else "status_update"
+                )
 
                 row_noise_score = audio_base.get("noise_score") if audio_base else noise_score
                 row = {
@@ -553,17 +575,27 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                     "low_confidence_ser": bool(speech_emotion.get("low_confidence_ser", False)),
                     "vad_unstable": bool(state.vad_unstable),
                     "affect_hint": pipeline._affect_hint(valence, arousal, dominance, intent_top),
-                    "noise_tag": (audio_base or sed_payload or {}).get("dominant_label") if isinstance(sed_payload, dict) or audio_base else None,
+                    "noise_tag": (audio_base or sed_payload or {}).get("dominant_label")
+                    if isinstance(sed_payload, dict) or audio_base
+                    else None,
                     "noise_score": row_noise_score,
                     "timeline_event_count": (
-                        audio_base.get("timeline_event_count") if audio_base else timeline_event_count
+                        audio_base.get("timeline_event_count")
+                        if audio_base
+                        else timeline_event_count
                     ),
-                    "timeline_mode": audio_base.get("timeline_mode") if audio_base else timeline_mode,
+                    "timeline_mode": audio_base.get("timeline_mode")
+                    if audio_base
+                    else timeline_mode,
                     "timeline_inference_mode": (
-                        audio_base.get("timeline_inference_mode") if audio_base else timeline_inference_mode
+                        audio_base.get("timeline_inference_mode")
+                        if audio_base
+                        else timeline_inference_mode
                     ),
                     "timeline_events_path": (
-                        audio_base.get("timeline_events_path") if audio_base else timeline_events_path
+                        audio_base.get("timeline_events_path")
+                        if audio_base
+                        else timeline_events_path
                     ),
                     "asr_logprob_avg": seg.get("asr_logprob_avg"),
                     "asr_confidence": seg.get("asr_confidence"),
@@ -668,6 +700,7 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             # GC once per batch to reduce overhead
             if batch_size:
                 import gc
+
                 gc.collect()
     except Exception as exc:  # pragma: no cover - ensure partial data persists
         pipeline.corelog.stage(
@@ -811,7 +844,9 @@ def _topk_by_overlap(overlaps: list[dict[str, Any]], *, k: int) -> list[dict[str
     aggregates: dict[str, dict[str, float | str]] = {}
     for item in overlaps:
         label = str(item.get("label", "unknown"))
-        slot = aggregates.setdefault(label, {"label": label, "overlap": 0.0, "weight": 0.0, "score": 0.0})
+        slot = aggregates.setdefault(
+            label, {"label": label, "overlap": 0.0, "weight": 0.0, "score": 0.0}
+        )
         overlap = float(item.get("overlap", 0.0))
         weight = float(item.get("weight", 0.0))
         slot["overlap"] = float(slot["overlap"]) + overlap

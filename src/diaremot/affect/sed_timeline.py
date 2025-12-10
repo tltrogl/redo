@@ -102,11 +102,12 @@ def run_sed_timeline(
 
     class_map = _load_classmap(cfg.get("classmap_csv"))
 
-    y = np.asarray(audio_16k, dtype=np.float32)
-    y32, sr32 = _resample_to_sr(y, sr, target=32000)
-    logmel, feat_info = _compute_logmel(y32, sr32)
+    # Use streamed logmel computation to avoid loading full audio into RAM
+    # and to avoid creating a full 32kHz copy (which can be huge).
+    logmel, feat_info = _compute_logmel_streamed(audio_16k, sr, target_sr=32000)
+
     frame_times, window_audio, mel_windows = _prepare_windows(
-        y32, logmel, feat_info, window_sec, hop_sec
+        audio_16k, logmel, feat_info, window_sec, hop_sec, source_sr=sr
     )
     if not frame_times or (not window_audio and not mel_windows):
         logger.info("[sed.timeline] no analysis windows generated; skipping")
@@ -321,6 +322,49 @@ def _load_classmap(path_value: Any) -> dict[str, str]:
     return mapping
 
 
+def _compute_logmel_streamed(
+    audio: np.ndarray, sr: int, target_sr: int = 32000, chunk_sec: float = 60.0
+) -> tuple[np.ndarray, _FeatureInfo]:
+    total_samples = audio.shape[0]
+    if total_samples == 0:
+        return _compute_logmel(np.array([], dtype=np.float32), target_sr)
+
+    chunk_samples = int(chunk_sec * sr)
+    logmels = []
+
+    cursor = 0
+    while cursor < total_samples:
+        end = min(cursor + chunk_samples, total_samples)
+        chunk = audio[cursor:end]
+        if hasattr(chunk, "astype"):
+            chunk = chunk.astype(np.float32)
+        else:
+            chunk = np.asarray(chunk, dtype=np.float32)
+
+        chunk_32k, _ = _resample_to_sr(chunk, sr, target=target_sr)
+        lm, _ = _compute_logmel(chunk_32k, target_sr)
+        logmels.append(lm)
+        cursor = end
+
+    if not logmels:
+        return _compute_logmel(np.array([], dtype=np.float32), target_sr)
+
+    full_logmel = np.vstack(logmels)
+
+    n_fft = 1024
+    hop_length = 320
+    win_length = 1024
+
+    info = _FeatureInfo(
+        sr=target_sr,
+        hop_length=hop_length,
+        win_length=win_length,
+        total_frames=int(full_logmel.shape[0]),
+        total_samples=int(total_samples * target_sr / sr),
+    )
+    return full_logmel, info
+
+
 def _resample_to_sr(audio: np.ndarray, sr: int, *, target: int) -> tuple[np.ndarray, int]:
     if sr == target:
         return audio.astype(np.float32), sr
@@ -490,25 +534,55 @@ class _LazyWaveformWindows(Sequence[np.ndarray]):
         sample_window: int,
         hop_length: int,
         sr: int,
+        source_sr: int | None = None,
     ) -> None:
-        self._audio = np.asarray(audio, dtype=np.float32)
+        self._audio = audio
         self._starts = start_indices
         self._sample_window = int(sample_window)
         self._hop = int(hop_length)
         self._sr = int(sr)
+        self._source_sr = int(source_sr) if source_sr else self._sr
 
     def __len__(self) -> int:  # pragma: no cover - trivial
         return len(self._starts)
 
     def _get_one(self, idx: int) -> np.ndarray:
         start_idx = int(self._starts[idx])
-        sample_start = int(start_idx * self._hop)
-        sample_end = sample_start + self._sample_window
-        clip = self._audio[sample_start:sample_end]
-        pad = self._sample_window - clip.shape[0]
-        if pad > 0:
-            clip = np.pad(clip, (0, pad))
-        return np.asarray(clip, dtype=np.float32)
+        target_sample_start = int(start_idx * self._hop)
+        target_sample_end = target_sample_start + self._sample_window
+
+        if self._source_sr == self._sr:
+            clip = self._audio[target_sample_start:target_sample_end]
+            if hasattr(clip, "astype"):
+                clip = clip.astype(np.float32)
+            else:
+                clip = np.asarray(clip, dtype=np.float32)
+            pad = self._sample_window - clip.shape[0]
+            if pad > 0:
+                clip = np.pad(clip, (0, pad))
+            return clip
+
+        # Resampling case
+        ratio = self._source_sr / self._sr
+        src_start = int(target_sample_start * ratio)
+        src_len = int(self._sample_window * ratio)
+
+        # Fetch slightly more to avoid edge artifacts if possible, but keep it simple for now
+        clip = self._audio[src_start : src_start + src_len]
+        if hasattr(clip, "astype"):
+            clip = clip.astype(np.float32)
+        else:
+            clip = np.asarray(clip, dtype=np.float32)
+
+        clip_resampled, _ = _resample_to_sr(clip, self._source_sr, target=self._sr)
+
+        if clip_resampled.shape[0] < self._sample_window:
+            pad = self._sample_window - clip_resampled.shape[0]
+            clip_resampled = np.pad(clip_resampled, (0, pad))
+        elif clip_resampled.shape[0] > self._sample_window:
+            clip_resampled = clip_resampled[: self._sample_window]
+
+        return clip_resampled
 
     def __getitem__(self, key: int | slice) -> np.ndarray | list[np.ndarray]:
         if isinstance(key, slice):
@@ -588,6 +662,7 @@ def _prepare_windows(
     info: _FeatureInfo,
     window_sec: float,
     hop_sec: float,
+    source_sr: int | None = None,
 ) -> tuple[list[tuple[float, float]], Sequence[np.ndarray], Sequence[np.ndarray]]:
     if audio.size == 0 or info.total_frames == 0 or info.sr <= 0:
         return [], [], []
@@ -620,6 +695,7 @@ def _prepare_windows(
         sample_window=sample_window,
         hop_length=info.hop_length,
         sr=info.sr,
+        source_sr=source_sr,
     )
     mel_windows: Sequence[np.ndarray] = _LazyMelWindows(
         logmel,

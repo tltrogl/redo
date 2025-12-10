@@ -28,7 +28,7 @@ class DiarizationConfig:
     spectral_p_percentile: float = 0.90
     spectral_min_speakers: int | None = 2
     spectral_max_speakers: int | None = 6
-    spectral_silhouette_floor: float = 0.10
+    spectral_silhouette_floor: float = 0.01  # Lowered from 0.10 to allow weaker spectral clusters
     spectral_refine_with_ahc: bool = True
     collar_sec: float = 0.25
     min_turn_sec: float = 1.50
@@ -46,8 +46,8 @@ class DiarizationConfig:
     # Split long VAD regions to avoid collapsing an entire recording into one turn.
     max_vad_region_sec: float = 45.0
     vad_region_overlap_sec: float = 0.50
-    single_speaker_collapse: bool = True
-    single_speaker_dominance: float = 0.88
+    single_speaker_collapse: bool = False  # Disabled by default to prevent incorrect merging
+    single_speaker_dominance: float = 0.96  # Increased from 0.88 to protect minority speakers
     single_speaker_centroid_threshold: float = 0.20
     single_speaker_min_turns: int = 3
     single_speaker_secondary_min_duration_sec: float | None = 1.5

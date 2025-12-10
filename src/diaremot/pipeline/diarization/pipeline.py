@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import os
 import threading
 import time
@@ -322,7 +321,7 @@ class SpeakerDiarizer:
         if sr != self.config.target_sr:
             wav = scipy.signal.resample_poly(wav, self.config.target_sr, sr).astype(np.float32)
             sr = self.config.target_sr
-        else:
+        elif wav.dtype != np.float32:
             wav = wav.astype(np.float32)
         duration_sec = float(len(wav)) / float(sr or 1)
         self._last_vad_stats["analyzed_duration_sec"] = duration_sec
@@ -401,9 +400,7 @@ class SpeakerDiarizer:
             "speech_region_count": len(speech_regions),
             "min_window_sec": round(min(window_lengths), 3) if window_lengths else 0.0,
             "max_window_sec": round(max(window_lengths), 3) if window_lengths else 0.0,
-            "avg_window_sec": round(
-                sum(window_lengths) / len(window_lengths), 3
-            )
+            "avg_window_sec": round(sum(window_lengths) / len(window_lengths), 3)
             if window_lengths
             else 0.0,
         }
@@ -566,8 +563,12 @@ class SpeakerDiarizer:
             float(getattr(self.config, "spectral_silhouette_floor", 0.0) or 0.0),
         )
         if should_collapse_single and len(label_hist) >= 2:
-            if spectral_k and spectral_k >= 2 and (
-                spectral_silhouette is not None and spectral_silhouette >= min_guard_silhouette
+            if (
+                spectral_k
+                and spectral_k >= 2
+                and (
+                    spectral_silhouette is not None and spectral_silhouette >= min_guard_silhouette
+                )
             ):
                 should_collapse_single = False
                 collapse_guard_payload.setdefault("reasons", []).append(
@@ -652,8 +653,34 @@ class SpeakerDiarizer:
     def _extract_embedding_windows(
         self, wav: np.ndarray, sr: int, speech_regions: list[tuple[float, float]]
     ) -> list[dict[str, Any]]:
-        clips: list[np.ndarray] = []
-        meta: list[tuple[float, float]] = []
+        windows: list[dict[str, Any]] = []
+        try:
+            max_batch = int(os.getenv("DIAREMOT_ECAPA_MAX_BATCH", "512"))
+            if max_batch <= 0:
+                max_batch = 512
+        except Exception:
+            max_batch = 512
+
+        current_batch_clips: list[np.ndarray] = []
+        current_batch_meta: list[tuple[float, float]] = []
+
+        def _flush_batch() -> None:
+            if not current_batch_clips:
+                return
+            embeddings = self.ecapa.embed_batch(current_batch_clips, sr) or []
+            for (start_t, end_t), emb in zip(current_batch_meta, embeddings):
+                windows.append(
+                    {
+                        "start": start_t,
+                        "end": end_t,
+                        "embedding": emb,
+                        "speaker": None,
+                        "region_idx": len(windows),
+                    }
+                )
+            current_batch_clips.clear()
+            current_batch_meta.clear()
+
         for start_sec, end_sec in speech_regions:
             if end_sec - start_sec < self.config.min_embedtable_sec:
                 continue
@@ -663,56 +690,17 @@ class SpeakerDiarizer:
                 if win_end - cursor >= self.config.min_embedtable_sec:
                     start_idx = int(cursor * sr)
                     end_idx = int(win_end * sr)
-                    clips.append(wav[start_idx:end_idx])
-                    meta.append((cursor, win_end))
+                    current_batch_clips.append(wav[start_idx:end_idx])
+                    current_batch_meta.append((cursor, win_end))
+                    if len(current_batch_clips) >= max_batch:
+                        _flush_batch()
                 cursor += self.config.embed_shift_sec
-        if not clips:
-            return []
-        logger.info(
-            "[diarize] preparing %d embedding windows across %d speech regions",
-            len(clips),
-            len(speech_regions),
-        )
-        try:
-            max_batch = int(os.getenv("DIAREMOT_ECAPA_MAX_BATCH", "512"))
-            if max_batch <= 0:
-                max_batch = 512
-        except Exception:
-            max_batch = 512
-        embeddings: list[np.ndarray | None] = []
-        total_batches = max(1, math.ceil(len(clips) / max_batch))
-        if len(clips) <= max_batch:
-            embeddings = self.ecapa.embed_batch(clips, sr) or []
-        else:
-            for batch_idx, i in enumerate(range(0, len(clips), max_batch), start=1):
-                batch = clips[i : i + max_batch]
-                if total_batches > 1:
-                    try:
-                        logger.info(
-                            "[diarize] ECAPA batch %d/%d (%d windows)",
-                            batch_idx,
-                            total_batches,
-                            len(batch),
-                        )
-                    except Exception:
-                        pass
-                part = self.ecapa.embed_batch(batch, sr) or []
-                embeddings.extend(part)
-        windows: list[dict[str, Any]] = []
-        for idx, (meta_item, emb) in enumerate(zip(meta, embeddings)):
-            start_t, end_t = meta_item
-            windows.append(
-                {
-                    "start": start_t,
-                    "end": end_t,
-                    "embedding": emb,
-                    "speaker": None,
-                    "region_idx": idx,
-                }
-            )
+
+        _flush_batch()
+
         try:
             logger.info(
-                "ECAPA embeddings: %d windows batched (max_batch=%d)", len(windows), max_batch
+                "ECAPA embeddings: %d windows extracted (max_batch=%d)", len(windows), max_batch
             )
         except Exception:
             pass

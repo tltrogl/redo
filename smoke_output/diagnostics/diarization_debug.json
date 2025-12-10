@@ -1,0 +1,116 @@
+{
+  "config": {
+    "speaker_limit": null,
+    "ahc_distance_threshold": 0.45,
+    "ahc_linkage": "average",
+    "vad_threshold": 0.32,
+    "vad_min_speech_sec": 0.5,
+    "vad_min_silence_sec": 0.4,
+    "single_speaker_collapse": false
+  },
+  "input": {
+    "duration_sec": 3.0,
+    "sample_rate": 16000,
+    "speech_region_source": "silero_vad"
+  },
+  "vad": {
+    "region_source": "silero_vad",
+    "region_count": 1,
+    "speech_total_sec": 3.0,
+    "coverage_pct": 100.0
+  },
+  "embeddings": {
+    "window_count": 4,
+    "speech_region_count": 1,
+    "min_window_sec": 0.75,
+    "max_window_sec": 1.5,
+    "avg_window_sec": 1.312,
+    "norm_min": 1.0,
+    "norm_max": 1.0,
+    "norm_mean": 1.0
+  },
+  "clustering": {
+    "requested_backend": "auto",
+    "embeddings": 4,
+    "spectral": {
+      "percentile": 0.9,
+      "candidates": [
+        2,
+        3,
+        4
+      ],
+      "best_k": 2,
+      "silhouette": 0.2797979712486267,
+      "errors": [
+        "silhouette k=4: Number of labels is 4. Valid values are 2 to n_samples - 1 (inclusive)"
+      ]
+    },
+    "agglomerative": {
+      "cluster_count": 2,
+      "elapsed_sec": 0.3277646999922581,
+      "n_embeddings": 4,
+      "distance_threshold": "n/a",
+      "speaker_limit": null,
+      "n_clusters_requested": 2,
+      "merges": 3
+    },
+    "final_backend": "auto_refine_ahc",
+    "refined_from_spectral": 2,
+    "clusters_detected": 2,
+    "label_histogram": {
+      "Speaker_1": 3,
+      "Speaker_2": 1
+    },
+    "dominant_ratio": 0.75
+  },
+  "turns_initial": {
+    "speaker_count": 2,
+    "turn_count": 2,
+    "total_duration_sec": 3.0,
+    "per_speaker": {
+      "Speaker_1": {
+        "duration_sec": 2.25,
+        "turns": 1
+      },
+      "Speaker_2": {
+        "duration_sec": 0.75,
+        "turns": 1
+      }
+    }
+  },
+  "turns_post_similarity_merge": {
+    "speaker_count": 2,
+    "turn_count": 2,
+    "total_duration_sec": 3.0,
+    "per_speaker": {
+      "Speaker_1": {
+        "duration_sec": 2.25,
+        "turns": 1
+      },
+      "Speaker_2": {
+        "duration_sec": 0.75,
+        "turns": 1
+      }
+    }
+  },
+  "turns": {
+    "speaker_count": 2,
+    "turn_count": 2,
+    "total_duration_sec": 3.0,
+    "per_speaker": {
+      "Speaker_1": {
+        "duration_sec": 2.25,
+        "turns": 1
+      },
+      "Speaker_2": {
+        "duration_sec": 0.75,
+        "turns": 1
+      }
+    }
+  },
+  "vad_stats": {
+    "vad_boundary_flips": 1.0,
+    "speech_regions": 1.0,
+    "analyzed_duration_sec": 3.0
+  }
+}
