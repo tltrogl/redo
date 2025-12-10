@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import subprocess
 import time
 from typing import TYPE_CHECKING, Any
@@ -295,24 +294,6 @@ def _load_transcription_checkpoint(
 
 
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
-    prepass_on = (
-        os.getenv("DIAREMOT_AUDIO_AFFECT_PREPASS", "")
-        .strip()
-        .lower()
-        not in {"", "0", "false", "no", "off"}
-    )
-    if prepass_on and not state.audio_affect:
-        try:
-            from . import affect as affect_stage
-
-            state.audio_affect = affect_stage.run_audio_prepass(pipeline, state) or []
-        except Exception as exc:  # pragma: no cover - optional path
-            pipeline.corelog.stage(
-                "transcribe",
-                "warn",
-                message=f"[audio prepass] skipped: {exc}",
-            )
-
     if state.resume_tx and state.tx_cache and (state.tx_cache.get("segments") is not None):
         cached_segments = list(state.tx_cache.get("segments", []) or [])
         if cached_segments and isinstance(cached_segments[0], dict) and "digest" in cached_segments[0]:
