@@ -82,44 +82,63 @@ def extract(wav: np.ndarray, sr: int, segs: list[dict[str, Any]]) -> list[dict[s
     cfg = ParalinguisticsConfig()
     total = max(0.0, float(len(wav) / max(1, sr)))
 
+    # Prepare batch for parallel processing
+    batch_input: list[tuple[np.ndarray, int, float, float, str]] = []
     for seg in segs:
-        try:
-            start = float(seg.get("start", seg.get("start_time", 0.0)) or 0.0)
-            end = float(seg.get("end", seg.get("end_time", start)) or start)
-            start = max(0.0, min(start, total))
-            end = max(start, min(end, total))
-            text = seg.get("text") or ""
-            duration_s = max(0.0, end - start)
-            words = len(text.split())
-            feats = compute_segment_features_v2(wav, sr, start, end, text, cfg)
-            out.append(
-                {
-                    "wpm": feats.get("wpm", 0.0),
-                    "duration_s": duration_s,
-                    "words": words,
-                    "pause_count": int(feats.get("pause_count", 0)),
-                    "pause_time_s": float(feats.get("pause_total_sec", 0.0) or 0.0),
-                    "pause_ratio": float(feats.get("pause_ratio", 0.0) or 0.0),
-                    "f0_mean_hz": float(feats.get("pitch_med_hz", 0.0) or 0.0),
-                    "f0_std_hz": float(feats.get("pitch_iqr_hz", 0.0) or 0.0),
-                    "loudness_rms": float(feats.get("loudness_dbfs_med", 0.0) or 0.0),
-                    "disfluency_count": int(
-                        feats.get("filler_count", 0)
-                        + feats.get("repetition_count", 0)
-                        + feats.get("false_start_count", 0)
-                    ),
-                    "vq_jitter_pct": float(feats.get("vq_jitter_pct", 0.0) or 0.0),
-                    "vq_shimmer_db": float(feats.get("vq_shimmer_db", 0.0) or 0.0),
-                    "vq_hnr_db": float(feats.get("vq_hnr_db", 0.0) or 0.0),
-                    "vq_cpps_db": float(feats.get("vq_cpps_db", 0.0) or 0.0),
-                    "vq_voiced_ratio": float(feats.get("vq_voiced_ratio", 0.0) or 0.0),
-                    "vq_spectral_slope_db": float(feats.get("vq_spectral_slope_db", 0.0) or 0.0),
-                    "vq_reliable": bool(feats.get("vq_reliable", False)),
-                    "vq_note": str(feats.get("vq_note", "")),
-                }
-            )
-        except Exception as exc:  # pragma: no cover - defensive fallback
-            out.append({"error": str(exc)})
+        start = float(seg.get("start", seg.get("start_time", 0.0)) or 0.0)
+        end = float(seg.get("end", seg.get("end_time", start)) or start)
+        start = max(0.0, min(start, total))
+        end = max(start, min(end, total))
+        text = seg.get("text") or ""
+
+        # We pass the full audio view + start/end to avoid slicing here if possible,
+        # but process_segments_batch_v2 expects (audio, sr, start, end, text).
+        # Note: compute_segment_features_v2 handles slicing internally.
+        batch_input.append((wav, sr, start, end, text))
+
+    # Process in batch (parallel if configured)
+    batch_results = process_segments_batch_v2(batch_input, cfg)
+
+    for i, feats in enumerate(batch_results):
+        # If processing failed, feats might contain error info or be partial
+        if "processing_error" in feats.get("paralinguistics_flags_json", ""):
+            out.append({"error": feats.get("paralinguistics_flags_json")})
+            continue
+
+        # Reconstruct duration from input segments for consistency
+        seg = segs[i]
+        start = float(seg.get("start", seg.get("start_time", 0.0)) or 0.0)
+        end = float(seg.get("end", seg.get("end_time", start)) or start)
+        duration_s = max(0.0, end - start)
+        text = seg.get("text") or ""
+        words = len(text.split())
+
+        out.append(
+            {
+                "wpm": feats.get("wpm", 0.0),
+                "duration_s": duration_s,
+                "words": words,
+                "pause_count": int(feats.get("pause_count", 0)),
+                "pause_time_s": float(feats.get("pause_total_sec", 0.0) or 0.0),
+                "pause_ratio": float(feats.get("pause_ratio", 0.0) or 0.0),
+                "f0_mean_hz": float(feats.get("pitch_med_hz", 0.0) or 0.0),
+                "f0_std_hz": float(feats.get("pitch_iqr_hz", 0.0) or 0.0),
+                "loudness_rms": float(feats.get("loudness_dbfs_med", 0.0) or 0.0),
+                "disfluency_count": int(
+                    feats.get("filler_count", 0)
+                    + feats.get("repetition_count", 0)
+                    + feats.get("false_start_count", 0)
+                ),
+                "vq_jitter_pct": float(feats.get("vq_jitter_pct", 0.0) or 0.0),
+                "vq_shimmer_db": float(feats.get("vq_shimmer_db", 0.0) or 0.0),
+                "vq_hnr_db": float(feats.get("vq_hnr_db", 0.0) or 0.0),
+                "vq_cpps_db": float(feats.get("vq_cpps_db", 0.0) or 0.0),
+                "vq_voiced_ratio": float(feats.get("vq_voiced_ratio", 0.0) or 0.0),
+                "vq_spectral_slope_db": float(feats.get("vq_spectral_slope_db", 0.0) or 0.0),
+                "vq_reliable": bool(feats.get("vq_reliable", False)),
+                "vq_note": str(feats.get("vq_note", "")),
+            }
+        )
 
     return out
 
@@ -168,4 +187,6 @@ __all__ = [
 
 __version__ = "2.2.0"
 __author__ = "Paralinguistics Research Team"
-__description__ = "Production-optimized paralinguistic feature extraction with enhanced CPU performance"
+__description__ = (
+    "Production-optimized paralinguistic feature extraction with enhanced CPU performance"
+)

@@ -45,7 +45,7 @@ class ParalinguisticsConfig:
 
     use_vectorized_ops: bool = True
     enable_caching: bool = True
-    parallel_processing: bool = False
+    parallel_processing: bool = True
     max_workers: int = field(default_factory=lambda: os.cpu_count() or 2)
 
     backchannel_max_ms: int = 300
@@ -166,9 +166,7 @@ def get_config_preset(
             parallel_processing=True,
             **kwargs,
         )
-    raise ValueError(
-        f"Unknown preset: {preset_name}. Available: fast, balanced, quality, research"
-    )
+    raise ValueError(f"Unknown preset: {preset_name}. Available: fast, balanced, quality, research")
 
 
 __all__ = [

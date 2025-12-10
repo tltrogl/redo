@@ -189,6 +189,7 @@ class ComponentFactoryMixin:
                 "segment_timeout_sec": cfg.get("segment_timeout_sec", 300.0),
                 "batch_timeout_sec": cfg.get("batch_timeout_sec", 1200.0),
                 "enable_async": bool(cfg.get("enable_async_transcription", False)),
+                "max_workers": cfg.get("cpu_threads") or os.cpu_count() or 2,
             }
 
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
