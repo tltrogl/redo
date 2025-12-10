@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import shutil
-import gc
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -117,12 +117,14 @@ def run_preprocess(
                 # Force garbage collection of the in-memory array
                 del state.y
                 gc.collect()
-                
+
                 # Reload as mmap
                 state.y = np.load(state.preprocessed_audio_path, mmap_mode="r")
                 guard.progress("switched to memory-mapped audio")
             except Exception as exc:
-                pipeline.corelog.stage("preprocess", "warn", message=f"failed to switch to mmap: {exc}")
+                pipeline.corelog.stage(
+                    "preprocess", "warn", message=f"failed to switch to mmap: {exc}"
+                )
 
     except Exception as exc:
         pipeline.corelog.stage(
