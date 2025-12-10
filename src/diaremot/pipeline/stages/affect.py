@@ -397,9 +397,24 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
     audio_windows = _SegmentAudioFactory(state.y)
     write_errors: list[str] = []
 
+    # Optional batching to bound peak memory during affect.
+    try:
+        batch_env = os.getenv("DIAREMOT_AFFECT_BATCH", "")
+        batch_size = int(batch_env) if batch_env and int(batch_env) > 0 else None
+    except Exception:
+        batch_size = None
+
     try:
         with writer_cm as writer:
-            for idx, seg in enumerate(state.norm_tx):
+            indices = range(len(state.norm_tx))
+            if batch_size:
+                batches = [indices[i : i + batch_size] for i in range(0, len(indices), batch_size)]
+            else:
+                batches = [indices]
+
+            for batch in batches:
+                for idx in batch:
+                    seg = state.norm_tx[idx]
                 start = float(seg.get("start") or 0.0)
                 end = float(seg.get("end") or start)
                 i0 = int(start * state.sr)
@@ -636,6 +651,13 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
                         writer.write_segment(finalized, index=idx + 1)
                     except Exception as exc:
                         write_errors.append(str(exc))
+                # Drop transient references quickly when batching
+                if batch_size:
+                    # Free per-segment temporaries promptly
+                    del aff, vad, speech_emotion, text_emotions, intent, pm
+                if batch_size:
+                    import gc
+                    gc.collect()
     except Exception as exc:  # pragma: no cover - ensure partial data persists
         pipeline.corelog.stage(
             "affect_and_assemble",
