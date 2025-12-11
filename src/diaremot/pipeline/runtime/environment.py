@@ -79,7 +79,11 @@ def _iter_cache_candidates(script_path: Path, preferred: Path | None) -> Iterato
 
 def _default_model_root() -> Path:
     preferred = WINDOWS_CANONICAL_MODEL_ROOT if os.name == "nt" else LINUX_CANONICAL_MODEL_ROOT
-    if _ensure_writable_directory(preferred):
+
+    # Prefer the canonical models root on disk even if we don’t have write
+    # permission (we only need read access for bundled ONNX models). Fall back
+    # to a writable cache dir only when the canonical path is missing.
+    if preferred.exists():
         return preferred
 
     fallback = Path.cwd() / ".cache" / "models"

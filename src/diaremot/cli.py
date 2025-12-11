@@ -17,6 +17,14 @@ import typer
 
 from .pipeline.runtime_env import DEFAULT_WHISPER_MODEL, set_primary_model_root
 
+# On Windows, prefer a pre-bundled model root at D:/models when the user has
+# not explicitly set one. This keeps the CLI default aligned with packaged
+# ONNX/Faster-Whisper drops in that location.
+if os.name == "nt" and not os.getenv("DIAREMOT_MODEL_DIR"):
+    win_default_root = Path("D:/models")
+    if win_default_root.exists():
+        set_primary_model_root(win_default_root)
+
 # Enable rich-rendered help panels by default; allow opt-out via DIAREMOT_CLI_RICH=0/false.
 _rich_pref = os.getenv("DIAREMOT_CLI_RICH", "").strip().lower()
 try:  # Typer <0.12.3 lacks rich_utils
@@ -822,7 +830,8 @@ def smoke(
         is_flag=True,
     ),
     gate_db: float = typer.Option(
-        -45.0, help="Pre-boost gating threshold in dB (raise to -30 or -25 to prevent noise boosting)."
+        -45.0,
+        help="Pre-boost gating threshold in dB (raise to -30 or -25 to prevent noise boosting).",
     ),
     whisper_model: str = typer.Option(
         str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
