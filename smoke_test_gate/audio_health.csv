@@ -1,0 +1,2 @@
+file_id,snr_db,dynamic_range_db,silence_ratio,clipping_detected,rms_db,est_lufs,floor_clipping_ratio,is_chunked
+diaremot_smoke_input.wav,13.105500801942835,22.062964257904643,0.005,False,-22.941965214236703,-22.947595596313477,0.0,False

@@ -1,0 +1,2 @@
+file_id,turn_taking_balance,interruption_rate_per_min,avg_turn_duration_sec,conversation_pace_turns_per_min,silence_ratio,topic_coherence_score,duration_s,speaker_dominance_json,response_latency_stats_json,energy_flow_json,interruptions_per_speaker_json
+diaremot_smoke_input.wav,0.0,0.0,0.75,20.0,0.75,1.0,3.0,"{""Speaker_2"": 100.0}","{""avg_sec"": 0.0, ""count"": 0, ""median_sec"": 0.0}","[{""active_speakers"": 1, ""energy_score"": 0.0, ""speech_density"": 0.025, ""window_end_sec"": 3.0, ""window_start_sec"": 0.0}]",{}

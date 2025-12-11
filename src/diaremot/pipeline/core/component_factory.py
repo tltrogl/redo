@@ -64,6 +64,7 @@ class ComponentFactoryMixin:
                 denoise=denoise_mode,
                 denoise_alpha_db=cfg.get("denoise_alpha_db", 3.0),
                 denoise_beta=cfg.get("denoise_beta", 0.06),
+                gate_db=cfg.get("gate_db", -45.0),
                 loudness_mode=cfg.get("loudness_mode", "asr"),
                 auto_chunk_enabled=cfg.get("auto_chunk_enabled", True),
                 chunk_threshold_minutes=cfg.get("chunk_threshold_minutes", 60.0),

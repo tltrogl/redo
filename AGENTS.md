@@ -38,6 +38,10 @@ python3 -m venv .venv
 . .venv/bin/activate
 python -m pip install -U pip wheel setuptools
 
+# IMPORTANT: Always activate the virtual environment (.venv) before running any commands.
+# Linux/macOS: . .venv/bin/activate
+# Windows: .venv\Scripts\Activate.ps1
+
 # 3.2 Project dependencies (runtime + dev)
 if [ -f requirements.txt ]; then
   pip install -r requirements.txt

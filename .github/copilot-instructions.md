@@ -60,6 +60,10 @@ python -m venv .venv
 pip install -e ".[dev]"
 ```
 
+**IMPORTANT:** Always activate the virtual environment (`.venv`) before running any commands.
+- Linux/macOS: `source .venv/bin/activate`
+- Windows: `.venv\Scripts\Activate.ps1`
+
 ### Models Setup
 All required models are provided by `./assets/models.zip` (SHA-256: `33d0a9194de3cbd667fd329ab7c6ce832f4e1373ba0b1844ce0040a191abc483`). The setup scripts handle downloading and extracting models automatically.
 

@@ -366,6 +366,7 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
         "noise_reduction": kwargs.get("noise_reduction"),
         "denoise_alpha_db": kwargs.get("denoise_alpha_db"),
         "denoise_beta": kwargs.get("denoise_beta"),
+        "gate_db": kwargs.get("gate_db"),
         "enable_sed": kwargs.get("enable_sed"),
         "auto_chunk_enabled": kwargs.get("chunk_enabled"),
         "chunk_threshold_minutes": kwargs.get("chunk_threshold_minutes"),
@@ -583,6 +584,10 @@ def run(
     denoise_beta: float = typer.Option(
         0.06, help="Denoise spectral floor (lower = more reduction, higher = less artifacts)."
     ),
+    gate_db: float = typer.Option(
+        -45.0,
+        help="Pre-boost gating threshold in dB (raise to -30 or -25 to prevent noise boosting).",
+    ),
     disable_sed: bool = typer.Option(
         False,
         "--disable-sed",
@@ -716,6 +721,7 @@ def run(
         "noise_reduction": noise_reduction,
         "denoise_alpha_db": denoise_alpha_db,
         "denoise_beta": denoise_beta,
+        "gate_db": gate_db,
         "chunk_enabled": chunk_enabled,
         "chunk_threshold_minutes": chunk_threshold_minutes,
         "chunk_size_minutes": chunk_size_minutes,
@@ -815,6 +821,12 @@ def smoke(
         help="Enable verbose diarization/SED/ECAPA diagnostics",
         is_flag=True,
     ),
+    gate_db: float = typer.Option(
+        -45.0, help="Pre-boost gating threshold in dB (raise to -30 or -25 to prevent noise boosting)."
+    ),
+    whisper_model: str = typer.Option(
+        str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
+    ),
 ):
     """Generate a demo audio file and execute the pipeline against it."""
 
@@ -844,12 +856,14 @@ def smoke(
         "affect_backend": "onnx",
         "enable_sed": True,
         "noise_reduction": False,
+        "gate_db": gate_db,
         "chunk_enabled": None,
         "chunk_threshold_minutes": None,
         "chunk_size_minutes": None,
         "chunk_overlap_seconds": None,
         "vad_backend": "auto",
         "local_first": not remote_first,
+        "whisper_model": whisper_model,
     }
 
     config = _assemble_config(profile, smoke_overrides)

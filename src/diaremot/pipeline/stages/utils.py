@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -43,7 +43,7 @@ def compute_audio_sha16_from_file(path: str) -> str:
 
 def compute_pp_signature(pp_conf: Any) -> str:
     """Compute a deterministic string signature of preprocessing config."""
-    keys = ["target_sr", "denoise", "loudness_mode"]
+    keys = ["target_sr", "denoise", "loudness_mode", "denoise_alpha_db", "denoise_beta"]
     sig: dict[str, Any] = {}
     for key in keys:
         try:
@@ -125,7 +125,11 @@ def matches_pipeline_cache(
     if require_audio_sha and audio_sha16 and payload.get("audio_sha16") != audio_sha16:
         return False
 
-    if require_signature and (pp_signature is not None) and payload.get("pp_signature") != pp_signature:
+    if (
+        require_signature
+        and (pp_signature is not None)
+        and payload.get("pp_signature") != pp_signature
+    ):
         return False
 
     if extra:

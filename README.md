@@ -239,6 +239,10 @@ cd redo
 .\setup.ps1
 ```
 
+**IMPORTANT:** Always activate the virtual environment (`.venv`) before running any commands.
+- Linux/macOS: `source .venv/bin/activate`
+- Windows: `.venv\Scripts\Activate.ps1`
+
 **Option 2: Desktop GUI**
 ```powershell
 # Install GUI dependencies

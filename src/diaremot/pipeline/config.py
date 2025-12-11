@@ -87,6 +87,7 @@ class PipelineConfig:
     noise_reduction: bool = True
     denoise_alpha_db: float = 3.0
     denoise_beta: float = 0.06
+    gate_db: float = -45.0
     enable_sed: bool = True
     auto_chunk_enabled: bool = True
     chunk_threshold_minutes: float = 30.0
@@ -210,6 +211,7 @@ class PipelineConfig:
         _ensure_numeric_range("no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0)
         _ensure_numeric_range("denoise_alpha_db", self.denoise_alpha_db, ge=0.0)
         _ensure_numeric_range("denoise_beta", self.denoise_beta, ge=0.0, le=1.0)
+        # gate_db is typically negative, no strict range check needed other than being a float
         _ensure_numeric_range("vad_min_speech_sec", self.vad_min_speech_sec, ge=0.0)
         _ensure_numeric_range("vad_min_silence_sec", self.vad_min_silence_sec, ge=0.0)
         _ensure_numeric_range("vad_speech_pad_sec", self.vad_speech_pad_sec, ge=0.0)

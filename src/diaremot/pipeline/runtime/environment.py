@@ -21,9 +21,14 @@ WINDOWS_CACHE_BASE: Final[Path] = Path("D:/srv/.cache")
 WHISPER_FALLBACK_DIRS: Final[tuple[tuple[str, ...], ...]] = (
     ("distil-large-v3",),
     ("faster-whisper", "distil-large-v3"),
+    ("faster-distil-whisper-large-v3",),
+    ("Systran", "faster-distil-whisper-large-v3"),
+    ("large-v3",),
+    ("faster-whisper", "large-v3"),
     ("tiny.en",),
     ("faster-whisper", "tiny.en"),
     ("ct2", "tiny.en"),
+    ("faster-whisper",),
 )
 
 
@@ -123,6 +128,8 @@ def _iter_whisper_candidates(model_roots: Iterable[Path]) -> Iterator[Path]:
     for root in model_roots:
         for parts in WHISPER_FALLBACK_DIRS:
             yield Path(root).joinpath(*parts)
+    # Fallback to a known large model location if available, otherwise tiny
+    yield Path.home() / "whisper_models" / "distil-large-v3"
     yield Path.home() / "whisper_models" / "tiny.en"
 
 

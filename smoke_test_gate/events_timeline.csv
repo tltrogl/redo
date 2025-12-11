@@ -1,0 +1,2 @@
+file_id,start,end,label,score,source,enter,exit,median_k
+diaremot_smoke_input.wav,0.000000,3.000000,Sine wave,0.3915,cnn14,0.34,0.18,5
