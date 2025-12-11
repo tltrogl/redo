@@ -1,6 +1,0 @@
-[00:00:00 - 00:00:02] Speaker_1
-  Text: Beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep beep be
-  Affect: emotion sad; valence -0.02, arousal +0.02, dominance +0.02; hint neutral-suggestion
-  Intent: suggestion (top3: suggestion 0.76, request 0.67, opinion 0.58)
-  VAD: stable | SED: Sine wave, Busy signal, Dial tone | Noise tag: Sine wave
-  Duration: 2.25s | Speech rate: 2986.67 wpm
