@@ -1,2 +1,0 @@
-file_id,snr_db,dynamic_range_db,silence_ratio,clipping_detected,rms_db,est_lufs,floor_clipping_ratio,is_chunked
-sample1.mp3,75.45766187226269,99.83754505341214,0.37147139350453173,False,-24.777407040752458,-25.78727149963379,0.0,False

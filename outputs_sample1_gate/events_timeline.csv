@@ -1,3 +1,0 @@
-file_id,start,end,label,score,source,enter,exit,median_k
-sample1.mp3,0.000000,22.000000,Speech,0.8295,cnn14,0.50,0.35,5
-sample1.mp3,23.000000,26.480000,Speech,0.8051,cnn14,0.50,0.35,5

@@ -1,2 +1,0 @@
-file_id,kind,timestamp,speaker_id,speaker_name,arousal,intent,confidence,text
-sample1.mp3,peak,0.0,Speaker_2,Speaker_2,0.0011991682695224881,,,"Alright, so this is a sample audio file, right? And, you know, I'm just like totally sick of trying to get this pipeline to work. Like, I really need it to work, you know? So I can"
